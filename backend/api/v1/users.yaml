@@ -1,0 +1,439 @@
+openapi: 3.1.0
+info:
+  title: Users & Roles API
+  version: 0.4.0
+servers:
+- url: http://localhost:8080/api/v1
+tags:
+- name: Users
+  description: Текущий пользователь.
+- name: Organizations
+  description: Выбор организации текущего пользователя.
+- name: Roles
+  description: Назначенные роли и active role.
+paths:
+  /users/me:
+    get:
+      tags:
+      - Users
+      summary: Получение текущего пользователя
+      description: Возвращает профиль текущего аккаунта, доступные роли, активную роль и выбранную организацию.
+      operationId: getCurrentUser
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Текущий пользователь.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /users/me/organization:
+    put:
+      tags:
+      - Organizations
+      summary: Выбор организации текущего пользователя
+      description: В MVP пользователь может состоять только в одной организации.
+      operationId: setCurrentUserOrganization
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetOrganizationRequest'
+      responses:
+        '204':
+          description: Организация установлена. Тело ответа отсутствует.
+        '400':
+          description: Некорректный запрос либо организация у пользователя уже установлена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetOrganizationBadRequestError'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '404':
+          description: Организация не найдена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /roles:
+    get:
+      tags:
+      - Roles
+      summary: Получение ролей текущего пользователя
+      description: Возвращает все назначенные пользователю роли и активную роль текущей сессии.
+      operationId: listCurrentUserRoles
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Роли пользователя.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - active_role
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProductRole'
+                  active_role:
+                    $ref: '#/components/schemas/ProductRole'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /roles/active:
+    put:
+      tags:
+      - Roles
+      summary: Смена активной роли
+      description: Проверяет, что роль пользователю доступна, сохраняет её как active_role текущей серверной сессии
+        и сразу выпускает новый access token. Refresh token при смене роли не ротируется.
+      operationId: switchActiveRole
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwitchRoleRequest'
+      responses:
+        '200':
+          description: Активная роль изменена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessTokenResponse'
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Роль не назначена пользователю.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleNotAssignedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /users/{user_id}/roles:
+    parameters:
+    - $ref: '#/components/parameters/UserId'
+    post:
+      tags:
+      - Internal
+      summary: Внутреннее назначение роли пользователю
+      description: Internal MVP endpoint для demo-аккаунтов и выдачи дополнительных ролей.
+      operationId: internalGrantUserRole
+      servers:
+      - url: http://localhost:8080/internal/v1
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantRoleRequest'
+      responses:
+        '204':
+          description: Роль назначена.
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          description: Роль уже назначена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleAlreadyAssignedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ProductRole:
+      type: string
+      enum:
+      - learner
+      - methodist
+      - curator
+      description: Продуктовая роль. У пользователя может быть несколько ролей, одна из них активна в auth-сессии.
+    Organization:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Alabuga
+    CurrentUser:
+      type: object
+      required:
+      - id
+      - username
+      - email
+      - roles
+      - active_role
+      - organization
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductRole'
+          minItems: 1
+          uniqueItems: true
+        active_role:
+          $ref: '#/components/schemas/ProductRole'
+        organization:
+          oneOf:
+          - $ref: '#/components/schemas/Organization'
+          - type: 'null'
+    AccessTokenMissingError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACCESS_TOKEN_MISSING
+        message:
+          type: string
+          enum:
+          - Access token is required
+    AccessTokenInvalidError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACCESS_TOKEN_INVALID
+        message:
+          type: string
+          enum:
+          - Access token is invalid
+    AccessTokenExpiredError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACCESS_TOKEN_EXPIRED
+        message:
+          type: string
+          enum:
+          - Access token has expired
+    AccessUnauthorizedError:
+      oneOf:
+      - $ref: '#/components/schemas/AccessTokenMissingError'
+      - $ref: '#/components/schemas/AccessTokenInvalidError'
+      - $ref: '#/components/schemas/AccessTokenExpiredError'
+    InternalErrorError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INTERNAL_ERROR
+        message:
+          type: string
+          enum:
+          - Internal server error
+    SetOrganizationRequest:
+      type: object
+      required:
+      - organization_id
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+    InvalidRequestError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_REQUEST
+        message:
+          type: string
+          enum:
+          - Request validation failed
+    OrganizationAlreadySetError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ORGANIZATION_ALREADY_SET
+        message:
+          type: string
+          enum:
+          - User already belongs to an organization
+    SetOrganizationBadRequestError:
+      oneOf:
+      - $ref: '#/components/schemas/InvalidRequestError'
+      - $ref: '#/components/schemas/OrganizationAlreadySetError'
+    OrganizationNotFoundError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ORGANIZATION_NOT_FOUND
+        message:
+          type: string
+          enum:
+          - Organization not found
+    SwitchRoleRequest:
+      type: object
+      required:
+      - role
+      properties:
+        role:
+          $ref: '#/components/schemas/ProductRole'
+    AccessTokenResponse:
+      type: object
+      required:
+      - access_token
+      properties:
+        access_token:
+          type: string
+          minLength: 1
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    RoleNotAssignedError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ROLE_NOT_ASSIGNED
+        message:
+          type: string
+          enum:
+          - Requested role is not assigned to the user
+    GrantRoleRequest:
+      type: object
+      required:
+      - role
+      properties:
+        role:
+          $ref: '#/components/schemas/ProductRole'
+    UserNotFoundError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - USER_NOT_FOUND
+        message:
+          type: string
+          enum:
+          - User not found
+    RoleAlreadyAssignedError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ROLE_ALREADY_ASSIGNED
+        message:
+          type: string
+          enum:
+          - Requested role is already assigned to the user
+  responses:
+    AccessUnauthorized:
+      description: Access token отсутствует, невалиден или истёк.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AccessUnauthorizedError'
+    InternalServerError:
+      description: Непредвиденная ошибка сервера.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalErrorError'
+    UserNotFound:
+      description: Пользователь не найден.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UserNotFoundError'
+  parameters:
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid

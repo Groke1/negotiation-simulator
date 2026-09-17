@@ -1,0 +1,1079 @@
+openapi: 3.1.0
+info:
+  title: Training API
+  version: 0.4.0
+servers:
+- url: http://localhost:8080/api/v1
+tags:
+- name: Training
+  description: Обычная тренировка, Session, профиль и рекомендации.
+- name: Curator
+  description: Чтение данных learner куратором там, где это предусмотрено.
+paths:
+  /sessions:
+    post:
+      tags:
+      - Training
+      summary: Запуск тренировочной Session
+      description: Создаёт обычную тренировку по опубликованному сценарию. learner запускает Session для
+        себя; methodist может использовать preview=true. Arena/Live Arena endpoints в этой версии не публикуются.
+      operationId: startTrainingSession
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartSessionRequest'
+      responses:
+        '201':
+          description: Сессия создана.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartSessionResponse'
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Роль не позволяет запуск либо preview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionStartForbiddenError'
+        '404':
+          $ref: '#/components/responses/ScenarioNotFound'
+        '422':
+          description: Сценарий нельзя запустить в выбранной конфигурации.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScenarioStartUnprocessableError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /sessions/{session_id}/state:
+    parameters:
+    - $ref: '#/components/parameters/SessionId'
+    get:
+      tags:
+      - Training
+      summary: Получение текущего состояния Session
+      description: Сервер является источником истины о текущем узле и доступных действиях.
+      operationId: getSessionState
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Текущее состояние сессии.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionStateResponse'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Нет доступа к сессии.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionAccessDeniedError'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /sessions/{session_id}/events:
+    parameters:
+    - $ref: '#/components/parameters/SessionId'
+    post:
+      tags:
+      - Training
+      summary: Запись действия в Session
+      description: Принимает action_id из available_actions текущего узла. client_event_id обеспечивает идемпотентность.
+        Событие в completed/abandoned Session возвращает 409; недоступный action_id — 422.
+      operationId: createSessionEvent
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionEventRequest'
+      responses:
+        '200':
+          description: Действие обработано.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSessionEventResponse'
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Нет доступа к сессии.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionAccessDeniedError'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '422':
+          description: action_id недоступен в текущем узле.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionNotAvailableError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '409':
+          description: Текущее состояние Session не принимает новые события.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidSessionStateError'
+  /sessions/{session_id}/complete:
+    parameters:
+    - $ref: '#/components/parameters/SessionId'
+    post:
+      tags:
+      - Training
+      summary: Завершение Session
+      description: Вычисляет outcome и для обычной Session обновляет профиль и recommendation. Preview не участвует в
+        scoring.
+      operationId: completeSession
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Сессия завершена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteSessionResponse'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Нет доступа к сессии.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionAccessDeniedError'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '409':
+          description: Текущее состояние Session не допускает завершение.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidSessionStateError'
+  /sessions/{session_id}/analysis:
+    parameters:
+    - $ref: '#/components/parameters/SessionId'
+    get:
+      tags:
+      - Training
+      summary: Получение разбора Session
+      description: Возвращает слои Result / Process / Competency для завершённой обычной тренировки.
+      operationId: getSessionAnalysis
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Разбор сессии.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionAnalysisResponse'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Нет доступа к сессии.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionAccessDeniedError'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '409':
+          description: Разбор доступен только после завершения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidSessionStateError'
+  /users/{user_id}/profile:
+    parameters:
+    - $ref: '#/components/parameters/UserId'
+    get:
+      tags:
+      - Training
+      summary: Получение профиля компетенций
+      description: Доступно самому learner либо curator для сотрудника своей команды; чужой сотрудник для curator =>
+        403.
+      operationId: getUserProfile
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Профиль компетенций.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Нет доступа к данным пользователя.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDataAccessDeniedError'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /users/{user_id}/recommendation:
+    parameters:
+    - $ref: '#/components/parameters/UserId'
+    get:
+      tags:
+      - Training
+      summary: Получение следующей тренировки
+      description: При pending назначении curator возвращает source=curator_assignment, иначе source=recommendation_engine.
+      operationId: getUserRecommendation
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Рекомендация.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRecommendationResponse'
+        '204':
+          description: Рекомендация ещё не сформирована.
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Нет доступа к данным пользователя.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDataAccessDeniedError'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /users/{user_id}/sessions:
+    parameters:
+    - $ref: '#/components/parameters/UserId'
+    get:
+      tags:
+      - Training
+      summary: Получение истории Session пользователя
+      description: Доступно самому learner либо curator для сотрудника своей команды. Сортировка по completed_at DESC.
+      operationId: listUserSessions
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: mode
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/SessionMode'
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/SessionStatus'
+        description: По умолчанию COMPLETED.
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: История Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSessionListResponse'
+        '400':
+          description: Некорректные query-параметры.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Нет доступа к данным пользователя.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDataAccessDeniedError'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    TrainingChannel:
+      type: string
+      enum:
+      - chat
+      - voice
+      description: Рабочие каналы MVP для обычной тренировки.
+    StartSessionRequest:
+      type: object
+      required:
+      - scenario_id
+      - channel
+      properties:
+        scenario_id:
+          type: string
+          format: uuid
+        channel:
+          $ref: '#/components/schemas/TrainingChannel'
+        mode:
+          type: string
+          enum:
+          - training
+          description: В API этой версии запускается только обычная направляемая тренировка.
+          default: training
+        preview:
+          type: boolean
+          default: false
+          description: Предпросмотр METHODIST; не обновляет профиль.
+    ScenarioParty:
+      type: string
+      enum:
+      - learner
+      - partner
+    SemanticAction:
+      type: string
+      enum:
+      - ASK_QUESTION
+      - MAKE_PROPOSAL
+      - MAKE_CONCESSION
+      - REQUEST_RECIPROCITY
+      - HOLD_BOUNDARY
+      - CHANGE_TOPIC
+      - PAUSE
+      - SUMMARIZE
+      - CLOSE_NEGOTIATION
+      description: Фиксированный словарь семантических действий.
+    AvailableAction:
+      type: object
+      required:
+      - action_id
+      - label
+      - semantic_action
+      properties:
+        action_id:
+          type: string
+        label:
+          type: string
+          description: Формулировка действия для обучающегося.
+        semantic_action:
+          $ref: '#/components/schemas/SemanticAction'
+    CurrentNode:
+      type: object
+      required:
+      - node_id
+      - speaker
+      - text
+      - available_actions
+      properties:
+        node_id:
+          type: string
+        speaker:
+          $ref: '#/components/schemas/ScenarioParty'
+        text:
+          type: string
+          description: Текущая реплика партнёра.
+        available_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AvailableAction'
+    StartSessionResponse:
+      type: object
+      required:
+      - session_id
+      - scenario_version
+      - current_node
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        scenario_version:
+          type: string
+        current_node:
+          $ref: '#/components/schemas/CurrentNode'
+    InvalidRequestError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_REQUEST
+        message:
+          type: string
+          enum:
+          - Request validation failed
+    AccessTokenMissingError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACCESS_TOKEN_MISSING
+        message:
+          type: string
+          enum:
+          - Access token is required
+    AccessTokenInvalidError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACCESS_TOKEN_INVALID
+        message:
+          type: string
+          enum:
+          - Access token is invalid
+    AccessTokenExpiredError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACCESS_TOKEN_EXPIRED
+        message:
+          type: string
+          enum:
+          - Access token has expired
+    AccessUnauthorizedError:
+      oneOf:
+      - $ref: '#/components/schemas/AccessTokenMissingError'
+      - $ref: '#/components/schemas/AccessTokenInvalidError'
+      - $ref: '#/components/schemas/AccessTokenExpiredError'
+    LearnerRoleRequiredError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - LEARNER_ROLE_REQUIRED
+        message:
+          type: string
+          enum:
+          - Active role must be learner
+    MethodistRoleRequiredError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - METHODIST_ROLE_REQUIRED
+        message:
+          type: string
+          enum:
+          - Active role must be methodist
+    SessionStartForbiddenError:
+      oneOf:
+      - $ref: '#/components/schemas/LearnerRoleRequiredError'
+      - $ref: '#/components/schemas/MethodistRoleRequiredError'
+    ScenarioNotFoundError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - SCENARIO_NOT_FOUND
+        message:
+          type: string
+          enum:
+          - Scenario not found
+    ScenarioNotPublishedError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - SCENARIO_NOT_PUBLISHED
+        message:
+          type: string
+          enum:
+          - Scenario is not published
+    ChannelNotSupportedError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - CHANNEL_NOT_SUPPORTED
+        message:
+          type: string
+          enum:
+          - Selected channel is not supported by this scenario
+    ScenarioStartUnprocessableError:
+      oneOf:
+      - $ref: '#/components/schemas/ScenarioNotPublishedError'
+      - $ref: '#/components/schemas/ChannelNotSupportedError'
+    InternalErrorError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INTERNAL_ERROR
+        message:
+          type: string
+          enum:
+          - Internal server error
+    SessionMode:
+      type: string
+      enum:
+      - training
+      - arena
+      - live
+      description: Режим Session в доменной модели.
+    ScenarioChannel:
+      type: string
+      enum:
+      - chat
+      - voice
+      - meeting
+      description: Поддерживаемые форматом Scenario каналы.
+    SessionStatus:
+      type: string
+      enum:
+      - in_progress
+      - ready_to_complete
+      - completed
+      - abandoned
+      description: 'ready_to_complete — API-состояние: граф завершён, требуется вызов /complete.'
+    ActorType:
+      type: string
+      enum:
+      - human
+      - virtual_partner
+    SessionParticipant:
+      type: object
+      required:
+      - role
+      - actor_type
+      - actor_id
+      properties:
+        role:
+          $ref: '#/components/schemas/ScenarioParty'
+        actor_type:
+          $ref: '#/components/schemas/ActorType'
+        actor_id:
+          oneOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          description: Для virtual_partner actor_id может отсутствовать.
+    SessionStateResponse:
+      type: object
+      required:
+      - session_id
+      - scenario_id
+      - scenario_version
+      - mode
+      - channel
+      - status
+      - participants
+      - current_node
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string
+          format: uuid
+        scenario_version:
+          type: string
+        mode:
+          $ref: '#/components/schemas/SessionMode'
+        channel:
+          $ref: '#/components/schemas/ScenarioChannel'
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionParticipant'
+        current_node:
+          oneOf:
+          - $ref: '#/components/schemas/CurrentNode'
+          - type: 'null'
+    SessionAccessDeniedError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - SESSION_ACCESS_DENIED
+        message:
+          type: string
+          enum:
+          - Access to this session is denied
+    SessionNotFoundError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - SESSION_NOT_FOUND
+        message:
+          type: string
+          enum:
+          - Session not found
+    CreateSessionEventRequest:
+      type: object
+      required:
+      - action_id
+      - client_event_id
+      properties:
+        action_id:
+          type: string
+          minLength: 1
+        client_event_id:
+          type: string
+          format: uuid
+    CreateSessionEventResponse:
+      type: object
+      required:
+      - event_id
+      - next_node
+      - session_status
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        next_node:
+          oneOf:
+          - $ref: '#/components/schemas/CurrentNode'
+          - type: 'null'
+        session_status:
+          $ref: '#/components/schemas/SessionStatus'
+    ActionNotAvailableError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACTION_NOT_AVAILABLE
+        message:
+          type: string
+          enum:
+          - Action is not available in the current node
+    InvalidSessionStateError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_SESSION_STATE
+        message:
+          type: string
+          enum:
+          - Session state does not allow this operation
+    Outcome:
+      type: object
+      description: Фактический результат сделки; не является оценкой компетенции.
+      properties:
+        contract_extended:
+          type: boolean
+        price_change:
+          type: number
+        sla_change:
+          type: string
+        contract_term_months:
+          type: integer
+        goals_met:
+          type: array
+          items:
+            type: string
+        goals_missed:
+          type: array
+          items:
+            type: string
+    ProfileUpdate:
+      type: object
+      required:
+      - indicator
+      - previous_level
+      - new_level
+      properties:
+        indicator:
+          type: string
+        previous_level:
+          type: integer
+          minimum: 0
+          maximum: 4
+        new_level:
+          type: integer
+          minimum: 0
+          maximum: 4
+    CompleteSessionResponse:
+      type: object
+      required:
+      - outcome
+      - profile_updated
+      properties:
+        outcome:
+          $ref: '#/components/schemas/Outcome'
+        profile_updated:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileUpdate'
+    AnalysisProcessStep:
+      type: object
+      required:
+      - step
+      - actor
+      - summary
+      properties:
+        step:
+          type: integer
+          minimum: 1
+        actor:
+          type: string
+        verb:
+          type: string
+        summary:
+          type: string
+        flag:
+          type: string
+    AnalysisKeyMoment:
+      type: object
+      required:
+      - step
+      - note
+      properties:
+        step:
+          type: integer
+          minimum: 1
+        note:
+          type: string
+    AnalysisCompetencyObservation:
+      type: object
+      required:
+      - cluster
+      - indicator
+      - level
+      - note
+      properties:
+        cluster:
+          type: string
+        indicator:
+          type: string
+        level:
+          type: integer
+          minimum: 0
+          maximum: 4
+        note:
+          type: string
+    SessionAnalysisResponse:
+      type: object
+      description: 'Разбор обычной тренировки: Результат → Процесс → Компетенция.'
+      required:
+      - result
+      - process
+      - key_moment
+      - competency
+      properties:
+        result:
+          $ref: '#/components/schemas/Outcome'
+        process:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisProcessStep'
+        key_moment:
+          oneOf:
+          - $ref: '#/components/schemas/AnalysisKeyMoment'
+          - type: 'null'
+        competency:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisCompetencyObservation'
+    ProfileIndicator:
+      type: object
+      required:
+      - indicator
+      - level
+      - source
+      - updated_at
+      properties:
+        indicator:
+          type: string
+        level:
+          type: integer
+          minimum: 0
+          maximum: 4
+        source:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    ProfileCluster:
+      type: object
+      required:
+      - cluster
+      - level
+      - indicators
+      properties:
+        cluster:
+          type: string
+        level:
+          type: integer
+          minimum: 0
+          maximum: 4
+        indicators:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileIndicator'
+    UserProfileResponse:
+      type: object
+      required:
+      - user_id
+      - clusters
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        clusters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileCluster'
+    UserDataAccessDeniedError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - USER_DATA_ACCESS_DENIED
+        message:
+          type: string
+          enum:
+          - Access to this user's data is denied
+    UserNotFoundError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - USER_NOT_FOUND
+        message:
+          type: string
+          enum:
+          - User not found
+    RecommendationSource:
+      type: string
+      enum:
+      - recommendation_engine
+      - curator_assignment
+      description: Источник следующей тренировки.
+    RecommendationReason:
+      type: object
+      required:
+      - weak_indicators
+      - text
+      properties:
+        weak_indicators:
+          type: array
+          items:
+            type: string
+        text:
+          type: string
+    UserRecommendationResponse:
+      type: object
+      required:
+      - scenario_id
+      - scenario_title
+      - source
+      - reason
+      - created_at
+      properties:
+        scenario_id:
+          type: string
+          format: uuid
+        scenario_title:
+          type: string
+        source:
+          $ref: '#/components/schemas/RecommendationSource'
+        reason:
+          $ref: '#/components/schemas/RecommendationReason'
+        created_at:
+          type: string
+          format: date-time
+    UserSessionSummary:
+      type: object
+      required:
+      - session_id
+      - scenario_title
+      - mode
+      - channel
+      - status
+      - completed_at
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        scenario_title:
+          type: string
+        mode:
+          $ref: '#/components/schemas/SessionMode'
+        channel:
+          $ref: '#/components/schemas/ScenarioChannel'
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        completed_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+    UserSessionListResponse:
+      type: object
+      required:
+      - sessions
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSessionSummary'
+  responses:
+    AccessUnauthorized:
+      description: Access token отсутствует, невалиден или истёк.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AccessUnauthorizedError'
+    ScenarioNotFound:
+      description: Сценарий не найден.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ScenarioNotFoundError'
+    InternalServerError:
+      description: Непредвиденная ошибка сервера.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalErrorError'
+    SessionNotFound:
+      description: Сессия не найдена.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SessionNotFoundError'
+    UserNotFound:
+      description: Пользователь не найден.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UserNotFoundError'
+  parameters:
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Размер страницы.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Смещение от начала выборки.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0

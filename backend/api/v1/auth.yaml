@@ -1,0 +1,367 @@
+openapi: 3.1.0
+info:
+  title: Auth API
+  version: 0.4.0
+servers:
+- url: http://localhost:8080/api/v1
+tags:
+- name: Auth
+  description: Регистрация, вход, refresh и logout.
+paths:
+  /auth/register:
+    post:
+      tags:
+      - Auth
+      summary: Регистрация пользователя
+      description: Refresh token устанавливается в HttpOnly cookie.
+      operationId: registerUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Пользователь зарегистрирован.
+          headers:
+            Set-Cookie:
+              description: 'Устанавливает refresh_token. В production: HttpOnly; Secure; SameSite=Lax (или согласованное
+                значение); Path=/api/v1/auth.'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessTokenResponse'
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '409':
+          description: Username или email уже заняты.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/login:
+    post:
+      tags:
+      - Auth
+      summary: Вход по email и паролю
+      description: Refresh token устанавливается в HttpOnly cookie
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешный вход.
+          headers:
+            Set-Cookie:
+              description: Устанавливает refresh_token в HttpOnly cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessTokenResponse'
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '401':
+          description: Неверный email или пароль.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidCredentialsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/refresh:
+    post:
+      tags:
+      - Auth
+      summary: Обновление токенов
+      description: Ротирует refresh token из HttpOnly cookie, записывает новый cookie.
+      operationId: refreshTokens
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/RefreshTokenCookie'
+      responses:
+        '200':
+          description: Refresh token ротирован, новый access token выпущен.
+          headers:
+            Set-Cookie:
+              description: Заменяет refresh_token новым значением в HttpOnly cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessTokenResponse'
+        '401':
+          description: Refresh token отсутствует, невалиден, истёк, отозван или уже использован.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshUnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/logout:
+    post:
+      tags:
+      - Auth
+      summary: Выход из текущей auth-сессии
+      description: Отзывает refresh-сессию и очищает refresh_token cookie.
+      operationId: logout
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/RefreshTokenCookie'
+      responses:
+        '204':
+          description: Сессия отозвана, refresh_token cookie очищена. Тело ответа отсутствует.
+        '401':
+          description: Refresh token отсутствует или невалиден.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutUnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  schemas:
+    RegisterRequest:
+      type: object
+      required:
+      - username
+      - email
+      - password
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: ^[A-Za-z0-9_.-]+$
+          example: ivan.petrov
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          example: ivan.petrov@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          example: StrongPassword123!
+    AccessTokenResponse:
+      type: object
+      required:
+      - access_token
+      properties:
+        access_token:
+          type: string
+          minLength: 1
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    InvalidRequestError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_REQUEST
+        message:
+          type: string
+          enum:
+          - Request validation failed
+    UsernameAlreadyExistsError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - USERNAME_ALREADY_EXISTS
+        message:
+          type: string
+          enum:
+          - A user with this username already exists
+    EmailAlreadyExistsError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - EMAIL_ALREADY_EXISTS
+        message:
+          type: string
+          enum:
+          - A user with this email already exists
+    RegisterConflictError:
+      oneOf:
+      - $ref: '#/components/schemas/UsernameAlreadyExistsError'
+      - $ref: '#/components/schemas/EmailAlreadyExistsError'
+    InternalErrorError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INTERNAL_ERROR
+        message:
+          type: string
+          enum:
+          - Internal server error
+    LoginRequest:
+      type: object
+      required:
+      - email
+      - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          example: ivan.petrov@example.com
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 128
+          example: StrongPassword123!
+    InvalidCredentialsError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_CREDENTIALS
+        message:
+          type: string
+          enum:
+          - Invalid email or password
+    RefreshTokenMissingError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - REFRESH_TOKEN_MISSING
+        message:
+          type: string
+          enum:
+          - Refresh token is required
+    RefreshTokenInvalidError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - REFRESH_TOKEN_INVALID
+        message:
+          type: string
+          enum:
+          - Refresh token is invalid
+    RefreshTokenExpiredError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - REFRESH_TOKEN_EXPIRED
+        message:
+          type: string
+          enum:
+          - Refresh token has expired
+    RefreshTokenRevokedError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - REFRESH_TOKEN_REVOKED
+        message:
+          type: string
+          enum:
+          - Refresh token has been revoked
+    RefreshTokenReusedError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - REFRESH_TOKEN_REUSED
+        message:
+          type: string
+          enum:
+          - Refresh token has already been used
+    RefreshUnauthorizedError:
+      oneOf:
+      - $ref: '#/components/schemas/RefreshTokenMissingError'
+      - $ref: '#/components/schemas/RefreshTokenInvalidError'
+      - $ref: '#/components/schemas/RefreshTokenExpiredError'
+      - $ref: '#/components/schemas/RefreshTokenRevokedError'
+      - $ref: '#/components/schemas/RefreshTokenReusedError'
+    LogoutUnauthorizedError:
+      oneOf:
+      - $ref: '#/components/schemas/RefreshTokenMissingError'
+      - $ref: '#/components/schemas/RefreshTokenInvalidError'
+      - $ref: '#/components/schemas/RefreshTokenExpiredError'
+      - $ref: '#/components/schemas/RefreshTokenRevokedError'
+  responses:
+    InternalServerError:
+      description: Непредвиденная ошибка сервера.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalErrorError'
+  parameters:
+    RefreshTokenCookie:
+      name: refresh_token
+      in: cookie
+      required: true
+      description: Refresh token из HttpOnly cookie.
+      schema:
+        type: string
+        minLength: 1

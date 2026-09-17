@@ -1,0 +1,203 @@
+openapi: 3.1.0
+info:
+  title: Internal API
+  version: 0.4.0
+servers:
+- url: http://localhost:8080/internal/v1
+tags:
+- name: Internal
+  description: Внутренние MVP-ручки.
+paths:
+  /organizations:
+    post:
+      tags:
+      - Internal
+      summary: Создание организации
+      description: Внутренняя MVP-ручка. Access token не требуется.
+      operationId: internalCreateOrganization
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrganizationRequest'
+      responses:
+        '201':
+          description: Организация создана.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '409':
+          description: Организация с таким названием уже существует.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationAlreadyExistsError'
+        '500':
+          description: Внутренняя ошибка сервера.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+  /users/{user_id}/roles:
+    parameters:
+    - name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    post:
+      tags:
+      - Internal
+      summary: Назначение роли пользователю
+      description: Внутренняя MVP-ручка для выдачи дополнительных продуктовых ролей. При регистрации по умолчанию назначается learner.
+      operationId: internalGrantRole
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantRoleRequest'
+      responses:
+        '204':
+          description: Роль назначена. Тело ответа отсутствует.
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '404':
+          description: Пользователь не найден.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserNotFoundError'
+        '409':
+          description: Роль уже назначена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleAlreadyAssignedError'
+        '500':
+          description: Внутренняя ошибка сервера.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+components:
+  schemas:
+    ProductRole:
+      type: string
+      enum:
+      - learner
+      - methodist
+      - curator
+      description: Продуктовая роль пользователя.
+    CreateOrganizationRequest:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+    Organization:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    GrantRoleRequest:
+      type: object
+      required:
+      - role
+      properties:
+        role:
+          $ref: '#/components/schemas/ProductRole'
+    InvalidRequestError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_REQUEST
+        message:
+          type: string
+          enum:
+          - Request validation failed
+    OrganizationAlreadyExistsError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ORGANIZATION_ALREADY_EXISTS
+        message:
+          type: string
+          enum:
+          - An organization with this name already exists
+    UserNotFoundError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - USER_NOT_FOUND
+        message:
+          type: string
+          enum:
+          - User not found
+    RoleAlreadyAssignedError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ROLE_ALREADY_ASSIGNED
+        message:
+          type: string
+          enum:
+          - Requested role is already assigned to the user
+    InternalError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INTERNAL_ERROR
+        message:
+          type: string
+          enum:
+          - Internal server error

@@ -1,0 +1,243 @@
+openapi: 3.1.0
+info:
+  title: Organizations API
+  version: 0.4.0
+servers:
+- url: http://localhost:8080/api/v1
+tags:
+- name: Organizations
+  description: Получение списка организаций.
+paths:
+  /organizations:
+    get:
+      tags:
+      - Organizations
+      summary: Получение списка организаций
+      operationId: listOrganizations
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: query
+        in: query
+        required: false
+        description: Поиск по названию.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 100
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Список организаций.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationListResponse'
+        '400':
+          description: Некорректные query-параметры.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags:
+      - Internal
+      summary: Внутреннее создание организации
+      description: Internal MVP endpoint без access token
+      operationId: internalCreateOrganization
+      servers:
+      - url: http://localhost:8080/internal/v1
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrganizationRequest'
+      responses:
+        '201':
+          description: Организация создана.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '409':
+          description: Организация с таким названием уже существует.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationAlreadyExistsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Размер страницы.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Смещение от начала выборки.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+  schemas:
+    Organization:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Alabuga
+    OrganizationListResponse:
+      type: object
+      required:
+      - organizations
+      properties:
+        organizations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Organization'
+    InvalidRequestError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_REQUEST
+        message:
+          type: string
+          enum:
+          - Request validation failed
+    AccessTokenMissingError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACCESS_TOKEN_MISSING
+        message:
+          type: string
+          enum:
+          - Access token is required
+    AccessTokenInvalidError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACCESS_TOKEN_INVALID
+        message:
+          type: string
+          enum:
+          - Access token is invalid
+    AccessTokenExpiredError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ACCESS_TOKEN_EXPIRED
+        message:
+          type: string
+          enum:
+          - Access token has expired
+    AccessUnauthorizedError:
+      oneOf:
+      - $ref: '#/components/schemas/AccessTokenMissingError'
+      - $ref: '#/components/schemas/AccessTokenInvalidError'
+      - $ref: '#/components/schemas/AccessTokenExpiredError'
+    InternalErrorError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - INTERNAL_ERROR
+        message:
+          type: string
+          enum:
+          - Internal server error
+    CreateOrganizationRequest:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+    OrganizationAlreadyExistsError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ORGANIZATION_ALREADY_EXISTS
+        message:
+          type: string
+          enum:
+          - An organization with this name already exists
+  responses:
+    AccessUnauthorized:
+      description: Access token отсутствует, невалиден или истёк.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AccessUnauthorizedError'
+    InternalServerError:
+      description: Непредвиденная ошибка сервера.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalErrorError'
