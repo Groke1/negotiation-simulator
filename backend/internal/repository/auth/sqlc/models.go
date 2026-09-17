@@ -61,7 +61,6 @@ type UsersRefreshToken struct {
 	ActiveRole UsersProductRole   `json:"active_role"`
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
-	UsedAt     pgtype.Timestamptz `json:"used_at"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }

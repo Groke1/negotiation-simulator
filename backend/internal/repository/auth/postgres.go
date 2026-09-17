@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
@@ -53,12 +54,24 @@ func (r *authRepository) GetRefreshTokenByHashForUpdate(ctx context.Context, tok
 	return refreshTokenFromSQL(row), nil
 }
 
-func (r *authRepository) MarkRefreshTokenUsed(ctx context.Context, id string) error {
+func (r *authRepository) RotateRefreshToken(ctx context.Context, id, currentTokenHash, newTokenHash string, expiresAt time.Time) (*entity.RefreshToken, error) {
 	pgID, err := pgxconv.StringToUUID(id)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return r.getQueries(ctx).MarkRefreshTokenUsed(ctx, pgID)
+	row, err := r.getQueries(ctx).RotateRefreshToken(ctx, sqlc.RotateRefreshTokenParams{
+		ID:               pgID,
+		CurrentTokenHash: currentTokenHash,
+		NewTokenHash:     newTokenHash,
+		ExpiresAt:        pgxconv.TimeToRequiredTimestamptz(expiresAt),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, entity.ErrRefreshTokenInvalid
+	}
+	if err != nil {
+		return nil, err
+	}
+	return refreshTokenFromSQL(row), nil
 }
 
 func (r *authRepository) RevokeRefreshToken(ctx context.Context, id string) error {
@@ -107,7 +120,6 @@ func refreshTokenFromSQL(row sqlc.UsersRefreshToken) *entity.RefreshToken {
 		ActiveRole: entity.ProductRole(row.ActiveRole),
 		ExpiresAt:  row.ExpiresAt.Time,
 		RevokedAt:  pgxconv.TimestamptzToTime(row.RevokedAt),
-		UsedAt:     pgxconv.TimestamptzToTime(row.UsedAt),
 		CreatedAt:  row.CreatedAt.Time,
 		UpdatedAt:  row.UpdatedAt.Time,
 	}

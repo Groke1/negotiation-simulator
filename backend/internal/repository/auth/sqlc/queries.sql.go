@@ -26,7 +26,7 @@ VALUES (
     $4,
     $5
 )
-RETURNING id, user_id, token_hash, active_role, expires_at, revoked_at, used_at, created_at, updated_at
+RETURNING id, user_id, token_hash, active_role, expires_at, revoked_at, created_at, updated_at
 `
 
 type CreateRefreshTokenParams struct {
@@ -53,7 +53,6 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 		&i.ActiveRole,
 		&i.ExpiresAt,
 		&i.RevokedAt,
-		&i.UsedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -70,7 +69,7 @@ func (q *Queries) DeleteExpiredTokens(ctx context.Context) error {
 }
 
 const getRefreshTokenByHashForUpdate = `-- name: GetRefreshTokenByHashForUpdate :one
-SELECT id, user_id, token_hash, active_role, expires_at, revoked_at, used_at, created_at, updated_at
+SELECT id, user_id, token_hash, active_role, expires_at, revoked_at, created_at, updated_at
 FROM users.refresh_tokens
 WHERE token_hash = $1
 FOR UPDATE
@@ -86,22 +85,10 @@ func (q *Queries) GetRefreshTokenByHashForUpdate(ctx context.Context, tokenHash 
 		&i.ActiveRole,
 		&i.ExpiresAt,
 		&i.RevokedAt,
-		&i.UsedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const markRefreshTokenUsed = `-- name: MarkRefreshTokenUsed :exec
-UPDATE users.refresh_tokens
-SET used_at = NOW(), updated_at = NOW()
-WHERE id = $1
-`
-
-func (q *Queries) MarkRefreshTokenUsed(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, markRefreshTokenUsed, id)
-	return err
 }
 
 const revokeRefreshToken = `-- name: RevokeRefreshToken :exec
@@ -115,15 +102,54 @@ func (q *Queries) RevokeRefreshToken(ctx context.Context, id pgtype.UUID) error 
 	return err
 }
 
+const rotateRefreshToken = `-- name: RotateRefreshToken :one
+UPDATE users.refresh_tokens
+SET token_hash = $1,
+    expires_at = $2,
+    updated_at = NOW()
+WHERE id = $3
+  AND token_hash = $4
+  AND revoked_at IS NULL
+  AND expires_at > NOW()
+RETURNING id, user_id, token_hash, active_role, expires_at, revoked_at, created_at, updated_at
+`
+
+type RotateRefreshTokenParams struct {
+	NewTokenHash     string             `json:"new_token_hash"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	ID               pgtype.UUID        `json:"id"`
+	CurrentTokenHash string             `json:"current_token_hash"`
+}
+
+func (q *Queries) RotateRefreshToken(ctx context.Context, arg RotateRefreshTokenParams) (UsersRefreshToken, error) {
+	row := q.db.QueryRow(ctx, rotateRefreshToken,
+		arg.NewTokenHash,
+		arg.ExpiresAt,
+		arg.ID,
+		arg.CurrentTokenHash,
+	)
+	var i UsersRefreshToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ActiveRole,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateRefreshTokenActiveRole = `-- name: UpdateRefreshTokenActiveRole :one
 UPDATE users.refresh_tokens
 SET active_role = $1, updated_at = NOW()
 WHERE id = $2
   AND user_id = $3
   AND revoked_at IS NULL
-  AND used_at IS NULL
   AND expires_at > NOW()
-RETURNING id, user_id, token_hash, active_role, expires_at, revoked_at, used_at, created_at, updated_at
+RETURNING id, user_id, token_hash, active_role, expires_at, revoked_at, created_at, updated_at
 `
 
 type UpdateRefreshTokenActiveRoleParams struct {
@@ -142,7 +168,6 @@ func (q *Queries) UpdateRefreshTokenActiveRole(ctx context.Context, arg UpdateRe
 		&i.ActiveRole,
 		&i.ExpiresAt,
 		&i.RevokedAt,
-		&i.UsedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

@@ -9,35 +9,15 @@
 
 CREATE SCHEMA IF NOT EXISTS scenarios;
 
-CREATE TYPE scenarios.scenario_status AS ENUM (
-    'draft',
-    'published',
-    'archived'
-);
+CREATE TYPE scenarios.scenario_status AS ENUM ('draft', 'published', 'archived');
 
-CREATE TYPE scenarios.scenario_mode AS ENUM (
-    'training',
-    'arena',
-    'live'
-);
+CREATE TYPE scenarios.scenario_mode AS ENUM ('training', 'arena', 'live');
 
-CREATE TYPE scenarios.scenario_channel AS ENUM (
-    'chat',
-    'voice',
-    'meeting'
-);
+CREATE TYPE scenarios.scenario_channel AS ENUM ('chat', 'voice', 'meeting');
 
-CREATE TYPE scenarios.scenario_difficulty AS ENUM (
-    'L1',
-    'L2',
-    'L3'
-);
+CREATE TYPE scenarios.scenario_difficulty AS ENUM ('L1', 'L2', 'L3');
 
-CREATE TYPE scenarios.ai_provider AS ENUM (
-    'mock',
-    'cloud',
-    'ollama'
-);
+CREATE TYPE scenarios.ai_provider AS ENUM ('mock', 'cloud', 'ollama');
 
 -- Общий словарь действий нужен и Constructor, и Event Log.
 CREATE TYPE scenarios.semantic_action AS ENUM (
@@ -55,40 +35,39 @@ CREATE TYPE scenarios.semantic_action AS ENUM (
 CREATE TABLE scenarios.scenarios (
      id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-     organization_id UUID NOT NULL REFERENCES organizations.organizations(id)
-        ON DELETE RESTRICT,
+     organization_id UUID REFERENCES organizations.organizations(id)
+        ON DELETE SET NULL,
 
-     created_by   UUID NOT NULL REFERENCES users.users(id) ON DELETE RESTRICT,
+     created_by UUID REFERENCES users.users(id) ON DELETE SET NULL,
 
     -- Текущая версия редактируемого состояния.
     -- При publish эта строка становится version snapshot.
-         version                 VARCHAR(32) NOT NULL DEFAULT '1.0',
+     version                 VARCHAR(32) NOT NULL DEFAULT '1.0',
 
-         title                   VARCHAR(200) NOT NULL,
+     title                   VARCHAR(200) NOT NULL,
 
-         status                  scenarios.scenario_status NOT NULL DEFAULT 'draft',
+     status                  scenarios.scenario_status NOT NULL DEFAULT 'draft',
 
-         mode_support            scenarios.scenario_mode[] NOT NULL
-        DEFAULT ARRAY[]::scenarios.scenario_mode[],
+     mode_support            TEXT[] NOT NULL DEFAULT '{}',
 
     -- {
     --   situation_type,
     --   conflict_type,
     --   description
     -- }
-                                     context                 JSONB NOT NULL DEFAULT '{}'::jsonb,
+     context                 JSONB NOT NULL DEFAULT '{}'::jsonb,
 
     -- [{id: learner|partner, label: "..."}]
-                                     roles                   JSONB NOT NULL DEFAULT '[]'::jsonb,
+     roles                   JSONB NOT NULL DEFAULT '[]'::jsonb,
 
     -- {learner: "...", partner: "..."}
-                                     goals                   JSONB NOT NULL DEFAULT '{}'::jsonb,
+     goals                   JSONB NOT NULL DEFAULT '{}'::jsonb,
 
     -- {learner: [...], partner: [...]}
-                                     interests               JSONB NOT NULL DEFAULT '{}'::jsonb,
+     interests               JSONB NOT NULL DEFAULT '{}'::jsonb,
 
     -- Ограничения обеих сторон.
-                                     constraints             JSONB NOT NULL DEFAULT '{}'::jsonb,
+     constraints             JSONB NOT NULL DEFAULT '{}'::jsonb,
 
     -- [{key, initial, unit?}]
     parameters              JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -107,8 +86,7 @@ CREATE TABLE scenarios.scenarios (
     -- [{type: agreement|no_deal, condition: "..."}]
     completion_conditions   JSONB NOT NULL DEFAULT '[]'::jsonb,
 
-    channels                scenarios.scenario_channel[] NOT NULL
-    DEFAULT ARRAY[]::scenarios.scenario_channel[],
+    channels                TEXT[] NOT NULL DEFAULT '{}',
 
     -- Детерминированный граф обычной тренировки:
     -- nodes -> actions -> next_node_id.
@@ -173,49 +151,10 @@ CREATE INDEX idx_scenario_versions_scenario_id
 CREATE INDEX idx_scenario_versions_published_at
     ON scenarios.scenario_versions(scenario_id, published_at DESC);
 
-
--- Лог обращений к AI Scenario Builder.
--- В согласованной версии API успешная генерация сразу сохраняет draft,
--- поэтому scenario_id после успешного запроса должен быть заполнен.
-CREATE TABLE scenarios.ai_generations (
-                                          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-                                          scenario_id         UUID NULL
-        REFERENCES scenarios.scenarios(id)
-        ON DELETE SET NULL,
-
-                                          author_id           UUID NOT NULL
-                                              REFERENCES users.users(id)
-                                                  ON DELETE CASCADE,
-
-                                          provider            scenarios.ai_provider NOT NULL,
-
-                                          input_prompt        TEXT NOT NULL,
-
-    -- Ответ провайдера до/после нормализации.
-    -- Для неуспешной генерации допускается SQL NULL.
-                                          raw_response        JSONB NULL,
-
-                                          validation_result   JSONB NULL,
-
-                                          created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Используется в том числе для дневного rate limit генераций.
-CREATE INDEX idx_ai_generations_author_created_at
-    ON scenarios.ai_generations(author_id, created_at DESC);
-
-CREATE INDEX idx_ai_generations_scenario_id
-    ON scenarios.ai_generations(scenario_id);
-
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-
-DROP INDEX IF EXISTS scenarios.idx_ai_generations_scenario_id;
-DROP INDEX IF EXISTS scenarios.idx_ai_generations_author_created_at;
-DROP TABLE IF EXISTS scenarios.ai_generations;
 
 DROP INDEX IF EXISTS scenarios.idx_scenario_versions_published_at;
 DROP INDEX IF EXISTS scenarios.idx_scenario_versions_scenario_id;

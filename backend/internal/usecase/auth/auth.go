@@ -25,7 +25,7 @@ type userRepository interface {
 type authRepository interface {
 	CreateRefreshToken(ctx context.Context, token entity.RefreshToken) (*entity.RefreshToken, error)
 	GetRefreshTokenByHashForUpdate(ctx context.Context, tokenHash string) (*entity.RefreshToken, error)
-	MarkRefreshTokenUsed(ctx context.Context, id string) error
+	RotateRefreshToken(ctx context.Context, id, currentTokenHash, newTokenHash string, expiresAt time.Time) (*entity.RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, id string) error
 }
 
@@ -123,18 +123,36 @@ func (s *authService) Refresh(ctx context.Context, refreshToken string) (*entity
 	}
 	var tokens *entity.JWT
 	err := s.transactor.WithTx(ctx, func(txCtx context.Context) error {
-		currentToken, err := s.authRepository.GetRefreshTokenByHashForUpdate(txCtx, hashRefreshToken(refreshToken))
+		currentTokenHash := hashRefreshToken(refreshToken)
+		currentToken, err := s.authRepository.GetRefreshTokenByHashForUpdate(txCtx, currentTokenHash)
 		if err != nil {
 			return err
 		}
-		if err := validateRefreshTokenState(currentToken, true); err != nil {
+		if err := validateRefreshTokenState(currentToken); err != nil {
 			return err
 		}
-		if err := s.authRepository.MarkRefreshTokenUsed(txCtx, currentToken.ID); err != nil {
+
+		newRefreshToken, err := randomToken(32)
+		if err != nil {
 			return err
 		}
-		tokens, err = s.createTokenPair(txCtx, currentToken.UserID, currentToken.ActiveRole)
-		return err
+		rotatedToken, err := s.authRepository.RotateRefreshToken(
+			txCtx,
+			currentToken.ID,
+			currentTokenHash,
+			hashRefreshToken(newRefreshToken),
+			time.Now().UTC().Add(s.cfg.RefreshTokenTTL),
+		)
+		if err != nil {
+			return err
+		}
+
+		accessToken, err := s.issueAccessToken(rotatedToken.UserID, rotatedToken.ActiveRole, rotatedToken.ID)
+		if err != nil {
+			return err
+		}
+		tokens = &entity.JWT{AccessToken: accessToken, RefreshToken: newRefreshToken}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -151,7 +169,7 @@ func (s *authService) Logout(ctx context.Context, refreshToken string) error {
 		if err != nil {
 			return err
 		}
-		if err := validateRefreshTokenState(currentToken, false); err != nil {
+		if err := validateRefreshTokenState(currentToken); err != nil {
 			return err
 		}
 		return s.authRepository.RevokeRefreshToken(txCtx, currentToken.ID)
@@ -236,7 +254,7 @@ func (s *authService) parseAccessToken(token string) (*entity.AccessClaims, erro
 	}, nil
 }
 
-func validateRefreshTokenState(token *entity.RefreshToken, detectReuse bool) error {
+func validateRefreshTokenState(token *entity.RefreshToken) error {
 	if token == nil {
 		return entity.ErrRefreshTokenInvalid
 	}
@@ -245,12 +263,6 @@ func validateRefreshTokenState(token *entity.RefreshToken, detectReuse bool) err
 	}
 	if token.RevokedAt != nil {
 		return entity.ErrRefreshTokenRevoked
-	}
-	if token.UsedAt != nil {
-		if detectReuse {
-			return entity.ErrRefreshTokenReused
-		}
-		return entity.ErrRefreshTokenInvalid
 	}
 	return nil
 }

@@ -14,8 +14,8 @@ type Querier interface {
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (UsersRefreshToken, error)
 	DeleteExpiredTokens(ctx context.Context) error
 	GetRefreshTokenByHashForUpdate(ctx context.Context, tokenHash string) (UsersRefreshToken, error)
-	MarkRefreshTokenUsed(ctx context.Context, id pgtype.UUID) error
 	RevokeRefreshToken(ctx context.Context, id pgtype.UUID) error
+	RotateRefreshToken(ctx context.Context, arg RotateRefreshTokenParams) (UsersRefreshToken, error)
 	UpdateRefreshTokenActiveRole(ctx context.Context, arg UpdateRefreshTokenActiveRoleParams) (UsersRefreshToken, error)
 }
 

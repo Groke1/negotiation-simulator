@@ -35,6 +35,19 @@ const (
 	ErrUserNotFound        ErrorCode = "USER_NOT_FOUND"
 	ErrRoleAlreadyAssigned ErrorCode = "ROLE_ALREADY_ASSIGNED"
 	ErrRoleNotAssigned     ErrorCode = "ROLE_NOT_ASSIGNED"
+
+	ErrMethodistRoleRequired         ErrorCode = "METHODIST_ROLE_REQUIRED"
+	ErrOrganizationRequired          ErrorCode = "ORGANIZATION_REQUIRED"
+	ErrScenarioNotFound              ErrorCode = "SCENARIO_NOT_FOUND"
+	ErrScenarioNotOwned              ErrorCode = "SCENARIO_NOT_OWNED"
+	ErrInvalidScenarioStatus         ErrorCode = "INVALID_SCENARIO_STATUS"
+	ErrInvalidScenarioJSON           ErrorCode = "INVALID_SCENARIO_JSON"
+	ErrScenarioVersionAlreadyExists  ErrorCode = "SCENARIO_VERSION_ALREADY_EXISTS"
+	ErrScenarioNotValidated          ErrorCode = "SCENARIO_NOT_VALIDATED"
+	ErrScenarioValidationFailed      ErrorCode = "SCENARIO_VALIDATION_FAILED"
+	ErrScenarioVersionNotFound       ErrorCode = "SCENARIO_VERSION_NOT_FOUND"
+	ErrScenarioGenerationRateLimited ErrorCode = "SCENARIO_GENERATION_RATE_LIMITED"
+	ErrScenarioGenerationFailed      ErrorCode = "SCENARIO_GENERATION_FAILED"
 )
 
 type ErrorResponse struct {
@@ -82,6 +95,30 @@ func (e ErrorCode) Message() string {
 		return "Requested role is already assigned to the user"
 	case ErrRoleNotAssigned:
 		return "Requested role is not assigned to the user"
+	case ErrMethodistRoleRequired:
+		return "Active role must be methodist"
+	case ErrOrganizationRequired:
+		return "User must belong to an organization"
+	case ErrScenarioNotFound:
+		return "Scenario not found"
+	case ErrScenarioNotOwned:
+		return "Scenario is owned by another user"
+	case ErrInvalidScenarioStatus:
+		return "Scenario status does not allow this operation"
+	case ErrInvalidScenarioJSON:
+		return "Scenario JSON is invalid"
+	case ErrScenarioVersionAlreadyExists:
+		return "Scenario version already exists"
+	case ErrScenarioNotValidated:
+		return "Scenario must be validated before publication"
+	case ErrScenarioValidationFailed:
+		return "Scenario validation failed"
+	case ErrScenarioVersionNotFound:
+		return "Scenario version not found"
+	case ErrScenarioGenerationRateLimited:
+		return "Scenario generation rate limit exceeded"
+	case ErrScenarioGenerationFailed:
+		return "Failed to generate a scenario"
 	default:
 		return "Unknown error"
 	}
@@ -127,6 +164,30 @@ func ErrorCodeFromError(err error) ErrorCode {
 		return ErrRoleAlreadyAssigned
 	case errors.Is(err, entity.ErrRoleNotAssigned):
 		return ErrRoleNotAssigned
+	case errors.Is(err, entity.ErrMethodistRoleRequired):
+		return ErrMethodistRoleRequired
+	case errors.Is(err, entity.ErrOrganizationRequired):
+		return ErrOrganizationRequired
+	case errors.Is(err, entity.ErrScenarioNotFound):
+		return ErrScenarioNotFound
+	case errors.Is(err, entity.ErrScenarioNotOwned):
+		return ErrScenarioNotOwned
+	case errors.Is(err, entity.ErrInvalidScenarioStatus):
+		return ErrInvalidScenarioStatus
+	case errors.Is(err, entity.ErrInvalidScenarioJSON):
+		return ErrInvalidScenarioJSON
+	case errors.Is(err, entity.ErrScenarioVersionAlreadyExists):
+		return ErrScenarioVersionAlreadyExists
+	case errors.Is(err, entity.ErrScenarioNotValidated):
+		return ErrScenarioNotValidated
+	case errors.Is(err, entity.ErrScenarioValidationFailed):
+		return ErrScenarioValidationFailed
+	case errors.Is(err, entity.ErrScenarioVersionNotFound):
+		return ErrScenarioVersionNotFound
+	case errors.Is(err, entity.ErrScenarioGenerationRateLimited):
+		return ErrScenarioGenerationRateLimited
+	case errors.Is(err, entity.ErrScenarioGenerationFailed):
+		return ErrScenarioGenerationFailed
 	case errors.Is(err, entity.ErrInvalidRequest):
 		return ErrInvalidRequest
 	default:

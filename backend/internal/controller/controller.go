@@ -6,6 +6,7 @@ import (
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/controller/auth"
 	ctrlmw "sourcecraft.dev/lct-hackaton-2026.arena/internal/controller/middleware"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/controller/organizations"
+	"sourcecraft.dev/lct-hackaton-2026.arena/internal/controller/scenario"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/controller/user"
 )
 
@@ -13,6 +14,7 @@ type controller struct {
 	auth          *auth.Controller
 	user          *user.Controller
 	organizations *organizations.Controller
+	scenario      *scenario.Controller
 	verifier      ctrlmw.AccessTokenVerifier
 }
 
@@ -21,6 +23,7 @@ func NewController(
 	authService auth.Service,
 	userService user.Service,
 	organizationsService organizations.Service,
+	scenarioService scenario.Service,
 	verifier ctrlmw.AccessTokenVerifier,
 	cookieCfg ctrlmw.CookieConfig,
 ) *controller {
@@ -28,6 +31,7 @@ func NewController(
 		auth:          auth.NewController(logger, authService, cookieCfg),
 		user:          user.NewController(logger, userService),
 		organizations: organizations.NewController(logger, organizationsService),
+		scenario:      scenario.NewController(logger, scenarioService),
 		verifier:      verifier,
 	}
 }
@@ -39,6 +43,7 @@ func (c *controller) InitRoutes(r chi.Router) {
 			r.Use(ctrlmw.RequireAccessToken(c.verifier))
 			c.user.InitRoutes(r)
 			c.organizations.InitRoutes(r)
+			c.scenario.InitRoutes(r)
 		})
 	})
 	r.Route("/internal/v1", func(r chi.Router) {

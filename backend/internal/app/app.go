@@ -16,9 +16,11 @@ import (
 	ctrlmw "sourcecraft.dev/lct-hackaton-2026.arena/internal/controller/middleware"
 	authrepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/auth"
 	orgrepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/organizations"
+	scenariorepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/scenario"
 	userrepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/user"
 	authserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/auth"
 	orgserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/organizations"
+	scenarioserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/scenario"
 	userserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/user"
 	"sourcecraft.dev/lct-hackaton-2026.arena/migrations"
 	"sourcecraft.dev/lct-hackaton-2026.arena/pkg/db"
@@ -54,6 +56,7 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	authRepository := authrepo.NewAuthRepository(dbPool)
 	userRepository := userrepo.NewUserRepository(dbPool)
 	organizationRepository := orgrepo.NewOrganizationRepository(dbPool)
+	scenarioRepository := scenariorepo.NewScenarioRepository(dbPool)
 
 	authService := authserv.NewAuthService(userRepository, authRepository, tx, authserv.Config{
 		JWTSecret:       []byte(cfg.Settings.JWTSecret),
@@ -62,6 +65,7 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	})
 	organizationService := orgserv.NewOrganizationService(organizationRepository)
 	userService := userserv.NewUserService(userRepository, organizationRepository, authRepository, authService)
+	scenarioService := scenarioserv.NewScenarioService(scenarioRepository, userRepository, tx)
 
 	router := chi.NewRouter()
 	router.Use(middleware.StripSlashes, middleware.Logger, middleware.Recoverer)
@@ -71,6 +75,7 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 		authService,
 		userService,
 		organizationService,
+		scenarioService,
 		authService,
 		ctrlmw.CookieConfig{RefreshTokenTTL: cfg.Settings.RefreshTokenTTL},
 	)

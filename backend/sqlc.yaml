@@ -33,3 +33,15 @@ sql:
         emit_json_tags: true
         emit_interface: true
         omit_unused_structs: true
+
+  - engine: "postgresql"
+    queries: "internal/repository/scenario/queries.sql"
+    schema: "migrations/migrations"
+    gen:
+      go:
+        package: "scenario"
+        sql_package: "pgx/v5"
+        out: "internal/repository/scenario/sqlc"
+        emit_json_tags: true
+        emit_interface: true
+        omit_unused_structs: true
