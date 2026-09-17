@@ -1,36 +1,32 @@
 import { useNavigate } from 'react-router-dom';
-import { scenarios } from '../data/scenario';
+import { logout } from '../api';
 
 export default function Home() {
   const navigate = useNavigate();
+
+  function handleLogout() {
+    logout();
+    navigate('/');
+  }
 
   return (
     <div className="page">
       <header>
         <h1>Обучение</h1>
-        <p>Выберите тренировку, чтобы отработать навык переговоров.</p>
+        <p>Добрый день!</p>
       </header>
 
-      <section>
-        {scenarios.map(s => (
-          <div key={s.id} className="card scenario-card">
-            <div className="scenario-header">
-              <h3>{s.title}</h3>
-              <span className="badge">{s.difficulty}</span>
-            </div>
-            <p className="scenario-desc">{s.description}</p>
-            <div className="scenario-meta">
-              <span>Роль: <strong>{s.roles.learner}</strong></span>
-              <span>Партнёр: <strong>{s.roles.partner}</strong></span>
-            </div>
-            <button onClick={() => navigate(`/chat/${s.id}`)}>Начать</button>
-          </div>
-        ))}
+      <section className="card">
+        <h2>Рекомендуем</h2>
+        <h3>Тренировка: Продление контракта</h3>
+        <p>Сложность: L2</p>
+        <button onClick={() => navigate('/chat/sc-042')}>Начать тренировку</button>
       </section>
 
       <section className="nav">
         <button onClick={() => navigate('/profile')}>Профиль</button>
         <button onClick={() => navigate('/history')}>История</button>
+        <button onClick={handleLogout}>Выйти</button>
       </section>
     </div>
   );
