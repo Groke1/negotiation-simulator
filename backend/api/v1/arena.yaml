@@ -1,0 +1,1071 @@
+openapi: 3.1.0
+info:
+  title: Arena API
+  version: 0.2.0
+  description: Arena — запланированные куратором переговоры двух реальных пользователей. Куратор выбирает Scenario, двух участников
+    и дату/время. В назначенное время участники подключаются, общаются в WebSocket-чате; сообщения сохраняются. После завершения
+    эксперт оставляет feedback. Пользователь может видеть расписание и историю Arena.
+servers:
+  - url: http://localhost:8080/api/v1
+tags:
+  - name: Arena Assignments
+    description: Планирование Arena куратором.
+  - name: Arena Sessions
+    description: Фактические переговорные сессии.
+  - name: Arena Feedback
+    description: Экспертный разбор Arena.
+  - name: User Arena
+    description: Расписание и история Arena пользователя.
+paths:
+  /arena/assignments:
+    get:
+      tags:
+        - Arena Assignments
+      summary: Получить Arena текущей организации
+      description: Доступно при активной роли curator. Возвращает назначенные и завершённые Arena для контроля прогресса команды.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Назначения Arena.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAssignmentListResponse'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нужна роль curator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CuratorRoleRequiredError'
+    post:
+      tags:
+        - Arena Assignments
+      summary: Запланировать Arena
+      description: Куратор выбирает Scenario, двух пользователей и дату/время.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateArenaAssignmentRequest'
+      responses:
+        '201':
+          description: Arena назначена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateArenaAssignmentResponse'
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нужна роль curator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CuratorRoleRequiredError'
+  /arena/assignments/{arena_assignment_id}:
+    parameters:
+      - name: arena_assignment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - Arena Assignments
+      summary: Получить назначение Arena
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Назначение.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAssignment'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нет доступа.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAccessDeniedError'
+        '404':
+          description: Назначение не найдено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAssignmentNotFoundError'
+  /arena/assignments/{arena_assignment_id}/join:
+    parameters:
+      - name: arena_assignment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags:
+        - Arena Sessions
+      summary: Подключиться к назначенной Arena
+      description: Доступно назначенному участнику в допустимом временном окне. Первый join создаёт/активирует Arena Session.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Подключение выполнено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinArenaResponse'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Пользователь не является участником.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAccessDeniedError'
+        '404':
+          description: Назначение не найдено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAssignmentNotFoundError'
+        '409':
+          description: Сейчас нельзя подключиться.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaJoinNotAllowedError'
+  /arena/sessions/{arena_session_id}:
+    parameters:
+      - name: arena_session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - Arena Sessions
+      summary: Получить состояние Arena Session
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Arena Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaSession'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нет доступа.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAccessDeniedError'
+        '404':
+          description: Session не найдена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaSessionNotFoundError'
+  /arena/sessions/{arena_session_id}/messages:
+    parameters:
+      - name: arena_session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - Arena Sessions
+      summary: Получить историю сообщений Arena
+      description: Live-отправка идёт по WebSocket. REST нужен для reconnect и просмотра истории.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Сообщения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaMessageListResponse'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нет доступа.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAccessDeniedError'
+        '404':
+          description: Session не найдена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaSessionNotFoundError'
+  /arena/sessions/{arena_session_id}/complete:
+    parameters:
+      - name: arena_session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags:
+        - Arena Sessions
+      summary: Завершить Arena Session
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Arena завершена. Тело ответа отсутствует.
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нет доступа.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAccessDeniedError'
+        '404':
+          description: Session не найдена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaSessionNotFoundError'
+        '409':
+          description: Нельзя завершить в текущем состоянии.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidArenaStateError'
+  /arena/sessions/{arena_session_id}/feedback:
+    parameters:
+      - name: arena_session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - Arena Feedback
+      summary: Получить feedback по Arena
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Feedback.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaFeedbackListResponse'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нет доступа.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAccessDeniedError'
+        '404':
+          description: Session не найдена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaSessionNotFoundError'
+    post:
+      tags:
+        - Arena Feedback
+      summary: Оставить feedback участнику Arena
+      description: После завершения curator/expert оставляет отдельный feedback конкретному участнику. ratings опциональны.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateArenaFeedbackRequest'
+      responses:
+        '201':
+          description: Feedback сохранён.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaFeedback'
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нужна роль curator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CuratorRoleRequiredError'
+        '404':
+          description: Session не найдена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaSessionNotFoundError'
+        '409':
+          description: Feedback доступен только после завершения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidArenaStateError'
+  /users/{user_id}/arena-assignments:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - User Arena
+      summary: Получить запланированные Arena пользователя
+      description: Для профиля/расписания пользователя.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Запланированные Arena.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserArenaAssignmentsResponse'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нет доступа.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAccessDeniedError'
+        '404':
+          description: Пользователь не найден.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserNotFoundError'
+  /users/{user_id}/arena-history:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - User Arena
+      summary: Получить историю Arena пользователя
+      description: Список прошедших Arena для повторного просмотра диалога и feedback.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: История Arena.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserArenaHistoryResponse'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нет доступа.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAccessDeniedError'
+        '404':
+          description: Пользователь не найден.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserNotFoundError'
+  /users/{user_id}/arena-history/{arena_session_id}:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: arena_session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - User Arena
+      summary: Получить детали прошедшей Arena
+      description: Метаданные Session, сохранённые сообщения, feedback и задел под будущие audio media.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Детали Arena.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaSessionDetailsResponse'
+        '401':
+          description: Ошибка access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedError'
+        '403':
+          description: Нет доступа.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaAccessDeniedError'
+        '404':
+          description: Arena не найдена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaSessionNotFoundError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ArenaAssignmentStatus:
+      type: string
+      enum:
+        - scheduled
+        - ready
+        - in_progress
+        - completed
+        - cancelled
+    ArenaSessionStatus:
+      type: string
+      enum:
+        - waiting_for_participants
+        - in_progress
+        - completed
+        - reviewed
+    ArenaChannel:
+      type: string
+      enum:
+        - chat
+      description: В текущем MVP поддерживается только текстовый чат.
+    ArenaParticipantRole:
+      type: string
+      enum:
+        - learner
+        - partner
+    ArenaAssignmentParticipant:
+      type: object
+      required:
+        - user_id
+        - role
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          $ref: '#/components/schemas/ArenaParticipantRole'
+    CreateArenaAssignmentRequest:
+      type: object
+      required:
+        - scenario_id
+        - participants
+        - scheduled_at
+      properties:
+        scenario_id:
+          type: string
+          format: uuid
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaAssignmentParticipant'
+          minItems: 2
+          maxItems: 2
+        scheduled_at:
+          type: string
+          format: date-time
+    ArenaAssignment:
+      type: object
+      required:
+        - arena_assignment_id
+        - scenario_id
+        - scenario_title
+        - scenario_version
+        - participants
+        - scheduled_at
+        - status
+        - arena_session_id
+        - created_by
+        - created_at
+      properties:
+        arena_assignment_id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string
+          format: uuid
+        scenario_title:
+          type: string
+        scenario_version:
+          type: string
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaAssignmentParticipant'
+          minItems: 2
+          maxItems: 2
+        scheduled_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/ArenaAssignmentStatus'
+        arena_session_id:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+    ArenaAssignmentListResponse:
+      type: object
+      required:
+        - arenas
+      properties:
+        arenas:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaAssignment'
+    CreateArenaAssignmentResponse:
+      type: object
+      required:
+        - arena_assignment_id
+        - status
+      properties:
+        arena_assignment_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ArenaAssignmentStatus'
+    ArenaAssignmentListItem:
+      type: object
+      required:
+        - arena_assignment_id
+        - scenario_id
+        - scenario_title
+        - scheduled_at
+        - status
+        - arena_session_id
+      properties:
+        arena_assignment_id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string
+          format: uuid
+        scenario_title:
+          type: string
+        scheduled_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/ArenaAssignmentStatus'
+        arena_session_id:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+    UserArenaAssignmentsResponse:
+      type: object
+      required:
+        - arenas
+      properties:
+        arenas:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaAssignmentListItem'
+    ArenaSessionParticipant:
+      type: object
+      required:
+        - user_id
+        - role
+        - joined_at
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          $ref: '#/components/schemas/ArenaParticipantRole'
+        joined_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    JoinArenaResponse:
+      type: object
+      required:
+        - arena_session_id
+        - status
+        - participants
+        - websocket_path
+      properties:
+        arena_session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ArenaSessionStatus'
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaSessionParticipant'
+        websocket_path:
+          type: string
+    ArenaSession:
+      type: object
+      required:
+        - arena_session_id
+        - arena_assignment_id
+        - scenario_id
+        - scenario_title
+        - scenario_version
+        - channel
+        - status
+        - scheduled_at
+        - participants
+        - started_at
+        - completed_at
+      properties:
+        arena_session_id:
+          type: string
+          format: uuid
+        arena_assignment_id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string
+          format: uuid
+        scenario_title:
+          type: string
+        scenario_version:
+          type: string
+        channel:
+          $ref: '#/components/schemas/ArenaChannel'
+        status:
+          $ref: '#/components/schemas/ArenaSessionStatus'
+        scheduled_at:
+          type: string
+          format: date-time
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaSessionParticipant'
+        started_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        completed_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    ArenaMessage:
+      type: object
+      required:
+        - message_id
+        - sender_id
+        - text
+        - created_at
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        sender_id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    ArenaMessageListResponse:
+      type: object
+      required:
+        - messages
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaMessage'
+    ArenaFeedbackRating:
+      type: object
+      required:
+        - criterion
+        - score
+      properties:
+        criterion:
+          type: string
+        score:
+          type: number
+        comment:
+          type: string
+    CreateArenaFeedbackRequest:
+      type: object
+      required:
+        - participant_id
+        - comment
+      properties:
+        participant_id:
+          type: string
+          format: uuid
+        comment:
+          type: string
+          minLength: 1
+        ratings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaFeedbackRating'
+          default: []
+          description: 'Опционально: методика оценивания ещё не зафиксирована.'
+    ArenaFeedback:
+      type: object
+      required:
+        - feedback_id
+        - arena_session_id
+        - participant_id
+        - expert_id
+        - comment
+        - ratings
+        - created_at
+      properties:
+        feedback_id:
+          type: string
+          format: uuid
+        arena_session_id:
+          type: string
+          format: uuid
+        participant_id:
+          type: string
+          format: uuid
+        expert_id:
+          type: string
+          format: uuid
+        comment:
+          type: string
+        ratings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaFeedbackRating'
+        created_at:
+          type: string
+          format: date-time
+    ArenaFeedbackListResponse:
+      type: object
+      required:
+        - feedback
+      properties:
+        feedback:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaFeedback'
+    UserArenaHistoryItem:
+      type: object
+      required:
+        - arena_session_id
+        - arena_assignment_id
+        - scenario_id
+        - scenario_title
+        - scheduled_at
+        - started_at
+        - completed_at
+        - status
+        - has_feedback
+      properties:
+        arena_session_id:
+          type: string
+          format: uuid
+        arena_assignment_id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string
+          format: uuid
+        scenario_title:
+          type: string
+        scheduled_at:
+          type: string
+          format: date-time
+        started_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        completed_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        status:
+          $ref: '#/components/schemas/ArenaSessionStatus'
+        has_feedback:
+          type: boolean
+    UserArenaHistoryResponse:
+      type: object
+      required:
+        - arenas
+      properties:
+        arenas:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserArenaHistoryItem'
+    ArenaMedia:
+      type: object
+      required:
+        - media_id
+        - type
+        - url
+      properties:
+        media_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum:
+            - audio
+        url:
+          type: string
+          format: uri
+        duration_seconds:
+          type: integer
+          minimum: 0
+    ArenaSessionDetailsResponse:
+      type: object
+      required:
+        - session
+        - messages
+        - feedback
+        - media
+      properties:
+        session:
+          $ref: '#/components/schemas/ArenaSession'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaMessage'
+        feedback:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaFeedback'
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaMedia'
+    InvalidRequestError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_REQUEST
+        message:
+          type: string
+          enum:
+            - Request validation failed
+    UnauthorizedError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - ACCESS_TOKEN_INVALID
+        message:
+          type: string
+          enum:
+            - Access token is invalid
+    CuratorRoleRequiredError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - CURATOR_ROLE_REQUIRED
+        message:
+          type: string
+          enum:
+            - Active role must be curator
+    ArenaAssignmentNotFoundError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - ARENA_ASSIGNMENT_NOT_FOUND
+        message:
+          type: string
+          enum:
+            - Arena assignment not found
+    ArenaSessionNotFoundError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - ARENA_SESSION_NOT_FOUND
+        message:
+          type: string
+          enum:
+            - Arena session not found
+    ArenaAccessDeniedError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - ARENA_ACCESS_DENIED
+        message:
+          type: string
+          enum:
+            - Access to this arena is denied
+    ArenaJoinNotAllowedError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - ARENA_JOIN_NOT_ALLOWED
+        message:
+          type: string
+          enum:
+            - Arena is not available for joining
+    InvalidArenaStateError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_ARENA_STATE
+        message:
+          type: string
+          enum:
+            - Arena state does not allow this operation
+    UserNotFoundError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - USER_NOT_FOUND
+        message:
+          type: string
+          enum:
+            - User not found

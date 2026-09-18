@@ -1,0 +1,109 @@
+asyncapi: 3.0.0
+info:
+  title: Arena WebSocket API
+  version: 0.1.0
+  description: WebSocket-протокол текстового чата между двумя реальными участниками Arena.
+defaultContentType: application/json
+servers:
+  local:
+    host: localhost:8080
+    protocol: ws
+    pathname: /ws/arena/sessions/{arena_session_id}
+channels:
+  arenaChat:
+    address: /ws/arena/sessions/{arena_session_id}
+    parameters:
+      arena_session_id:
+        description: UUID Arena Session.
+    messages:
+      messageSend: { $ref: '#/components/messages/MessageSend' }
+      messageCreated: { $ref: '#/components/messages/MessageCreated' }
+      participantJoined: { $ref: '#/components/messages/ParticipantJoined' }
+      participantLeft: { $ref: '#/components/messages/ParticipantLeft' }
+      arenaCompleted: { $ref: '#/components/messages/ArenaCompleted' }
+      error: { $ref: '#/components/messages/ErrorMessage' }
+operations:
+  sendMessage:
+    action: send
+    channel: { $ref: '#/channels/arenaChat' }
+    messages:
+      - { $ref: '#/channels/arenaChat/messages/messageSend' }
+  receiveEvents:
+    action: receive
+    channel: { $ref: '#/channels/arenaChat' }
+    messages:
+      - { $ref: '#/channels/arenaChat/messages/messageCreated' }
+      - { $ref: '#/channels/arenaChat/messages/participantJoined' }
+      - { $ref: '#/channels/arenaChat/messages/participantLeft' }
+      - { $ref: '#/channels/arenaChat/messages/arenaCompleted' }
+      - { $ref: '#/channels/arenaChat/messages/error' }
+components:
+  securitySchemes:
+    bearerSubprotocol:
+      type: http
+      scheme: bearer
+      description: JWT передаётся вторым значением заголовка Sec-WebSocket-Protocol после `arena-v1`.
+  messages:
+    MessageSend:
+      name: message.send
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, message_id, text]
+        properties:
+          type: { const: message.send }
+          message_id: { type: string, format: uuid }
+          text: { type: string, minLength: 1, maxLength: 5000 }
+    MessageCreated:
+      name: message.created
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, message]
+        properties:
+          type: { const: message.created }
+          message:
+            type: object
+            additionalProperties: false
+            required: [message_id, sender_id, text, created_at]
+            properties:
+              message_id: { type: string, format: uuid }
+              sender_id: { type: string, format: uuid }
+              text: { type: string }
+              created_at: { type: string, format: date-time }
+    ParticipantJoined:
+      name: participant.joined
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, user_id]
+        properties:
+          type: { const: participant.joined }
+          user_id: { type: string, format: uuid }
+    ParticipantLeft:
+      name: participant.left
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, user_id]
+        properties:
+          type: { const: participant.left }
+          user_id: { type: string, format: uuid }
+    ArenaCompleted:
+      name: arena.completed
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type]
+        properties:
+          type: { const: arena.completed }
+    ErrorMessage:
+      name: error
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, code, message]
+        properties:
+          type: { const: error }
+          code: { type: string }
+          message: { type: string }
