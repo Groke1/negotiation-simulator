@@ -48,6 +48,22 @@ const (
 	ErrScenarioVersionNotFound       ErrorCode = "SCENARIO_VERSION_NOT_FOUND"
 	ErrScenarioGenerationRateLimited ErrorCode = "SCENARIO_GENERATION_RATE_LIMITED"
 	ErrScenarioGenerationFailed      ErrorCode = "SCENARIO_GENERATION_FAILED"
+	ErrCuratorRoleRequired           ErrorCode = "CURATOR_ROLE_REQUIRED"
+	ErrTrainingSessionNotFound       ErrorCode = "TRAINING_SESSION_NOT_FOUND"
+	ErrTrainingAccessDenied          ErrorCode = "TRAINING_ACCESS_DENIED"
+	ErrTrainingModeNotSupported      ErrorCode = "TRAINING_MODE_NOT_SUPPORTED"
+	ErrInvalidTrainingState          ErrorCode = "INVALID_TRAINING_STATE"
+	ErrTrainingActionNotAvailable    ErrorCode = "ACTION_NOT_AVAILABLE"
+	ErrArenaAssignmentNotFound       ErrorCode = "ARENA_ASSIGNMENT_NOT_FOUND"
+	ErrArenaSessionNotFound          ErrorCode = "ARENA_SESSION_NOT_FOUND"
+	ErrArenaAccessDenied             ErrorCode = "ARENA_ACCESS_DENIED"
+	ErrArenaJoinNotAllowed           ErrorCode = "ARENA_JOIN_NOT_ALLOWED"
+	ErrInvalidArenaState             ErrorCode = "INVALID_ARENA_STATE"
+	ErrArenaParticipantInvalid       ErrorCode = "ARENA_PARTICIPANTS_INVALID"
+	ErrArenaScenarioNotSupported     ErrorCode = "ARENA_SCENARIO_NOT_SUPPORTED"
+	ErrArenaFeedbackParticipant      ErrorCode = "ARENA_FEEDBACK_PARTICIPANT_INVALID"
+	ErrLLMUnavailable                ErrorCode = "LLM_UNAVAILABLE"
+	ErrLLMResponseInvalid            ErrorCode = "LLM_RESPONSE_INVALID"
 )
 
 type ErrorResponse struct {
@@ -119,6 +135,38 @@ func (e ErrorCode) Message() string {
 		return "Scenario generation rate limit exceeded"
 	case ErrScenarioGenerationFailed:
 		return "Failed to generate a scenario"
+	case ErrCuratorRoleRequired:
+		return "Active role must be curator"
+	case ErrTrainingSessionNotFound:
+		return "Training session not found"
+	case ErrTrainingAccessDenied:
+		return "Access to this training session is denied"
+	case ErrTrainingModeNotSupported:
+		return "Training mode is not supported by this scenario"
+	case ErrInvalidTrainingState:
+		return "Training session state does not allow this operation"
+	case ErrTrainingActionNotAvailable:
+		return "Action is not available in the current node"
+	case ErrArenaAssignmentNotFound:
+		return "Arena assignment not found"
+	case ErrArenaSessionNotFound:
+		return "Arena session not found"
+	case ErrArenaAccessDenied:
+		return "Access to this arena is denied"
+	case ErrArenaJoinNotAllowed:
+		return "Arena cannot be joined at this time"
+	case ErrInvalidArenaState:
+		return "Arena session state does not allow this operation"
+	case ErrArenaParticipantInvalid:
+		return "Arena participants are invalid"
+	case ErrArenaScenarioNotSupported:
+		return "Scenario does not support arena"
+	case ErrArenaFeedbackParticipant:
+		return "Feedback participant is invalid"
+	case ErrLLMUnavailable:
+		return "LLM provider is unavailable"
+	case ErrLLMResponseInvalid:
+		return "LLM provider returned an invalid response"
 	default:
 		return "Unknown error"
 	}
@@ -188,9 +236,62 @@ func ErrorCodeFromError(err error) ErrorCode {
 		return ErrScenarioGenerationRateLimited
 	case errors.Is(err, entity.ErrScenarioGenerationFailed):
 		return ErrScenarioGenerationFailed
+	case errors.Is(err, entity.ErrCuratorRoleRequired):
+		return ErrCuratorRoleRequired
+	case errors.Is(err, entity.ErrTrainingSessionNotFound):
+		return ErrTrainingSessionNotFound
+	case errors.Is(err, entity.ErrTrainingAccessDenied):
+		return ErrTrainingAccessDenied
+	case errors.Is(err, entity.ErrTrainingModeNotSupported):
+		return ErrTrainingModeNotSupported
+	case errors.Is(err, entity.ErrInvalidTrainingState):
+		return ErrInvalidTrainingState
+	case errors.Is(err, entity.ErrTrainingActionNotAvailable):
+		return ErrTrainingActionNotAvailable
+	case errors.Is(err, entity.ErrArenaAssignmentNotFound):
+		return ErrArenaAssignmentNotFound
+	case errors.Is(err, entity.ErrArenaSessionNotFound):
+		return ErrArenaSessionNotFound
+	case errors.Is(err, entity.ErrArenaAccessDenied):
+		return ErrArenaAccessDenied
+	case errors.Is(err, entity.ErrArenaJoinNotAllowed):
+		return ErrArenaJoinNotAllowed
+	case errors.Is(err, entity.ErrInvalidArenaState):
+		return ErrInvalidArenaState
+	case errors.Is(err, entity.ErrArenaParticipantInvalid):
+		return ErrArenaParticipantInvalid
+	case errors.Is(err, entity.ErrArenaScenarioNotSupported):
+		return ErrArenaScenarioNotSupported
+	case errors.Is(err, entity.ErrArenaFeedbackParticipant):
+		return ErrArenaFeedbackParticipant
+	case errors.Is(err, entity.ErrLLMUnavailable):
+		return ErrLLMUnavailable
+	case errors.Is(err, entity.ErrLLMResponseInvalid):
+		return ErrLLMResponseInvalid
 	case errors.Is(err, entity.ErrInvalidRequest):
 		return ErrInvalidRequest
 	default:
 		return ErrInternal
+	}
+}
+
+func StatusFromError(err error) int {
+	switch ErrorCodeFromError(err) {
+	case ErrInvalidRequest, ErrInvalidScenarioJSON:
+		return http.StatusBadRequest
+	case ErrAccessTokenMissing, ErrAccessTokenInvalid, ErrAccessTokenExpired:
+		return http.StatusUnauthorized
+	case ErrMethodistRoleRequired, ErrCuratorRoleRequired, ErrScenarioNotOwned, ErrTrainingAccessDenied, ErrArenaAccessDenied:
+		return http.StatusForbidden
+	case ErrUserNotFound, ErrScenarioNotFound, ErrScenarioVersionNotFound, ErrTrainingSessionNotFound, ErrArenaAssignmentNotFound, ErrArenaSessionNotFound:
+		return http.StatusNotFound
+	case ErrOrganizationRequired, ErrOrganizationAlreadySet, ErrInvalidTrainingState, ErrInvalidArenaState, ErrArenaJoinNotAllowed:
+		return http.StatusConflict
+	case ErrTrainingModeNotSupported, ErrTrainingActionNotAvailable, ErrArenaParticipantInvalid, ErrArenaScenarioNotSupported, ErrArenaFeedbackParticipant:
+		return http.StatusUnprocessableEntity
+	case ErrLLMUnavailable, ErrLLMResponseInvalid:
+		return http.StatusBadGateway
+	default:
+		return http.StatusInternalServerError
 	}
 }

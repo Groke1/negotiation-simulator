@@ -18,6 +18,7 @@ type Service interface {
 	ListRoles(ctx context.Context, userID string) ([]entity.ProductRole, error)
 	SwitchActiveRole(ctx context.Context, params entity.SwitchRole) (*entity.JWT, error)
 	GrantRole(ctx context.Context, params entity.GrantRole) error
+	ListOrganizationUsers(ctx context.Context, claims entity.AccessClaims) ([]entity.OrganizationUser, error)
 }
 
 type Controller struct {
@@ -34,6 +35,50 @@ func (c *Controller) InitRoutes(r chi.Router) {
 	r.Put("/users/me/organization", c.SetOrganization)
 	r.Get("/roles", c.ListRoles)
 	r.Put("/roles/active", c.SwitchActiveRole)
+	r.Post("/roles", c.GrantOwnRole)
+	r.Get("/organizations/me/users", c.ListOrganizationUsers)
+}
+
+func (c *Controller) GrantOwnRole(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ctrlmw.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrAccessTokenInvalid)
+		return
+	}
+	var req grantRoleRequest
+	if err := pkghttpx.DecodeJSON(w, r, &req); err != nil || !req.Role.Valid() {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	if err := c.service.GrantRole(r.Context(), entity.GrantRole{UserID: claims.UserID, Role: req.Role}); err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *Controller) ListOrganizationUsers(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ctrlmw.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrAccessTokenInvalid)
+		return
+	}
+	users, err := c.service.ListOrganizationUsers(r.Context(), claims)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	response := organizationUserListResponse{Users: make([]organizationUserResponse, 0, len(users))}
+	for _, user := range users {
+		response.Users = append(response.Users, organizationUserResponse{
+			ID:        user.ID,
+			Username:  user.Username,
+			Email:     user.Email,
+			Roles:     user.Roles,
+			CreatedAt: user.CreatedAt,
+		})
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, response)
 }
 
 func (c *Controller) InitInternalRoutes(r chi.Router) {

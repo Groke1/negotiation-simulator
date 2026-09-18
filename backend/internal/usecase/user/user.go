@@ -12,6 +12,7 @@ type userRepository interface {
 	GetUserRoles(ctx context.Context, userID string) ([]entity.ProductRole, error)
 	AddUserRole(ctx context.Context, userID string, role entity.ProductRole) error
 	SetUserOrganization(ctx context.Context, userID, organizationID string) (*entity.User, error)
+	ListUsersByOrganization(ctx context.Context, organizationID string) ([]entity.OrganizationUser, error)
 }
 
 type organizationRepository interface {
@@ -113,6 +114,20 @@ func (s *userService) GrantRole(ctx context.Context, params entity.GrantRole) er
 		return err
 	}
 	return s.userRepository.AddUserRole(ctx, params.UserID, params.Role)
+}
+
+func (s *userService) ListOrganizationUsers(ctx context.Context, claims entity.AccessClaims) ([]entity.OrganizationUser, error) {
+	if claims.ActiveRole != entity.RoleCurator {
+		return nil, entity.ErrCuratorRoleRequired
+	}
+	user, err := s.userRepository.GetUserByID(ctx, claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if user.OrganizationID == nil {
+		return nil, entity.ErrOrganizationRequired
+	}
+	return s.userRepository.ListUsersByOrganization(ctx, *user.OrganizationID)
 }
 
 func roleAssigned(role entity.ProductRole, roles []entity.ProductRole) bool {

@@ -15,6 +15,12 @@ CREATE TYPE training.channel AS ENUM (
     'voice'
 );
 
+CREATE TYPE training.session_mode AS ENUM (
+    'deterministic',
+    'virtual_partner'
+);
+
+
 CREATE TABLE training.sessions (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -34,6 +40,8 @@ CREATE TABLE training.sessions (
    scenario_snapshot JSONB NOT NULL,
 
    channel training.channel NOT NULL,
+
+   mode training.session_mode NOT NULL DEFAULT 'deterministic',
 
    is_preview BOOLEAN NOT NULL DEFAULT FALSE,
 
@@ -99,6 +107,7 @@ CREATE INDEX idx_session_events_session_id
 DROP TABLE IF EXISTS training.session_events;
 DROP TABLE IF EXISTS training.sessions;
 
+DROP TYPE IF EXISTS training.session_mode;
 DROP TYPE IF EXISTS training.channel;
 DROP TYPE IF EXISTS training.session_status;
 

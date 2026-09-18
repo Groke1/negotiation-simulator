@@ -45,3 +45,25 @@ sql:
         emit_json_tags: true
         emit_interface: true
         omit_unused_structs: true
+  - engine: "postgresql"
+    queries: "internal/repository/training/queries.sql"
+    schema: "migrations/migrations"
+    gen:
+      go:
+        package: "training"
+        sql_package: "pgx/v5"
+        out: "internal/repository/training/sqlc"
+        emit_json_tags: true
+        emit_interface: true
+        omit_unused_structs: true
+  - engine: "postgresql"
+    queries: "internal/repository/arena/queries.sql"
+    schema: "migrations/migrations"
+    gen:
+      go:
+        package: "arena"
+        sql_package: "pgx/v5"
+        out: "internal/repository/arena/sqlc"
+        emit_json_tags: true
+        emit_interface: true
+        omit_unused_structs: true

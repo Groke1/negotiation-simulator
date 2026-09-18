@@ -203,7 +203,7 @@ func (q *Queries) GetScenarioByID(ctx context.Context, id pgtype.UUID) (Scenario
 }
 
 const getScenarioVersion = `-- name: GetScenarioVersion :one
-SELECT version, snapshot, published_at
+SELECT id, version, snapshot, published_at
 FROM scenarios.scenario_versions
 WHERE scenario_id = $1
   AND version = $2
@@ -215,6 +215,7 @@ type GetScenarioVersionParams struct {
 }
 
 type GetScenarioVersionRow struct {
+	ID          pgtype.UUID        `json:"id"`
 	Version     string             `json:"version"`
 	Snapshot    []byte             `json:"snapshot"`
 	PublishedAt pgtype.Timestamptz `json:"published_at"`
@@ -223,12 +224,17 @@ type GetScenarioVersionRow struct {
 func (q *Queries) GetScenarioVersion(ctx context.Context, arg GetScenarioVersionParams) (GetScenarioVersionRow, error) {
 	row := q.db.QueryRow(ctx, getScenarioVersion, arg.ScenarioID, arg.Version)
 	var i GetScenarioVersionRow
-	err := row.Scan(&i.Version, &i.Snapshot, &i.PublishedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Version,
+		&i.Snapshot,
+		&i.PublishedAt,
+	)
 	return i, err
 }
 
 const listScenarioVersions = `-- name: ListScenarioVersions :many
-SELECT version, snapshot, published_at
+SELECT id, version, snapshot, published_at
 FROM scenarios.scenario_versions
 WHERE scenario_id = $1
 ORDER BY published_at DESC, version DESC
@@ -242,6 +248,7 @@ type ListScenarioVersionsParams struct {
 }
 
 type ListScenarioVersionsRow struct {
+	ID          pgtype.UUID        `json:"id"`
 	Version     string             `json:"version"`
 	Snapshot    []byte             `json:"snapshot"`
 	PublishedAt pgtype.Timestamptz `json:"published_at"`
@@ -256,7 +263,12 @@ func (q *Queries) ListScenarioVersions(ctx context.Context, arg ListScenarioVers
 	var items []ListScenarioVersionsRow
 	for rows.Next() {
 		var i ListScenarioVersionsRow
-		if err := rows.Scan(&i.Version, &i.Snapshot, &i.PublishedAt); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.Snapshot,
+			&i.PublishedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

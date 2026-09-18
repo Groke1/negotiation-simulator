@@ -29,6 +29,14 @@ type User struct {
 	UpdatedAt      time.Time
 }
 
+type OrganizationUser struct {
+	ID        string
+	Username  string
+	Email     string
+	Roles     []ProductRole
+	CreatedAt time.Time
+}
+
 type RegisterUser struct {
 	Username string
 	Email    string

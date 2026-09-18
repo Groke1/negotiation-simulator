@@ -71,6 +71,26 @@ func (r *userRepository) GetUserByID(ctx context.Context, id string) (*entity.Us
 	return userFromSQL(row), nil
 }
 
+func (r *userRepository) ListUsersByOrganization(ctx context.Context, organizationID string) ([]entity.OrganizationUser, error) {
+	pgOrganizationID, err := pgxconv.StringToUUID(organizationID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	rows, err := r.getQueries(ctx).ListUsersByOrganization(ctx, pgOrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]entity.OrganizationUser, 0, len(rows))
+	for _, row := range rows {
+		roles, err := r.GetUserRoles(ctx, pgxconv.UUIDToString(row.ID))
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, entity.OrganizationUser{ID: pgxconv.UUIDToString(row.ID), Username: row.Username, Email: row.Email, Roles: roles, CreatedAt: row.CreatedAt.Time})
+	}
+	return users, nil
+}
+
 func (r *userRepository) AddUserRole(ctx context.Context, userID string, role entity.ProductRole) error {
 	pgUserID, err := pgxconv.StringToUUID(userID)
 	if err != nil {

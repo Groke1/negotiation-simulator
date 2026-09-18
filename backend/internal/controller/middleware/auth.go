@@ -16,9 +16,21 @@ type AccessTokenVerifier interface {
 type claimsContextKey struct{}
 
 func RequireAccessToken(verifier AccessTokenVerifier) func(http.Handler) http.Handler {
+	return requireAccessToken(verifier, func(r *http.Request) (string, bool) {
+		return bearerToken(r.Header.Get("Authorization"))
+	})
+}
+
+// RequireWebSocketAccessToken reads the JWT from a WebSocket subprotocol.
+// Browsers cannot set an Authorization header on the WebSocket handshake.
+func RequireWebSocketAccessToken(verifier AccessTokenVerifier) func(http.Handler) http.Handler {
+	return requireAccessToken(verifier, websocketToken)
+}
+
+func requireAccessToken(verifier AccessTokenVerifier, tokenFromRequest func(*http.Request) (string, bool)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token, ok := bearerToken(r.Header.Get("Authorization"))
+			token, ok := tokenFromRequest(r)
 			if !ok {
 				httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrAccessTokenMissing)
 				return
@@ -45,4 +57,14 @@ func bearerToken(header string) (string, bool) {
 		return "", false
 	}
 	return parts[1], true
+}
+
+func websocketToken(r *http.Request) (string, bool) {
+	for _, protocol := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
+		token := strings.TrimSpace(protocol)
+		if strings.Count(token, ".") == 2 {
+			return token, true
+		}
+	}
+	return "", false
 }

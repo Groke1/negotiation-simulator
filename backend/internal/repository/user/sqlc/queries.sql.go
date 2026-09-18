@@ -128,6 +128,45 @@ func (q *Queries) GetUserRoles(ctx context.Context, userID pgtype.UUID) ([]Users
 	return items, nil
 }
 
+const listUsersByOrganization = `-- name: ListUsersByOrganization :many
+SELECT u.id, u.username, u.email, u.created_at
+FROM users.users u
+WHERE u.organization_id = $1
+ORDER BY u.username ASC
+`
+
+type ListUsersByOrganizationRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	Username  string             `json:"username"`
+	Email     string             `json:"email"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListUsersByOrganization(ctx context.Context, organizationID pgtype.UUID) ([]ListUsersByOrganizationRow, error) {
+	rows, err := q.db.Query(ctx, listUsersByOrganization, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersByOrganizationRow
+	for rows.Next() {
+		var i ListUsersByOrganizationRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Email,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setUserOrganization = `-- name: SetUserOrganization :one
 UPDATE users.users
 SET organization_id = $1, updated_at = NOW()

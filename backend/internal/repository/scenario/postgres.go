@@ -185,7 +185,7 @@ func (r *scenarioRepository) CreateScenarioVersion(ctx context.Context, scenario
 		}
 		return nil, err
 	}
-	return &entity.ScenarioVersion{Version: row.Version, Snapshot: row.Snapshot, PublishedAt: row.PublishedAt.Time}, nil
+	return &entity.ScenarioVersion{ID: pgxconv.UUIDToString(row.ID), Version: row.Version, Snapshot: row.Snapshot, PublishedAt: row.PublishedAt.Time}, nil
 }
 
 func (r *scenarioRepository) ListScenarioVersions(ctx context.Context, scenarioID string, limit, offset int32) ([]entity.ScenarioVersion, error) {
@@ -199,7 +199,7 @@ func (r *scenarioRepository) ListScenarioVersions(ctx context.Context, scenarioI
 	}
 	versions := make([]entity.ScenarioVersion, 0, len(rows))
 	for _, row := range rows {
-		versions = append(versions, entity.ScenarioVersion{Version: row.Version, Snapshot: row.Snapshot, PublishedAt: row.PublishedAt.Time})
+		versions = append(versions, entity.ScenarioVersion{ID: pgxconv.UUIDToString(row.ID), Version: row.Version, Snapshot: row.Snapshot, PublishedAt: row.PublishedAt.Time})
 	}
 	return versions, nil
 }
@@ -216,7 +216,7 @@ func (r *scenarioRepository) GetScenarioVersion(ctx context.Context, scenarioID,
 	if err != nil {
 		return nil, err
 	}
-	return &entity.ScenarioVersion{Version: row.Version, Snapshot: row.Snapshot, PublishedAt: row.PublishedAt.Time}, nil
+	return &entity.ScenarioVersion{ID: pgxconv.UUIDToString(row.ID), Version: row.Version, Snapshot: row.Snapshot, PublishedAt: row.PublishedAt.Time}, nil
 }
 
 func (r *scenarioRepository) getQueries(ctx context.Context) *sqlc.Queries {

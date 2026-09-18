@@ -14,13 +14,19 @@ import (
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/config"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/controller"
 	ctrlmw "sourcecraft.dev/lct-hackaton-2026.arena/internal/controller/middleware"
+	llmclient "sourcecraft.dev/lct-hackaton-2026.arena/internal/llm/ollama"
+	arenarepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/arena"
 	authrepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/auth"
 	orgrepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/organizations"
 	scenariorepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/scenario"
+	trainingrepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/training"
 	userrepo "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/user"
+	arenaserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/arena"
 	authserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/auth"
+	llmserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/llm"
 	orgserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/organizations"
 	scenarioserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/scenario"
+	trainingserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/training"
 	userserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/user"
 	"sourcecraft.dev/lct-hackaton-2026.arena/migrations"
 	"sourcecraft.dev/lct-hackaton-2026.arena/pkg/db"
@@ -57,6 +63,8 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	userRepository := userrepo.NewUserRepository(dbPool)
 	organizationRepository := orgrepo.NewOrganizationRepository(dbPool)
 	scenarioRepository := scenariorepo.NewScenarioRepository(dbPool)
+	trainingRepository := trainingrepo.NewTrainingRepository(dbPool)
+	arenaRepository := arenarepo.NewArenaRepository(dbPool)
 
 	authService := authserv.NewAuthService(userRepository, authRepository, tx, authserv.Config{
 		JWTSecret:       []byte(cfg.Settings.JWTSecret),
@@ -65,7 +73,10 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	})
 	organizationService := orgserv.NewOrganizationService(organizationRepository)
 	userService := userserv.NewUserService(userRepository, organizationRepository, authRepository, authService)
-	scenarioService := scenarioserv.NewScenarioService(scenarioRepository, userRepository, tx)
+	llmService := llmserv.NewService(llmclient.NewClient(&http.Client{Timeout: cfg.Settings.LLMTimeout}, llmclient.Config{BaseURL: cfg.Settings.LLMBaseURL, Model: cfg.Settings.LLMModel}))
+	scenarioService := scenarioserv.NewScenarioService(scenarioRepository, userRepository, tx, llmService)
+	trainingService := trainingserv.NewService(trainingRepository, scenarioRepository, userRepository, tx)
+	arenaService := arenaserv.NewService(arenaRepository, scenarioRepository, userRepository, tx)
 
 	router := chi.NewRouter()
 	router.Use(middleware.StripSlashes, middleware.Logger, middleware.Recoverer)
@@ -76,6 +87,8 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 		userService,
 		organizationService,
 		scenarioService,
+		trainingService,
+		arenaService,
 		authService,
 		ctrlmw.CookieConfig{RefreshTokenTTL: cfg.Settings.RefreshTokenTTL},
 	)

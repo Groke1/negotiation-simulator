@@ -117,7 +117,12 @@ func (c *Controller) GenerateScenario(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusCreated, generateScenarioResponse{ScenarioDraft: scenarioToResponse(*scenario), Provider: "mock"})
+	generationID, err := entity.NewUUID()
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusCreated, generateScenarioResponse{ScenarioDraft: scenarioToResponse(*scenario), AIGenerationID: generationID, Provider: "ollama"})
 }
 
 func (c *Controller) GetScenario(w http.ResponseWriter, r *http.Request) {

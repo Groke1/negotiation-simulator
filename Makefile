@@ -1,4 +1,4 @@
-.PHONY: start stop logs sqlc test
+.PHONY: start stop logs sqlc test frontend-example
 
 start:
 	docker compose -f docker-compose.yml up -d --build
@@ -14,3 +14,6 @@ sqlc:
 
 test:
 	cd backend && go test ./...
+
+frontend-example:
+	cd frontend-example && npm install && npm run dev

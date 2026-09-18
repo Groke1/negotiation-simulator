@@ -102,14 +102,14 @@ VALUES (sqlc.arg(id), sqlc.arg(scenario_id), sqlc.arg(version), sqlc.arg(snapsho
 RETURNING id, scenario_id, version, snapshot, published_at;
 
 -- name: ListScenarioVersions :many
-SELECT version, snapshot, published_at
+SELECT id, version, snapshot, published_at
 FROM scenarios.scenario_versions
 WHERE scenario_id = sqlc.arg(scenario_id)
 ORDER BY published_at DESC, version DESC
 LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: GetScenarioVersion :one
-SELECT version, snapshot, published_at
+SELECT id, version, snapshot, published_at
 FROM scenarios.scenario_versions
 WHERE scenario_id = sqlc.arg(scenario_id)
   AND version = sqlc.arg(version);

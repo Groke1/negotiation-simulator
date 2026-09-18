@@ -34,6 +34,9 @@ type (
 			PGMaxConnIdleTime       time.Duration `env:"POSTGRES_MAX_CONN_IDLE_TIME" envDefault:"5m"`
 			ServerReadHeaderTimeout time.Duration `env:"SERVER_READ_HEADER_TIMEOUT" envDefault:"5s"`
 			HTTPClientTimeout       time.Duration `env:"HTTP_CLIENT_TIMEOUT" envDefault:"5s"`
+			LLMBaseURL              string        `env:"LLM_BASE_URL" envDefault:"http://10.8.1.3:11434"`
+			LLMModel                string        `env:"LLM_MODEL" envDefault:"qwen3.5:9b"`
+			LLMTimeout              time.Duration `env:"LLM_TIMEOUT" envDefault:"60s"`
 		}
 	}
 )

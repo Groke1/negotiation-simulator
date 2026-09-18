@@ -28,14 +28,19 @@ type transactor interface {
 	WithTx(ctx context.Context, f func(ctx context.Context) error) error
 }
 
+type promptExecutor interface {
+	Chat(ctx context.Context, input entity.LLMChat) (*entity.LLMResponse, error)
+}
+
 type scenarioService struct {
 	scenarioRepository scenarioRepository
 	userRepository     userRepository
 	transactor         transactor
+	promptExecutor     promptExecutor
 }
 
-func NewScenarioService(scenarioRepository scenarioRepository, userRepository userRepository, transactor transactor) *scenarioService {
-	return &scenarioService{scenarioRepository: scenarioRepository, userRepository: userRepository, transactor: transactor}
+func NewScenarioService(scenarioRepository scenarioRepository, userRepository userRepository, transactor transactor, promptExecutor promptExecutor) *scenarioService {
+	return &scenarioService{scenarioRepository: scenarioRepository, userRepository: userRepository, transactor: transactor, promptExecutor: promptExecutor}
 }
 
 func (s *scenarioService) ListScenarios(ctx context.Context, claims entity.AccessClaims, params entity.ListScenarios) ([]entity.Scenario, error) {
@@ -88,8 +93,67 @@ func (s *scenarioService) CreateScenario(ctx context.Context, claims entity.Acce
 	})
 }
 
-func (s *scenarioService) GenerateScenario(context.Context, entity.AccessClaims, string) (*entity.Scenario, error) {
-	panic("implements me")
+func (s *scenarioService) GenerateScenario(ctx context.Context, claims entity.AccessClaims, prompt string) (*entity.Scenario, error) {
+	if err := requireMethodist(claims); err != nil {
+		return nil, err
+	}
+	if s.promptExecutor == nil {
+		return nil, entity.ErrLLMUnavailable
+	}
+	response, err := s.promptExecutor.Chat(ctx, entity.LLMChat{Prompt: scenarioGenerationPrompt(prompt)})
+	if err != nil {
+		return nil, err
+	}
+	var generated generatedScenario
+	if err := json.Unmarshal(extractJSONObject(response.Content), &generated); err != nil {
+		return nil, entity.ErrLLMResponseInvalid
+	}
+	params := entity.CreateScenario{UserID: claims.UserID, Version: generated.Version, Title: generated.Title, ModeSupport: generated.ModeSupport, Context: generated.Context, Roles: generated.Roles, Goals: generated.Goals, Interests: generated.Interests, Constraints: generated.Constraints, Parameters: generated.Parameters, PrivateInformation: generated.PrivateInformation, Difficulty: generated.Difficulty, Competencies: generated.Competencies, ObservationRules: generated.ObservationRules, CompletionConditions: generated.CompletionConditions, Channels: generated.Channels, Nodes: generated.Nodes}
+	if !validGeneratedScenario(params) {
+		return nil, entity.ErrLLMResponseInvalid
+	}
+	return s.CreateScenario(ctx, claims, params)
+}
+
+type generatedScenario struct {
+	Version              string                    `json:"version"`
+	Title                string                    `json:"title"`
+	ModeSupport          []string                  `json:"mode_support"`
+	Context              json.RawMessage           `json:"context"`
+	Roles                json.RawMessage           `json:"roles"`
+	Goals                json.RawMessage           `json:"goals"`
+	Interests            json.RawMessage           `json:"interests"`
+	Constraints          json.RawMessage           `json:"constraints"`
+	Parameters           json.RawMessage           `json:"parameters"`
+	PrivateInformation   json.RawMessage           `json:"private_information"`
+	Difficulty           entity.ScenarioDifficulty `json:"difficulty"`
+	Competencies         []string                  `json:"competencies"`
+	ObservationRules     json.RawMessage           `json:"observation_rules"`
+	CompletionConditions json.RawMessage           `json:"completion_conditions"`
+	Channels             []string                  `json:"channels"`
+	Nodes                json.RawMessage           `json:"nodes"`
+}
+
+func scenarioGenerationPrompt(userPrompt string) string {
+	return "Создай черновик сценария переговоров. Верни только один валидный JSON без markdown и пояснений. " +
+		"JSON должен содержать поля version, title, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes. " +
+		"Поддерживаемые mode_support: deterministic, virtual_partner, arena; channel: chat; difficulty: L1, L2 или L3. " +
+		"У nodes используй массив объектов с id, type, speaker, text, actions, is_end; у action поля id, label, semantic_action, next_node_id. " +
+		"Описание методиста: " + strings.TrimSpace(userPrompt)
+}
+
+func extractJSONObject(value string) []byte {
+	value = strings.TrimSpace(value)
+	start := strings.IndexByte(value, '{')
+	end := strings.LastIndexByte(value, '}')
+	if start < 0 || end <= start {
+		return nil
+	}
+	return []byte(value[start : end+1])
+}
+
+func validGeneratedScenario(params entity.CreateScenario) bool {
+	return strings.TrimSpace(params.Version) != "" && strings.TrimSpace(params.Title) != "" && params.Difficulty.Valid() && len(params.ModeSupport) > 0 && len(params.Channels) > 0 && json.Valid(params.Context) && json.Valid(params.Roles) && json.Valid(params.Goals) && json.Valid(params.Interests) && json.Valid(params.Constraints) && json.Valid(params.Parameters) && json.Valid(params.PrivateInformation) && json.Valid(params.ObservationRules) && json.Valid(params.CompletionConditions) && json.Valid(params.Nodes)
 }
 
 func (s *scenarioService) GetScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.Scenario, error) {

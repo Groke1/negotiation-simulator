@@ -146,6 +146,7 @@ type ScenarioValidation struct {
 }
 
 type ScenarioVersion struct {
+	ID          string
 	Version     string
 	Snapshot    json.RawMessage
 	PublishedAt time.Time

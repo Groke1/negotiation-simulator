@@ -13,6 +13,12 @@ SELECT id, organization_id, username, email, password_hash, created_at, updated_
 FROM users.users
 WHERE id = sqlc.arg(id);
 
+-- name: ListUsersByOrganization :many
+SELECT u.id, u.username, u.email, u.created_at
+FROM users.users u
+WHERE u.organization_id = sqlc.arg(organization_id)
+ORDER BY u.username ASC;
+
 -- name: AddUserRole :exec
 INSERT INTO users.user_roles (user_id, role)
 VALUES (sqlc.arg(user_id), sqlc.arg(role));
