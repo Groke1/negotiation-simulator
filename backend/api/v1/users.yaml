@@ -96,6 +96,71 @@ paths:
           $ref: '#/components/responses/AccessUnauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
+    post:
+      tags:
+      - Roles
+      summary: Добавить роль текущему пользователю
+      description: Нужен для первоначального выбора ролей при онбординге. Повторное добавление роли возвращает конфликт.
+      operationId: grantCurrentUserRole
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantRoleRequest'
+      responses:
+        '204':
+          description: Роль добавлена.
+        '400':
+          description: Некорректный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '409':
+          description: Роль уже назначена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleAlreadyAssignedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /organizations/me/users:
+    get:
+      tags:
+      - Organizations
+      summary: Получить участников своей организации
+      description: Доступно при активной роли curator. Используется для назначения Arena и просмотра команды.
+      operationId: listCurrentOrganizationUsers
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Участники организации.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationUserListResponse'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          description: Нужна активная роль curator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CuratorRoleRequiredError'
+        '409':
+          description: У текущего пользователя нет организации.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationRequiredError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /roles/active:
     put:
       tags:
@@ -382,6 +447,67 @@ components:
       properties:
         role:
           $ref: '#/components/schemas/ProductRole'
+    OrganizationUser:
+      type: object
+      required:
+      - id
+      - username
+      - email
+      - roles
+      - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductRole'
+        created_at:
+          type: string
+          format: date-time
+    OrganizationUserListResponse:
+      type: object
+      required:
+      - users
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationUser'
+    CuratorRoleRequiredError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - CURATOR_ROLE_REQUIRED
+        message:
+          type: string
+          enum:
+          - Active role must be curator
+    OrganizationRequiredError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          enum:
+          - ORGANIZATION_REQUIRED
+        message:
+          type: string
+          enum:
+          - User must belong to an organization
     UserNotFoundError:
       type: object
       required:
