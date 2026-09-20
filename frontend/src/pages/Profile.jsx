@@ -4,16 +4,27 @@ import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer
 } from 'recharts';
-import { getMe, getRoles, switchRole, getProfile, grantRole } from '../api';
+import {
+  getMe,
+  getRoles,
+  switchRole,
+  getProfile,
+  grantRole,
+  getOrganizations,
+  setOrganization
+} from '../api';
 
 export default function Profile() {
   const navigate = useNavigate();
   const [me, setMe] = useState(null);
   const [roles, setRoles] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [organizations, setOrganizations] = useState([]);
+  const [selectedOrg, setSelectedOrg] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [switching, setSwitching] = useState(false);
+  const [orgSaving, setOrgSaving] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -26,9 +37,12 @@ export default function Profile() {
         try {
           const profileData = await getProfile(meData.id);
           setProfile(profileData);
-        } catch {
-          // профиль может быть пустой — не критично
-        }
+        } catch {}
+
+        try {
+          const orgsData = await getOrganizations();
+          setOrganizations(orgsData);
+        } catch {}
       } catch (err) {
         setError(err.message);
       } finally {
@@ -43,14 +57,9 @@ export default function Profile() {
     setError('');
     try {
       await switchRole(role);
-
-      if (role === 'methodist') {
-        navigate('/constructor');
-      } else if (role === 'curator') {
-        navigate('/curator');
-      } else {
-        navigate('/home');
-      }
+      if (role === 'methodist') navigate('/constructor');
+      else if (role === 'curator') navigate('/curator');
+      else navigate('/home');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -69,6 +78,22 @@ export default function Profile() {
       setError(err.message);
     } finally {
       setSwitching(false);
+    }
+  }
+
+  async function handleSetOrg(e) {
+    e.preventDefault();
+    setError('');
+    setOrgSaving(true);
+    try {
+      await setOrganization(selectedOrg);
+      const meData = await getMe();
+      setMe(meData);
+      setSelectedOrg('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setOrgSaving(false);
     }
   }
 
@@ -116,6 +141,26 @@ export default function Profile() {
           <strong>{me.organization?.name || 'Не выбрана'}</strong>
         </div>
       </div>
+
+      {!me.organization && organizations.length > 0 && (
+        <div className="card">
+          <h2 className="section-title">Выбрать организацию</h2>
+          <form onSubmit={handleSetOrg}>
+            <label className="field">
+              <span>Организация</span>
+              <select value={selectedOrg} onChange={e => setSelectedOrg(e.target.value)} required>
+                <option value="">— выберите —</option>
+                {organizations.map(o => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" disabled={orgSaving}>
+              {orgSaving ? 'Сохранение...' : 'Привязать'}
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="card">
         <h2 className="section-title">Роли</h2>

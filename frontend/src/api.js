@@ -357,3 +357,143 @@ export async function assignTraining(learnerId, scenarioId) {
   }
   return res.json();
 }
+
+// ==== АРЕНА ====
+
+export async function getMyArenaAssignments(userId) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/users/${userId}/arena-assignments`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Ошибка загрузки арен');
+  const data = await res.json();
+  return data.arenas;
+}
+
+export async function getMyArenaHistory(userId) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/users/${userId}/arena-history`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Ошибка загрузки истории арен');
+  const data = await res.json();
+  return data.arenas;
+}
+
+export async function getArenaAssignment(assignmentId) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/arena/assignments/${assignmentId}`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Арена не найдена');
+  return res.json();
+}
+
+export async function joinArena(assignmentId) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/arena/assignments/${assignmentId}/join`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Не удалось подключиться');
+  }
+  return res.json();
+}
+
+export async function getArenaSession(sessionId) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/arena/sessions/${sessionId}`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Сессия не найдена');
+  return res.json();
+}
+
+export async function getArenaMessages(sessionId) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/arena/sessions/${sessionId}/messages`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Ошибка загрузки сообщений');
+  const data = await res.json();
+  return data.messages;
+}
+
+export async function completeArena(sessionId) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/arena/sessions/${sessionId}/complete`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Ошибка завершения');
+}
+
+export async function getArenaFeedback(sessionId) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/arena/sessions/${sessionId}/feedback`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Ошибка загрузки фидбека');
+  const data = await res.json();
+  return data.feedback;
+}
+
+export async function createArenaAssignment(scenarioId, participants, scheduledAt) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/arena/assignments`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      scenario_id: scenarioId,
+      participants,
+      scheduled_at: scheduledAt
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Ошибка назначения арены');
+  }
+  return res.json();
+}
+
+export async function getCuratorArenas() {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/arena/assignments`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (res.status === 403) throw new Error('Нужна роль куратора');
+  if (!res.ok) throw new Error('Ошибка загрузки арен');
+  const data = await res.json();
+  return data.arenas;
+}
+
+export async function createArenaFeedback(sessionId, participantId, comment, ratings = []) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/arena/sessions/${sessionId}/feedback`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ participant_id: participantId, comment, ratings })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Ошибка сохранения фидбека');
+  }
+  return res.json();
+}
+
+export async function getArenaHistoryDetail(userId, sessionId) {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/users/${userId}/arena-history/${sessionId}`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Арена не найдена');
+  return res.json();
+}

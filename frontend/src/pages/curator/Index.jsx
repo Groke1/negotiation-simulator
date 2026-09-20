@@ -39,10 +39,11 @@ export default function Curator() {
         <p>Следите за успеваемостью учеников и назначайте тренировки.</p>
       </header>
 
-      <div className="nav" style={{ marginBottom: 16 }}>
+      <section className="nav" style={{ marginBottom: 16 }}>
+        <button onClick={() => navigate('/curator/arena')}>Назначить арену</button>
         <button onClick={() => navigate('/profile')}>Профиль</button>
         <button onClick={() => navigate('/home')}>Обучение</button>
-      </div>
+      </section>
 
       {error && <p className="error">{error}</p>}
 

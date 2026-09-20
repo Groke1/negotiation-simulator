@@ -10,10 +10,11 @@ import CreateScenario from './pages/constructor/Create';
 import ScenarioView from './pages/constructor/Scenario';
 import Curator from './pages/curator/Index';
 import Learner from './pages/curator/Learner';
+import CuratorArena from './pages/curator/Arena';
+import ArenaFeedback from './pages/curator/ArenaFeedback';
 import ArenaIndex from './pages/arena/Index';
-import ArenaPrepare from './pages/arena/Prepare';
-import ArenaChat from './pages/arena/Chat';
-import ArenaDebrief from './pages/arena/Debrief';
+import ArenaSession from './pages/arena/Session';
+import ArenaHistory from './pages/arena/History';
 import './App.css';
 
 export default function App() {
@@ -33,11 +34,13 @@ export default function App() {
 
         <Route path="/curator" element={<Curator />} />
         <Route path="/curator/learner/:userId" element={<Learner />} />
+        <Route path="/curator/arena" element={<CuratorArena />} />
+        <Route path="/curator/arena/:sessionId/feedback" element={<ArenaFeedback />} />
 
         <Route path="/arena" element={<ArenaIndex />} />
-        <Route path="/arena/prepare/:scenarioId" element={<ArenaPrepare />} />
-        <Route path="/arena/chat/:scenarioId" element={<ArenaChat />} />
-        <Route path="/arena/debrief/:scenarioId/:outcome" element={<ArenaDebrief />} />
+        <Route path="/arena/assignment/:assignmentId/join" element={<ArenaSession />} />
+        <Route path="/arena/session/:sessionId" element={<ArenaSession />} />
+        <Route path="/arena/history/:sessionId" element={<ArenaHistory />} />
       </Routes>
     </BrowserRouter>
   );
