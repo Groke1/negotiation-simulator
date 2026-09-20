@@ -82,7 +82,7 @@ li { margin-bottom: 8px; color: #222; font-size: 15px; }
 .muted { color: #555; font-size: 14px; font-weight: 500; }
 .nav { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 
-/* ==== ФОРМА (поля ввода) ==== */
+/* ==== ФОРМА ==== */
 
 .field {
   display: flex;
@@ -98,7 +98,8 @@ li { margin-bottom: 8px; color: #222; font-size: 15px; }
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   padding: 12px 16px;
   border: 1px solid #d0d0d0;
   background: #ffffff;
@@ -112,18 +113,22 @@ li { margin-bottom: 8px; color: #222; font-size: 15px; }
 }
 
 .field input::placeholder,
-.field textarea::placeholder {
-  color: #999999;
-}
+.field textarea::placeholder { color: #999999; }
 
 .field input:focus,
-.field textarea:focus {
-  border-color: #111111;
-}
+.field textarea:focus,
+.field select:focus { border-color: #111111; }
 
 /* ==== СЦЕНАРИИ ==== */
 
-.scenario-card { display: flex; flex-direction: column; gap: 12px; }
+.scenario-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.scenario-card:last-child { border-bottom: none; padding-bottom: 0; }
 
 .scenario-header {
   display: flex;
@@ -395,6 +400,45 @@ li { margin-bottom: 8px; color: #222; font-size: 15px; }
 
 .back-home { margin-top: 16px; }
 
+/* ==== РОЛИ ==== */
+
+.role-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.role-row:last-child { border-bottom: none; }
+
+.role-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #222;
+}
+
+.role-name.active { color: #0a7c2f; }
+
+.role-row button {
+  padding: 8px 14px;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* ==== АРЕНА ==== */
+
+.goal-compare {
+  background: #f0f7ff;
+  padding: 12px;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+
+.goal-compare p {
+  margin: 4px 0;
+}
+
 /* ==== ОШИБКА ==== */
 
 .error {
@@ -437,4 +481,122 @@ li { margin-bottom: 8px; color: #222; font-size: 15px; }
   .competency-item { font-size: 14px; padding: 12px; }
   .scenario-desc { font-size: 14px; }
   .scenario-meta { font-size: 13px; }
+
+  .role-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .role-row button { width: 100%; }
+}
+/* ==== АРЕНА (акцент) ==== */
+
+.arena-cta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  color: white;
+  padding: 24px;
+  border-radius: 14px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  border: 1px solid #111;
+}
+
+.arena-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.arena-cta h2 {
+  color: white;
+  font-size: 20px;
+  margin: 0 0 6px;
+}
+
+.arena-cta p {
+  color: #bbb;
+  font-size: 14px;
+  margin: 0;
+}
+
+.arena-arrow {
+  font-size: 32px;
+  color: white;
+  font-weight: 300;
+}
+
+.arena-hero {
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  color: white;
+  padding: 32px;
+  border-radius: 14px;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.arena-hero-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.9;
+}
+
+.arena-hero h2 {
+  color: white;
+  font-size: 22px;
+  margin: 0 0 16px;
+}
+
+.arena-hero-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  display: inline-block;
+}
+
+.arena-hero-list li {
+  color: #ddd;
+  padding: 6px 0;
+  font-size: 15px;
+  position: relative;
+  padding-left: 20px;
+}
+
+.arena-hero-list li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  color: #888;
+}
+
+.arena-btn {
+  background: #111;
+  color: white;
+  border-color: #111;
+  font-weight: 700;
+  padding: 14px 24px;
+  font-size: 15px;
+}
+
+.arena-btn:hover:not(:disabled) {
+  background: #333;
+  border-color: #333;
+}
+
+.chat-page.arena-mode .chat-header {
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  border-bottom: none;
+}
+
+.chat-page.arena-mode .chat-header-info h2,
+.chat-page.arena-mode .chat-header-info p {
+  color: white;
+}
+
+.chat-page.arena-mode .back-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.chat-page.arena-mode .back-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
 }

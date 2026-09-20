@@ -23,6 +23,14 @@ export default function Home() {
         <button onClick={() => navigate('/chat/sc-042')}>Начать тренировку</button>
       </section>
 
+      <section className="arena-cta" onClick={() => navigate('/arena')}>
+        <div>
+          <h2>Арена переговоров</h2>
+          <p>Проверьте навык без подсказок. Сложнее, чем в Обучении.</p>
+        </div>
+        <span className="arena-arrow">→</span>
+      </section>
+
       <section className="nav">
         <button onClick={() => navigate('/profile')}>Профиль</button>
         <button onClick={() => navigate('/history')}>История</button>

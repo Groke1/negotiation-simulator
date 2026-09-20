@@ -1,24 +1,39 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login, register } from '../api';
+import { login, registerWithRole, getMe } from '../api';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [role, setRole] = useState('learner');
   const [isRegister, setIsRegister] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setLoading(true);
+
     try {
-      if (isRegister) await register(username, email, password);
-      else await login(email, password);
-      navigate('/home');
+      if (isRegister) {
+        await registerWithRole(username, email, password, role);
+      } else {
+        await login(email, password);
+      }
+
+      const me = await getMe();
+      localStorage.setItem('user_id', me.id);
+
+      if (me.active_role === 'methodist') navigate('/constructor');
+      else if (me.active_role === 'curator') navigate('/curator');
+      else navigate('/home');
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -63,13 +78,24 @@ export default function Login() {
           />
         </label>
 
+        {isRegister && (
+          <label className="field">
+            <span>Кто вы?</span>
+            <select value={role} onChange={e => setRole(e.target.value)}>
+              <option value="learner">Обучающийся</option>
+              <option value="methodist">Методист</option>
+              <option value="curator">Куратор</option>
+            </select>
+          </label>
+        )}
+
         {error && <p className="error">{error}</p>}
 
-        <button type="submit">
-          {isRegister ? 'Зарегистрироваться' : 'Войти'}
+        <button type="submit" disabled={loading}>
+          {loading ? 'Загрузка...' : (isRegister ? 'Зарегистрироваться' : 'Войти')}
         </button>
 
-        <button type="button" onClick={() => setIsRegister(!isRegister)}>
+        <button type="button" onClick={() => setIsRegister(!isRegister)} disabled={loading}>
           {isRegister ? 'У меня есть аккаунт' : 'Создать аккаунт'}
         </button>
       </form>

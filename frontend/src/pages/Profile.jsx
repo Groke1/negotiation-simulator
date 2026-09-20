@@ -1,109 +1,188 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ResponsiveContainer, Legend
+  ResponsiveContainer
 } from 'recharts';
-import { getHistory } from '../data/history';
-import {
-  competencies, computeLevels, computeOverallProfile, chartColors
-} from '../data/profile';
+import { getMe, getRoles, switchRole, getProfile, grantRole } from '../api';
 
 export default function Profile() {
   const navigate = useNavigate();
-  const sessions = getHistory();
+  const [me, setMe] = useState(null);
+  const [roles, setRoles] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [switching, setSwitching] = useState(false);
 
-  // Общий профиль (среднее по всем сессиям)
-  const overall = computeOverallProfile(sessions);
+  useEffect(() => {
+    async function load() {
+      try {
+        const meData = await getMe();
+        setMe(meData);
+        const rolesData = await getRoles();
+        setRoles(rolesData);
 
-  // Данные для общего радара
-  const overallData = competencies.map(c => ({
-    competency: c.name,
-    level: overall[c.id]
-  }));
+        try {
+          const profileData = await getProfile(meData.id);
+          setProfile(profileData);
+        } catch {
+          // профиль может быть пустой — не критично
+        }
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
 
-  // Сессии для мульти-радара: максимум 4
-  const recentSessions = sessions.slice(0, 4);
+  async function handleSwitchRole(role) {
+    setSwitching(true);
+    setError('');
+    try {
+      await switchRole(role);
 
-  // Собираем данные для мульти-радара
-  const multiData = competencies.map((c) => {
-    const row = { competency: c.name };
-    recentSessions.forEach((s, i) => {
-      const levels = computeLevels(s.patterns || []);
-      row['s' + i] = levels[c.id];
-    });
-    return row;
-  });
+      if (role === 'methodist') {
+        navigate('/constructor');
+      } else if (role === 'curator') {
+        navigate('/curator');
+      } else {
+        navigate('/home');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  async function handleGrantRole(role) {
+    setSwitching(true);
+    setError('');
+    try {
+      await grantRole(me.id, role);
+      const updatedRoles = await getRoles();
+      setRoles(updatedRoles);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  if (loading) return <div className="page">Загрузка...</div>;
+  if (error && !me) return <div className="page"><p className="error">{error}</p></div>;
+  if (!me) return <div className="page">Нет данных</div>;
+
+  const hasProfileData = profile?.clusters && profile.clusters.length > 0;
+
+  const chartData = hasProfileData
+    ? profile.clusters.map(c => ({
+        competency: c.cluster,
+        level: c.level
+      }))
+    : [
+        { competency: 'Цели и границы', level: 0 },
+        { competency: 'Диагностика', level: 0 },
+        { competency: 'Создание ценности', level: 0 },
+        { competency: 'Аргументация', level: 0 },
+        { competency: 'Торг и обмен', level: 0 },
+        { competency: 'Конфликт', level: 0 }
+      ];
 
   return (
     <div className="page">
       <header>
-        <h1>Профиль компетенций</h1>
-        <p>Уровень по 6 кластерам: от 0 (не проявляется) до 4 (адаптивный).</p>
+        <h1>Профиль</h1>
+        <p>{me.email}</p>
       </header>
 
-      {sessions.length === 0 ? (
-        <div className="card">
-          <p className="muted">Пройдите хотя бы одну тренировку, чтобы увидеть профиль.</p>
-          <button onClick={() => navigate('/')}>Начать</button>
-        </div>
-      ) : (
-        <>
-          <div className="card">
-            <h2 className="section-title">Общий профиль</h2>
-            <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
-              Среднее по {sessions.length} {sessions.length === 1 ? 'сессии' : 'сессиям'}.
-            </p>
-            <ResponsiveContainer width="100%" height={360}>
-              <RadarChart data={overallData} outerRadius="70%">
-                <PolarGrid stroke="#e5e5e5" />
-                <PolarAngleAxis dataKey="competency" tick={{ fill: '#333', fontSize: 11 }} />
-                <PolarRadiusAxis domain={[0, 4]} tick={{ fill: '#999', fontSize: 11 }} />
-                <Radar dataKey="level" stroke="#111" fill="#111" fillOpacity={0.15} />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {recentSessions.length > 0 && (
-            <div className="card">
-              <h2 className="section-title">Последние {recentSessions.length} сессий</h2>
-              <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
-                Каждый цвет — одна тренировка. Хранятся последние 4.
-              </p>
-              <ResponsiveContainer width="100%" height={420}>
-                <RadarChart data={multiData} outerRadius="65%">
-                  <PolarGrid stroke="#e5e5e5" />
-                  <PolarAngleAxis dataKey="competency" tick={{ fill: '#333', fontSize: 11 }} />
-                  <PolarRadiusAxis domain={[0, 4]} tick={{ fill: '#999', fontSize: 11 }} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  {recentSessions.map((s, i) => (
-                    <Radar
-                      key={i}
-                      name={s.scenarioTitle}
-                      dataKey={'s' + i}
-                      stroke={chartColors[i]}
-                      fill={chartColors[i]}
-                      fillOpacity={0.08}
-                    />
-                  ))}
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </>
-      )}
+      {error && <p className="error">{error}</p>}
 
       <div className="card">
-        <h2 className="section-title">Расшифровка уровней</h2>
-        <ul className="clean-list">
-          <li>0 — не проявляется</li>
-          <li>1 — начальный</li>
-          <li>2 — рабочий</li>
-          <li>3 — уверенный</li>
-          <li>4 — адаптивный</li>
-        </ul>
+        <h2 className="section-title">Личные данные</h2>
+        <div className="competency-item">
+          <span>Имя пользователя</span>
+          <strong>{me.username}</strong>
+        </div>
+        <div className="competency-item">
+          <span>Email</span>
+          <strong>{me.email}</strong>
+        </div>
+        <div className="competency-item">
+          <span>Организация</span>
+          <strong>{me.organization?.name || 'Не выбрана'}</strong>
+        </div>
       </div>
 
-      <button onClick={() => navigate('/')}>На главную</button>
+      <div className="card">
+        <h2 className="section-title">Роли</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          У вас может быть несколько ролей. Активная — выделена.
+        </p>
+
+        {roles?.items?.map(role => (
+          <div key={role} className="role-row">
+            <span className={`role-name ${roles.active_role === role ? 'active' : ''}`}>
+              {formatRole(role)}
+              {roles.active_role === role && ' · активна'}
+            </span>
+            {roles.active_role !== role && (
+              <button onClick={() => handleSwitchRole(role)} disabled={switching}>
+                Переключить
+              </button>
+            )}
+          </div>
+        ))}
+
+        <div style={{ marginTop: 16, borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
+          <p className="muted" style={{ margin: '0 0 8px' }}>
+            Для демо — выдать роль:
+          </p>
+          {!roles?.items?.includes('methodist') && (
+            <button onClick={() => handleGrantRole('methodist')} disabled={switching}>
+              Стать методистом
+            </button>
+          )}
+          {!roles?.items?.includes('curator') && (
+            <button onClick={() => handleGrantRole('curator')} disabled={switching}>
+              Стать куратором
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 className="section-title">Профиль компетенций</h2>
+
+        {!hasProfileData && (
+          <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
+            Профиль пока пуст. Пройдите тренировку, чтобы увидеть свои компетенции.
+          </p>
+        )}
+
+        <ResponsiveContainer width="100%" height={360}>
+          <RadarChart data={chartData}>
+            <PolarGrid stroke="#e5e5e5" />
+            <PolarAngleAxis dataKey="competency" tick={{ fill: '#333', fontSize: 11 }} />
+            <PolarRadiusAxis domain={[0, 4]} tick={{ fill: '#999', fontSize: 11 }} />
+            <Radar dataKey="level" stroke="#111" fill="#111" fillOpacity={0.15} />
+          </RadarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <button onClick={() => navigate('/home')}>На главную</button>
     </div>
   );
+}
+
+function formatRole(role) {
+  const map = {
+    learner: 'Обучающийся',
+    methodist: 'Методист',
+    curator: 'Куратор'
+  };
+  return map[role] || role;
 }

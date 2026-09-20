@@ -1,9 +1,35 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getHistory } from '../data/history';
+import { getSessionHistory, getUserId } from '../api';
 
 export default function History() {
   const navigate = useNavigate();
-  const sessions = getHistory();
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    async function load() {
+      const userId = getUserId();
+      if (!userId) {
+        setError('Нет данных пользователя. Войдите заново.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const data = await getSessionHistory(userId);
+        setSessions(data.sessions || []);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  if (loading) return <div className="page">Загрузка...</div>;
 
   return (
     <div className="page">
@@ -12,27 +38,32 @@ export default function History() {
         <p>Всего сессий: {sessions.length}</p>
       </header>
 
-      {sessions.length === 0 && (
+      {error && <p className="error">{error}</p>}
+
+      {!error && sessions.length === 0 && (
         <div className="card">
           <p className="muted">Вы ещё не проходили тренировки.</p>
-          <button onClick={() => navigate('/')}>Начать</button>
+          <button onClick={() => navigate('/home')}>Начать тренировку</button>
         </div>
       )}
 
       {sessions.map(s => (
-        <div key={s.id} className="card session-card">
+        <div key={s.session_id} className="card session-card">
           <div className="session-header">
-            <h3>{s.scenarioTitle}</h3>
-            <span className="badge">{s.date}</span>
+            <h3>{s.scenario_title}</h3>
+            <span className="badge">
+              {s.completed_at
+                ? new Date(s.completed_at).toLocaleDateString('ru-RU')
+                : '—'}
+            </span>
           </div>
-          <p className="scenario-desc">Роль: {s.role}</p>
-          <button onClick={() => navigate(`/debrief/${s.scenarioId}/${s.outcome}`)}>
-            Посмотреть разбор
-          </button>
+          <p className="scenario-desc">
+            Режим: {s.mode} · Статус: {s.status}
+          </p>
         </div>
       ))}
 
-      <button className="back-home" onClick={() => navigate('/')}>На главную</button>
+      <button onClick={() => navigate('/home')}>На главную</button>
     </div>
   );
 }

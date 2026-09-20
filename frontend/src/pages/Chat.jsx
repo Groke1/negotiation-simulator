@@ -27,7 +27,7 @@ export default function Chat() {
     return (
       <div className="page">
         <h1>Сценарий не найден</h1>
-        <button onClick={() => navigate('/')}>На главную</button>
+        <button onClick={() => navigate('/home')}>На главную</button>
       </div>
     );
   }
@@ -87,7 +87,7 @@ export default function Chat() {
   return (
     <div className="chat-page">
       <header className="chat-header">
-        <button className="back-btn" onClick={() => navigate('/')} aria-label="Назад">←</button>
+        <button className="back-btn" onClick={() => navigate('/home')}>←</button>
         <div className="chat-header-info">
           <h2>{scenario.title}</h2>
           <p>{scenario.roles.learner} · {scenario.roles.partner} · {scenario.difficulty}</p>

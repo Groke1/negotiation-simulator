@@ -14,7 +14,7 @@ export default function Debrief() {
     return (
       <div className="page">
         <h1>Разбор не найден</h1>
-        <button onClick={() => navigate('/')}>На главную</button>
+        <button onClick={() => navigate('/home')}>На главную</button>
       </div>
     );
   }
@@ -79,7 +79,7 @@ export default function Debrief() {
             ))}
           </div>
           <button onClick={() => navigate('/profile')}>Профиль</button>
-          <button onClick={() => navigate('/')}>На главную</button>
+          <button onClick={() => navigate('/home')}>На главную</button>
         </div>
       )}
     </div>
