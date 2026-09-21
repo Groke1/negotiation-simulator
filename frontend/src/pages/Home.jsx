@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { logout, getRecommendation, getUserId, getMe } from '../api';
+import { logout, getMe } from '../api';
+import { mockScenario } from '../data/mockScenario';
 
 export default function Home() {
   const navigate = useNavigate();
-  const [recommendation, setRecommendation] = useState(null);
+  const [scenarios, setScenarios] = useState([]);
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -13,14 +14,18 @@ export default function Home() {
       try {
         const meData = await getMe();
         setMe(meData);
-
-        try {
-          const rec = await getRecommendation(meData.id);
-          setRecommendation(rec);
-        } catch {
-          // рекомендация может не работать
-        }
       } catch {}
+
+      // Берём сценарии из localStorage
+      const published = JSON.parse(localStorage.getItem('published_scenarios') || '{}');
+      const list = Object.values(published);
+
+      // Если ничего не опубликовано — показываем мок
+      if (list.length === 0) {
+        setScenarios([{ ...mockScenario, scenario_id: 'sc-mock-001', status: 'published', isMock: true }]);
+      } else {
+        setScenarios(list);
+      }
 
       setLoading(false);
     }
@@ -32,6 +37,8 @@ export default function Home() {
     navigate('/');
   }
 
+  if (loading) return <div className="page">Загрузка...</div>;
+
   return (
     <div className="page">
       <header>
@@ -39,35 +46,37 @@ export default function Home() {
         <p>Добрый день{me?.username ? `, ${me.username}` : ''}!</p>
       </header>
 
-      {recommendation ? (
-        <section className="card">
-          <h2>Рекомендуем</h2>
-          <h3>{recommendation.scenario_title}</h3>
-          {recommendation.reason?.text && (
-            <p className="muted">{recommendation.reason.text}</p>
-          )}
-          {recommendation.source === 'curator_assignment' && (
-            <p className="muted" style={{ fontSize: 13 }}>
-              Назначено куратором
+      <section className="card">
+        <h2>Доступные тренировки</h2>
+
+        {scenarios.length === 0 && (
+          <p className="muted">Нет доступных сценариев. Методист должен опубликовать.</p>
+        )}
+
+        {scenarios.map(s => (
+          <div key={s.scenario_id} style={{
+            padding: '16px 0',
+            borderBottom: '1px solid #f0f0f0'
+          }}>
+            <h3 style={{ margin: '0 0 6px' }}>{s.title}</h3>
+            <p className="muted" style={{ margin: '0 0 6px', fontSize: 13 }}>
+              {s.description}
             </p>
-          )}
-          <button onClick={() => navigate(`/chat/${recommendation.scenario_id}`)}>
-            Начать тренировку
-          </button>
-        </section>
-      ) : (
-        <section className="card">
-          <h2>Рекомендуем</h2>
-          <h3>Тренировка: Продление контракта</h3>
-          <p>Сложность: L2</p>
-          <button onClick={() => navigate('/chat/sc-042')}>Начать тренировку</button>
-        </section>
-      )}
+            <p className="muted" style={{ margin: '0 0 10px', fontSize: 12 }}>
+              Сложность: {s.difficulty} · Блоков: {s.blocks?.length || 0}
+              {s.isMock && ' · демо'}
+            </p>
+            <button onClick={() => navigate(`/chat/${s.scenario_id}`)}>
+              Начать тренировку
+            </button>
+          </div>
+        ))}
+      </section>
 
       <section className="arena-cta" onClick={() => navigate('/arena')}>
         <div>
           <h2>Арена переговоров</h2>
-          <p>Проверьте навык без подсказок. Сложнее, чем в Обучении.</p>
+          <p>Проверьте навык без подсказок.</p>
         </div>
         <span className="arena-arrow">→</span>
       </section>
