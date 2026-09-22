@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getSessionHistory, getUserId } from '../api';
+import { getTrainingSessions } from '../api';
 
 export default function History() {
   const navigate = useNavigate();
@@ -10,16 +10,11 @@ export default function History() {
 
   useEffect(() => {
     async function load() {
-      const userId = getUserId();
-      if (!userId) {
-        setError('Нет данных пользователя. Войдите заново.');
-        setLoading(false);
-        return;
-      }
-
       try {
-        const data = await getSessionHistory(userId);
-        setSessions(data.sessions || []);
+        const data = await getTrainingSessions();
+        // Поддержка разных форматов ответа
+        const list = data.sessions || data || [];
+        setSessions(list);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -48,18 +43,23 @@ export default function History() {
       )}
 
       {sessions.map(s => (
-        <div key={s.session_id} className="card session-card">
+        <div key={s.session_id || s.id} className="card session-card">
           <div className="session-header">
-            <h3>{s.scenario_title}</h3>
+            <h3>{s.scenario_title || s.scenario?.title || 'Тренировка'}</h3>
             <span className="badge">
-              {s.completed_at
-                ? new Date(s.completed_at).toLocaleDateString('ru-RU')
+              {s.completed_at || s.created_at
+                ? new Date(s.completed_at || s.created_at).toLocaleDateString('ru-RU')
                 : '—'}
             </span>
           </div>
           <p className="scenario-desc">
-            Режим: {s.mode} · Статус: {s.status}
+            Режим: {s.mode || '—'} · Статус: {s.status || '—'}
           </p>
+          {s.session_id && (
+            <button onClick={() => navigate(`/debrief/${s.session_id}/result`)}>
+              Посмотреть разбор
+            </button>
+          )}
         </div>
       ))}
 

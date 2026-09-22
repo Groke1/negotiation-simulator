@@ -4,7 +4,7 @@ import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer
 } from 'recharts';
-import { getProfile, getSessionHistory, getProfileHistory } from '../../api';
+import { getUserProfile, getProfileHistory } from '../../api';
 
 export default function Learner() {
   const { userId } = useParams();
@@ -18,22 +18,13 @@ export default function Learner() {
   useEffect(() => {
     async function load() {
       try {
-        const profileData = await getProfile(userId);
+        const profileData = await getUserProfile(userId);
         setProfile(profileData);
-
-        try {
-          const sessionsData = await getSessionHistory(userId);
-          setSessions(sessionsData.sessions || []);
-        } catch {
-          // история может не работать
-        }
 
         try {
           const historyData = await getProfileHistory(userId);
           setHistory(historyData);
-        } catch {
-          // динамика может не работать
-        }
+        } catch {}
       } catch (err) {
         setError(err.message);
       } finally {
@@ -48,8 +39,8 @@ export default function Learner() {
 
   const chartData = profile?.clusters?.length > 0
     ? profile.clusters.map(c => ({
-        competency: c.cluster,
-        level: c.level
+        competency: c.name || c.cluster || c.cluster_id,
+        level: c.level || c.score || 0
       }))
     : [
         { competency: 'Цели и границы', level: 0 },
@@ -73,7 +64,7 @@ export default function Learner() {
           <RadarChart data={chartData}>
             <PolarGrid stroke="#e5e5e5" />
             <PolarAngleAxis dataKey="competency" tick={{ fill: '#333', fontSize: 11 }} />
-            <PolarRadiusAxis domain={[0, 4]} tick={{ fill: '#999', fontSize: 11 }} />
+            <PolarRadiusAxis domain={[0, 100]} tick={{ fill: '#999', fontSize: 11 }} />
             <Radar dataKey="level" stroke="#111" fill="#111" fillOpacity={0.15} />
           </RadarChart>
         </ResponsiveContainer>
@@ -84,7 +75,7 @@ export default function Learner() {
           <h2 className="section-title">Динамика (до/после)</h2>
           {history.clusters.map((c, i) => (
             <div key={i} className="competency-item">
-              <span>{c.cluster}</span>
+              <span>{c.name || c.cluster}</span>
               <span style={{ fontSize: 13, color: '#666' }}>
                 {c.before?.level ?? '—'} → {c.after?.level ?? '—'}
               </span>
@@ -101,11 +92,11 @@ export default function Learner() {
         )}
 
         {sessions.map(s => (
-          <div key={s.session_id} className="competency-item">
+          <div key={s.session_id || s.id} className="competency-item">
             <div>
-              <strong>{s.scenario_title}</strong>
+              <strong>{s.scenario_title || 'Тренировка'}</strong>
               <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
-                {s.mode} · {s.status} · {s.completed_at
+                {s.mode || '—'} · {s.status || '—'} · {s.completed_at
                   ? new Date(s.completed_at).toLocaleDateString('ru-RU')
                   : '—'}
               </p>

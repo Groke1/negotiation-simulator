@@ -21,7 +21,6 @@ async function refreshAccessToken() {
       });
 
       if (!res.ok) {
-        // Refresh не сработал — разлогиниваем
         localStorage.removeItem('access_token');
         localStorage.removeItem('user_id');
         window.location.href = '/';
@@ -50,7 +49,6 @@ async function fetchWithAuth(url, options = {}) {
 
   let res = await fetch(url, { ...options, headers });
 
-  // Если 401 — пробуем refresh и повторяем
   if (res.status === 401) {
     try {
       const newToken = await refreshAccessToken();
@@ -147,6 +145,10 @@ export async function switchRole(role) {
   return data;
 }
 
+// ========================================
+// ==== ОРГАНИЗАЦИИ ====
+// ========================================
+
 export async function getOrganizations() {
   const res = await fetchWithAuth(`${BASE_URL}/organizations`);
   if (!res.ok) throw new Error('Ошибка загрузки организаций');
@@ -166,6 +168,40 @@ export async function setOrganization(organizationId) {
   }
 }
 
+// Через api/v1 (с токеном)
+export async function createOrganization(name) {
+  const res = await fetchWithAuth(`${BASE_URL}/organizations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  if (res.status === 409) {
+    throw new Error('Организация с таким названием уже существует');
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Ошибка создания организации');
+  }
+  return res.json();
+}
+
+// Через internal/v1 (без токена — для демо)
+export async function createOrganizationInternal(name) {
+  const res = await fetch(`http://localhost:8080/internal/v1/organizations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  if (res.status === 409) {
+    throw new Error('Организация с таким названием уже существует');
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Ошибка создания организации');
+  }
+  return res.json();
+}
+
 // ========================================
 // ==== INTERNAL (для демо) ====
 // ========================================
@@ -182,16 +218,34 @@ export async function grantRole(userId, role) {
   }
 }
 
-export async function registerWithRole(username, email, password, role) {
+// ========================================
+// ==== РЕГИСТРАЦИЯ С РОЛЯМИ И ОРГАНИЗАЦИЕЙ ====
+// ========================================
+
+export async function registerWithRolesAndOrg(username, email, password, roles, organizationId) {
   const data = await register(username, email, password);
 
-  if (role && role !== 'learner') {
-    try {
-      const me = await getMe();
-      await grantRole(me.id, role);
-    } catch (e) {
-      console.warn('Не удалось выдать роль:', e.message);
+  try {
+    const me = await getMe();
+    localStorage.setItem('user_id', me.id);
+
+    for (const role of roles) {
+      try {
+        await grantRole(me.id, role);
+      } catch (e) {
+        console.warn(`Не удалось выдать роль ${role}:`, e.message);
+      }
     }
+
+    if (organizationId) {
+      try {
+        await setOrganization(organizationId);
+      } catch (e) {
+        console.warn('Не удалось привязать организацию:', e.message);
+      }
+    }
+  } catch (e) {
+    console.warn('Ошибка после регистрации:', e.message);
   }
 
   return data;
@@ -204,6 +258,7 @@ export async function registerWithRole(username, email, password, role) {
 export async function getScenarios() {
   const res = await fetchWithAuth(`${BASE_URL}/scenarios`);
   if (res.status === 401) throw new Error('Не авторизован');
+  if (res.status === 409) throw new Error('Нужна организация');
   if (!res.ok) throw new Error('Ошибка загрузки сценариев');
   const data = await res.json();
   return data.scenarios || [];
@@ -224,6 +279,23 @@ export async function updateScenario(scenarioId, scenarioData) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Ошибка сохранения');
+  }
+  return res.json();
+}
+
+export async function createScenario(scenarioData) {
+  const res = await fetchWithAuth(`${BASE_URL}/scenarios`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(scenarioData)
+  });
+  if (res.status === 409) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Нужна организация');
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Ошибка создания сценария');
   }
   return res.json();
 }
@@ -260,80 +332,116 @@ export async function publishScenario(id) {
   return res.json();
 }
 
-export async function getScenarioVersions(id) {
-  const res = await fetchWithAuth(`${BASE_URL}/scenarios/${id}/versions`);
-  if (!res.ok) throw new Error('Ошибка загрузки версий');
+export async function archiveScenario(id) {
+  const res = await fetchWithAuth(`${BASE_URL}/scenarios/${id}/archive`, {
+    method: 'POST'
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Ошибка архивации');
+  }
+}
+
+// ========================================
+// ==== СПРАВОЧНИКИ ====
+// ========================================
+
+export async function getSemanticActions() {
+  const res = await fetchWithAuth(`${BASE_URL}/semantic-actions`);
+  if (!res.ok) throw new Error('Ошибка загрузки действий');
   const data = await res.json();
-  return data.versions;
+  return data.actions;
+}
+
+export async function getCompetencyClusters() {
+  const res = await fetchWithAuth(`${BASE_URL}/competency-clusters`);
+  if (!res.ok) throw new Error('Ошибка загрузки кластеров');
+  const data = await res.json();
+  return data.clusters;
 }
 
 // ========================================
 // ==== ТРЕНИРОВКИ ====
 // ========================================
 
-export async function startSession(scenarioId) {
-  const res = await fetchWithAuth(`${BASE_URL}/sessions`, {
+export async function startTrainingSession(scenarioId, mode = 'deterministic', channel = 'chat') {
+  const res = await fetchWithAuth(`${BASE_URL}/training/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scenario_id: scenarioId, channel: 'chat' })
+    body: JSON.stringify({ scenario_id: scenarioId, mode, channel })
   });
-  if (!res.ok) throw new Error('Ошибка старта сессии');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Ошибка старта тренировки');
+  }
   return res.json();
 }
 
-export async function getSessionState(sessionId) {
-  const res = await fetchWithAuth(`${BASE_URL}/sessions/${sessionId}/state`);
-  if (!res.ok) throw new Error('Ошибка загрузки состояния');
+export async function getTrainingSessions() {
+  const res = await fetchWithAuth(`${BASE_URL}/training/sessions`);
+  if (!res.ok) throw new Error('Ошибка загрузки сессий');
   return res.json();
 }
 
-export async function sendAction(sessionId, actionId) {
-  const res = await fetchWithAuth(`${BASE_URL}/sessions/${sessionId}/events`, {
+export async function getTrainingSession(sessionId) {
+  const res = await fetchWithAuth(`${BASE_URL}/training/sessions/${sessionId}`);
+  if (!res.ok) throw new Error('Сессия не найдена');
+  return res.json();
+}
+
+export async function sendTrainingMessage(sessionId, message) {
+  const res = await fetchWithAuth(`${BASE_URL}/training/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action_id: actionId,
-      client_event_id: crypto.randomUUID()
-    })
+    body: JSON.stringify(message)
+  });
+  if (!res.ok) throw new Error('Ошибка отправки сообщения');
+  return res.json();
+}
+
+export async function sendTrainingAction(sessionId, action) {
+  const res = await fetchWithAuth(`${BASE_URL}/training/sessions/${sessionId}/actions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(action)
   });
   if (!res.ok) throw new Error('Ошибка отправки действия');
   return res.json();
 }
 
-export async function completeSession(sessionId) {
-  const res = await fetchWithAuth(`${BASE_URL}/sessions/${sessionId}/complete`, {
+export async function completeTrainingSession(sessionId) {
+  const res = await fetchWithAuth(`${BASE_URL}/training/sessions/${sessionId}/complete`, {
     method: 'POST'
   });
   if (!res.ok) throw new Error('Ошибка завершения');
   return res.json();
 }
 
-export async function getAnalysis(sessionId) {
-  const res = await fetchWithAuth(`${BASE_URL}/sessions/${sessionId}/analysis`);
+export async function getTrainingAnalysis(sessionId) {
+  const res = await fetchWithAuth(`${BASE_URL}/training/sessions/${sessionId}/analysis`);
   if (!res.ok) throw new Error('Ошибка загрузки разбора');
   return res.json();
 }
 
 // ========================================
-// ==== ПРОФИЛЬ И РЕКОМЕНДАЦИЯ ====
+// ==== ПРОФИЛЬ ====
 // ========================================
 
-export async function getProfile(userId) {
+export async function getMyProfile() {
+  const res = await fetchWithAuth(`${BASE_URL}/users/me/profile`);
+  if (!res.ok) throw new Error('Ошибка загрузки профиля');
+  return res.json();
+}
+
+export async function getUserProfile(userId) {
   const res = await fetchWithAuth(`${BASE_URL}/users/${userId}/profile`);
   if (!res.ok) throw new Error('Ошибка загрузки профиля');
   return res.json();
 }
 
-export async function getRecommendation(userId) {
-  const res = await fetchWithAuth(`${BASE_URL}/users/${userId}/recommendation`);
-  if (res.status === 204) return null;
-  if (!res.ok) throw new Error('Ошибка загрузки рекомендации');
-  return res.json();
-}
-
-export async function getSessionHistory(userId) {
-  const res = await fetchWithAuth(`${BASE_URL}/users/${userId}/sessions`);
-  if (!res.ok) throw new Error('Ошибка загрузки истории');
+export async function getProfileHistory(userId) {
+  const res = await fetchWithAuth(`${BASE_URL}/users/${userId}/profile/history`);
+  if (!res.ok) throw new Error('Ошибка загрузки истории профиля');
   return res.json();
 }
 
@@ -346,7 +454,13 @@ export async function getCuratorTeam() {
   if (res.status === 403) throw new Error('Нужна роль куратора');
   if (!res.ok) throw new Error('Ошибка загрузки команды');
   const data = await res.json();
-  return data.team;
+  return data.team || [];
+}
+
+export async function getCuratorTeamSessions() {
+  const res = await fetchWithAuth(`${BASE_URL}/curator/team/sessions`);
+  if (!res.ok) throw new Error('Ошибка загрузки сессий');
+  return res.json();
 }
 
 export async function getCuratorAnalytics() {
@@ -355,17 +469,7 @@ export async function getCuratorAnalytics() {
   return res.json();
 }
 
-export async function getProfileHistory(userId, from, to) {
-  const url = new URL(`${BASE_URL}/users/${userId}/profile/history`);
-  if (from) url.searchParams.set('from', from);
-  if (to) url.searchParams.set('to', to);
-
-  const res = await fetchWithAuth(url.toString());
-  if (!res.ok) throw new Error('Ошибка загрузки динамики');
-  return res.json();
-}
-
-export async function assignTraining(learnerId, scenarioId) {
+export async function createAssignment(learnerId, scenarioId) {
   const res = await fetchWithAuth(`${BASE_URL}/assignments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -378,22 +482,39 @@ export async function assignTraining(learnerId, scenarioId) {
   return res.json();
 }
 
+export async function getAssignments() {
+  const res = await fetchWithAuth(`${BASE_URL}/assignments`);
+  if (!res.ok) throw new Error('Ошибка загрузки назначений');
+  return res.json();
+}
+
 // ========================================
 // ==== АРЕНА ====
 // ========================================
 
-export async function getMyArenaAssignments(userId) {
-  const res = await fetchWithAuth(`${BASE_URL}/users/${userId}/arena-assignments`);
+export async function getArenaAssignments() {
+  const res = await fetchWithAuth(`${BASE_URL}/arena/assignments`);
+  if (res.status === 403) throw new Error('Нужна роль куратора');
   if (!res.ok) throw new Error('Ошибка загрузки арен');
   const data = await res.json();
-  return data.arenas;
+  return data.arenas || [];
 }
 
-export async function getMyArenaHistory(userId) {
-  const res = await fetchWithAuth(`${BASE_URL}/users/${userId}/arena-history`);
-  if (!res.ok) throw new Error('Ошибка загрузки истории арен');
-  const data = await res.json();
-  return data.arenas;
+export async function createArenaAssignment(scenarioId, participants, scheduledAt) {
+  const res = await fetchWithAuth(`${BASE_URL}/arena/assignments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      scenario_id: scenarioId,
+      participants,
+      scheduled_at: scheduledAt
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Ошибка назначения арены');
+  }
+  return res.json();
 }
 
 export async function getArenaAssignment(assignmentId) {
@@ -423,7 +544,7 @@ export async function getArenaMessages(sessionId) {
   const res = await fetchWithAuth(`${BASE_URL}/arena/sessions/${sessionId}/messages`);
   if (!res.ok) throw new Error('Ошибка загрузки сообщений');
   const data = await res.json();
-  return data.messages;
+  return data.messages || [];
 }
 
 export async function completeArena(sessionId) {
@@ -437,32 +558,7 @@ export async function getArenaFeedback(sessionId) {
   const res = await fetchWithAuth(`${BASE_URL}/arena/sessions/${sessionId}/feedback`);
   if (!res.ok) throw new Error('Ошибка загрузки фидбека');
   const data = await res.json();
-  return data.feedback;
-}
-
-export async function createArenaAssignment(scenarioId, participants, scheduledAt) {
-  const res = await fetchWithAuth(`${BASE_URL}/arena/assignments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      scenario_id: scenarioId,
-      participants,
-      scheduled_at: scheduledAt
-    })
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || 'Ошибка назначения арены');
-  }
-  return res.json();
-}
-
-export async function getCuratorArenas() {
-  const res = await fetchWithAuth(`${BASE_URL}/arena/assignments`);
-  if (res.status === 403) throw new Error('Нужна роль куратора');
-  if (!res.ok) throw new Error('Ошибка загрузки арен');
-  const data = await res.json();
-  return data.arenas;
+  return data.feedback || [];
 }
 
 export async function createArenaFeedback(sessionId, participantId, comment, ratings = []) {
@@ -476,6 +572,20 @@ export async function createArenaFeedback(sessionId, participantId, comment, rat
     throw new Error(err.message || 'Ошибка сохранения фидбека');
   }
   return res.json();
+}
+
+export async function getMyArenaAssignments(userId) {
+  const res = await fetchWithAuth(`${BASE_URL}/users/${userId}/arena-assignments`);
+  if (!res.ok) throw new Error('Ошибка загрузки арен');
+  const data = await res.json();
+  return data.arenas || [];
+}
+
+export async function getMyArenaHistory(userId) {
+  const res = await fetchWithAuth(`${BASE_URL}/users/${userId}/arena-history`);
+  if (!res.ok) throw new Error('Ошибка загрузки истории арен');
+  const data = await res.json();
+  return data.arenas || [];
 }
 
 export async function getArenaHistoryDetail(userId, sessionId) {

@@ -4,7 +4,7 @@ import {
   getCuratorTeam,
   getScenarios,
   createArenaAssignment,
-  getCuratorArenas
+  getArenaAssignments
 } from '../../api';
 
 export default function CuratorArena() {
@@ -36,7 +36,7 @@ export default function CuratorArena() {
     } catch {}
 
     try {
-      const arenasData = await getCuratorArenas();
+      const arenasData = await getArenaAssignments();
       setArenas(arenasData);
     } catch {}
   }
@@ -117,7 +117,7 @@ export default function CuratorArena() {
           <select value={scenarioId} onChange={e => setScenarioId(e.target.value)} required>
             <option value="">— выберите —</option>
             {scenarios.map(s => (
-              <option key={s.scenario_id} value={s.scenario_id}>
+              <option key={s.scenario_id || s.id} value={s.scenario_id || s.id}>
                 {s.title}
               </option>
             ))}
@@ -134,7 +134,7 @@ export default function CuratorArena() {
           <select value={learnerA} onChange={e => setLearnerA(e.target.value)} required>
             <option value="">— выберите —</option>
             {team.map(m => (
-              <option key={m.user_id} value={m.user_id}>{m.name}</option>
+              <option key={m.user_id || m.id} value={m.user_id || m.id}>{m.name}</option>
             ))}
           </select>
         </label>
@@ -144,7 +144,7 @@ export default function CuratorArena() {
           <select value={learnerB} onChange={e => setLearnerB(e.target.value)} required>
             <option value="">— выберите —</option>
             {team.map(m => (
-              <option key={m.user_id} value={m.user_id}>{m.name}</option>
+              <option key={m.user_id || m.id} value={m.user_id || m.id}>{m.name}</option>
             ))}
           </select>
         </label>
@@ -175,7 +175,7 @@ export default function CuratorArena() {
         )}
 
         {arenas.map(a => (
-          <div key={a.arena_assignment_id} className="competency-item">
+          <div key={a.arena_assignment_id || a.id} className="competency-item">
             <div style={{ flex: 1 }}>
               <strong>{a.scenario_title}</strong>
               <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>

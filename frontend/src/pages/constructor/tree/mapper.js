@@ -48,7 +48,9 @@ export function scenarioToFlow(scenario) {
       nodes.push({
         id: block.id,
         type: 'blockNode',
-        position: { x: Number(lvl) * 280, y: row * 150 },
+        // Если у блока есть сохранённая позиция — берём её.
+        // Иначе — авто-раскладка по уровням.
+        position: block.position || { x: Number(lvl) * 280, y: row * 150 },
         data: {
           name: block.name || 'Без названия',
           description: block.description || '',
@@ -76,7 +78,6 @@ export function scenarioToFlow(scenario) {
 }
 
 export function flowToScenario(flow, baseScenario) {
-  // обратное преобразование: собираем blocks из nodes + edges
   const blocks = flow.nodes.map(node => {
     const block = node.data.block;
     return {

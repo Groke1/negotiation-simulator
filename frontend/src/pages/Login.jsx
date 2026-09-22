@@ -1,16 +1,42 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login, registerWithRole, getMe } from '../api';
+import { login, registerWithRolesAndOrg, getMe, getRoles, getOrganizations } from '../api';
+
+const AVAILABLE_ROLES = [
+  { id: 'learner', label: 'Обучающийся' },
+  { id: 'methodist', label: 'Методист' },
+  { id: 'curator', label: 'Куратор' }
+];
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
-  const [role, setRole] = useState('learner');
+  const [selectedRoles, setSelectedRoles] = useState(['learner']);
+  const [organizationId, setOrganizationId] = useState('');
+  const [organizations, setOrganizations] = useState([]);
   const [isRegister, setIsRegister] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isRegister) {
+      getOrganizations()
+        .then(setOrganizations)
+        .catch(() => setOrganizations([]));
+    }
+  }, [isRegister]);
+
+  function toggleRole(roleId) {
+    setSelectedRoles(prev => {
+      if (prev.includes(roleId)) {
+        if (prev.length === 1) return prev;
+        return prev.filter(r => r !== roleId);
+      }
+      return [...prev, roleId];
+    });
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -19,7 +45,16 @@ export default function Login() {
 
     try {
       if (isRegister) {
-        await registerWithRole(username, email, password, role);
+        if (selectedRoles.length === 0) {
+          throw new Error('Выберите хотя бы одну роль');
+        }
+        await registerWithRolesAndOrg(
+          username,
+          email,
+          password,
+          selectedRoles,
+          organizationId || null
+        );
       } else {
         await login(email, password);
       }
@@ -27,8 +62,15 @@ export default function Login() {
       const me = await getMe();
       localStorage.setItem('user_id', me.id);
 
-      if (me.active_role === 'methodist') navigate('/constructor');
-      else if (me.active_role === 'curator') navigate('/curator');
+      // Определяем активную роль через getRoles()
+      let activeRole = 'learner';
+      try {
+        const rolesData = await getRoles();
+        activeRole = rolesData.active_role;
+      } catch {}
+
+      if (activeRole === 'methodist') navigate('/constructor');
+      else if (activeRole === 'curator') navigate('/curator');
       else navigate('/home');
     } catch (err) {
       setError(err.message);
@@ -79,14 +121,57 @@ export default function Login() {
         </label>
 
         {isRegister && (
-          <label className="field">
-            <span>Кто вы?</span>
-            <select value={role} onChange={e => setRole(e.target.value)}>
-              <option value="learner">Обучающийся</option>
-              <option value="methodist">Методист</option>
-              <option value="curator">Куратор</option>
-            </select>
-          </label>
+          <>
+            <div className="field">
+              <span>Роли</span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+                {AVAILABLE_ROLES.map(role => {
+                  const active = selectedRoles.includes(role.id);
+                  return (
+                    <button
+                      key={role.id}
+                      type="button"
+                      onClick={() => toggleRole(role.id)}
+                      style={{
+                        border: `1.5px solid ${active ? '#111' : '#ddd'}`,
+                        background: active ? '#111' : 'transparent',
+                        color: active ? '#fff' : '#666',
+                        borderRadius: 20,
+                        padding: '6px 14px',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit'
+                      }}
+                    >
+                      {active ? '✓ ' : ''}{role.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Можно выбрать несколько. Одна из них будет активной.
+              </p>
+            </div>
+
+            <label className="field">
+              <span>Организация</span>
+              <select
+                value={organizationId}
+                onChange={e => setOrganizationId(e.target.value)}
+              >
+                <option value="">— не выбрана —</option>
+                {organizations.map(org => (
+                  <option key={org.id} value={org.id}>{org.name}</option>
+                ))}
+              </select>
+              {organizations.length === 0 && (
+                <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Список организаций пуст. Можно оставить «не выбрана».
+                </p>
+              )}
+            </label>
+          </>
         )}
 
         {error && <p className="error">{error}</p>}

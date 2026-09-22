@@ -14,18 +14,16 @@ export default function Curator() {
       try {
         const teamData = await getCuratorTeam();
         setTeam(teamData);
-
-        try {
-          const analyticsData = await getCuratorAnalytics();
-          setAnalytics(analyticsData);
-        } catch {
-          // аналитика может не работать — не критично
-        }
       } catch (err) {
         setError(err.message);
-      } finally {
-        setLoading(false);
       }
+
+      try {
+        const analyticsData = await getCuratorAnalytics();
+        setAnalytics(analyticsData);
+      } catch {}
+
+      setLoading(false);
     }
     load();
   }, []);
@@ -39,32 +37,28 @@ export default function Curator() {
         <p>Следите за успеваемостью учеников и назначайте тренировки.</p>
       </header>
 
-      <section className="nav" style={{ marginBottom: 16 }}>
+      <div className="nav" style={{ marginBottom: 16 }}>
         <button onClick={() => navigate('/curator/arena')}>Назначить арену</button>
+        <button onClick={() => navigate('/curator/history')}>История обучения</button>
         <button onClick={() => navigate('/profile')}>Профиль</button>
-        <button onClick={() => navigate('/home')}>Обучение</button>
-      </section>
+      </div>
 
       {error && <p className="error">{error}</p>}
 
       <div className="card">
         <h2 className="section-title">Команда</h2>
 
-        {team.length === 0 && !error && (
+        {team.length === 0 && (
           <p className="muted">У вас пока нет учеников в команде.</p>
         )}
 
         {team.map(member => (
           <div key={member.user_id} className="competency-item">
             <div style={{ flex: 1 }}>
-              <strong>{member.name}</strong>
+              <strong>{member.name || member.username || 'Без имени'}</strong>
               <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
-                Слабое место: {member.weakest_cluster || '—'}
-              </p>
-              <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
-                Последняя сессия: {member.last_session_at
-                  ? new Date(member.last_session_at).toLocaleDateString('ru-RU')
-                  : 'не проходил'}
+                {member.email || '—'}
+                {member.last_session_at && ` · последняя ${new Date(member.last_session_at).toLocaleDateString('ru-RU')}`}
               </p>
             </div>
             <button onClick={() => navigate(`/curator/learner/${member.user_id}`)}>
@@ -77,21 +71,22 @@ export default function Curator() {
       {analytics && (
         <div className="card">
           <h2 className="section-title">Аналитика команды</h2>
-
-          {analytics.most_common_weak_cluster && (
-            <p className="muted">
-              Самое частое слабое место: <strong>{analytics.most_common_weak_cluster}</strong>
-            </p>
-          )}
-
-          {analytics.clusters?.map(c => (
-            <div key={c.cluster} className="competency-item">
-              <span>{c.cluster}</span>
-              <span style={{ fontSize: 13, color: '#666' }}>
-                0–1: {c.distribution.level_0_1} · 2–3: {c.distribution.level_2_3} · 4: {c.distribution.level_4}
-              </span>
+          {analytics.clusters?.map((c, i) => (
+            <div key={i} className="competency-item">
+              <span>{c.cluster || c.name}</span>
+              <span className="muted">{c.distribution || c.count || '—'}</span>
             </div>
           ))}
+          {!analytics.clusters?.length && (
+            <p className="muted">Аналитика пока пуста.</p>
+          )}
+        </div>
+      )}
+
+      {!analytics && (
+        <div className="card">
+          <h2 className="section-title">Аналитика команды</h2>
+          <p className="muted">Аналитика пока недоступна.</p>
         </div>
       )}
     </div>

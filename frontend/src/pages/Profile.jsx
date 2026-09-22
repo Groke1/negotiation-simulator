@@ -1,30 +1,36 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ResponsiveContainer
-} from 'recharts';
-import {
   getMe,
   getRoles,
   switchRole,
-  getProfile,
   grantRole,
   getOrganizations,
-  setOrganization
+  setOrganization,
+  createOrganization,
+  createOrganizationInternal
 } from '../api';
 
 export default function Profile() {
   const navigate = useNavigate();
   const [me, setMe] = useState(null);
   const [roles, setRoles] = useState(null);
-  const [profile, setProfile] = useState(null);
   const [organizations, setOrganizations] = useState([]);
   const [selectedOrg, setSelectedOrg] = useState('');
+  const [newOrgName, setNewOrgName] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [switching, setSwitching] = useState(false);
   const [orgSaving, setOrgSaving] = useState(false);
+  const [orgCreating, setOrgCreating] = useState(false);
+
+  async function reloadOrgs() {
+    try {
+      const orgsData = await getOrganizations();
+      setOrganizations(orgsData);
+    } catch {}
+  }
 
   useEffect(() => {
     async function load() {
@@ -34,15 +40,7 @@ export default function Profile() {
         const rolesData = await getRoles();
         setRoles(rolesData);
 
-        try {
-          const profileData = await getProfile(meData.id);
-          setProfile(profileData);
-        } catch {}
-
-        try {
-          const orgsData = await getOrganizations();
-          setOrganizations(orgsData);
-        } catch {}
+        await reloadOrgs();
       } catch (err) {
         setError(err.message);
       } finally {
@@ -84,12 +82,14 @@ export default function Profile() {
   async function handleSetOrg(e) {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setOrgSaving(true);
     try {
       await setOrganization(selectedOrg);
       const meData = await getMe();
       setMe(meData);
       setSelectedOrg('');
+      setSuccess('Организация привязана');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -97,25 +97,40 @@ export default function Profile() {
     }
   }
 
+  async function handleCreateOrg(e) {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setOrgCreating(true);
+    try {
+      await createOrganizationInternal(newOrgName);
+      setNewOrgName('');
+      await reloadOrgs();
+      setSuccess('Организация создана. Выберите её ниже.');
+    } catch (err) {
+      try {
+        await createOrganization(newOrgName);
+        setNewOrgName('');
+        await reloadOrgs();
+        setSuccess('Организация создана. Выберите её ниже.');
+      } catch (err2) {
+        setError(err2.message);
+      }
+    } finally {
+      setOrgCreating(false);
+    }
+  }
+
+  function handleGoHome() {
+    const active = roles?.active_role;
+    if (active === 'methodist') navigate('/constructor');
+    else if (active === 'curator') navigate('/curator');
+    else navigate('/home');
+  }
+
   if (loading) return <div className="page">Загрузка...</div>;
   if (error && !me) return <div className="page"><p className="error">{error}</p></div>;
   if (!me) return <div className="page">Нет данных</div>;
-
-  const hasProfileData = profile?.clusters && profile.clusters.length > 0;
-
-  const chartData = hasProfileData
-    ? profile.clusters.map(c => ({
-        competency: c.cluster,
-        level: c.level
-      }))
-    : [
-        { competency: 'Цели и границы', level: 0 },
-        { competency: 'Диагностика', level: 0 },
-        { competency: 'Создание ценности', level: 0 },
-        { competency: 'Аргументация', level: 0 },
-        { competency: 'Торг и обмен', level: 0 },
-        { competency: 'Конфликт', level: 0 }
-      ];
 
   return (
     <div className="page">
@@ -125,6 +140,7 @@ export default function Profile() {
       </header>
 
       {error && <p className="error">{error}</p>}
+      {success && <p style={{ color: '#0a7c2f', fontSize: 14, fontWeight: 600 }}>{success}</p>}
 
       <div className="card">
         <h2 className="section-title">Личные данные</h2>
@@ -142,12 +158,13 @@ export default function Profile() {
         </div>
       </div>
 
-      {!me.organization && organizations.length > 0 && (
-        <div className="card">
-          <h2 className="section-title">Выбрать организацию</h2>
-          <form onSubmit={handleSetOrg}>
+      <div className="card">
+        <h2 className="section-title">Организации</h2>
+
+        {!me.organization && organizations.length > 0 && (
+          <form onSubmit={handleSetOrg} style={{ marginBottom: 16 }}>
             <label className="field">
-              <span>Организация</span>
+              <span>Выбрать организацию</span>
               <select value={selectedOrg} onChange={e => setSelectedOrg(e.target.value)} required>
                 <option value="">— выберите —</option>
                 {organizations.map(o => (
@@ -155,12 +172,35 @@ export default function Profile() {
                 ))}
               </select>
             </label>
-            <button type="submit" disabled={orgSaving}>
+            <button type="submit" disabled={orgSaving || !selectedOrg}>
               {orgSaving ? 'Сохранение...' : 'Привязать'}
             </button>
           </form>
-        </div>
-      )}
+        )}
+
+        {me.organization && (
+          <p className="muted" style={{ marginTop: 0 }}>
+            Вы привязаны к организации: <strong>{me.organization.name}</strong>
+          </p>
+        )}
+
+        <form onSubmit={handleCreateOrg} style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+          <label className="field">
+            <span>Создать организацию</span>
+            <input
+              value={newOrgName}
+              onChange={e => setNewOrgName(e.target.value)}
+              placeholder="Например: Alabuga"
+              required
+              minLength={1}
+              maxLength={200}
+            />
+          </label>
+          <button type="submit" disabled={orgCreating || !newOrgName.trim()}>
+            {orgCreating ? 'Создание...' : 'Создать организацию'}
+          </button>
+        </form>
+      </div>
 
       <div className="card">
         <h2 className="section-title">Роли</h2>
@@ -199,26 +239,7 @@ export default function Profile() {
         </div>
       </div>
 
-      <div className="card">
-        <h2 className="section-title">Профиль компетенций</h2>
-
-        {!hasProfileData && (
-          <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
-            Профиль пока пуст. Пройдите тренировку, чтобы увидеть свои компетенции.
-          </p>
-        )}
-
-        <ResponsiveContainer width="100%" height={360}>
-          <RadarChart data={chartData}>
-            <PolarGrid stroke="#e5e5e5" />
-            <PolarAngleAxis dataKey="competency" tick={{ fill: '#333', fontSize: 11 }} />
-            <PolarRadiusAxis domain={[0, 4]} tick={{ fill: '#999', fontSize: 11 }} />
-            <Radar dataKey="level" stroke="#111" fill="#111" fillOpacity={0.15} />
-          </RadarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <button onClick={() => navigate('/home')}>На главную</button>
+      <button onClick={handleGoHome}>На главную</button>
     </div>
   );
 }

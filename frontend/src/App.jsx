@@ -9,6 +9,7 @@ import Constructor from './pages/constructor/Index';
 import CreateScenario from './pages/constructor/Create';
 import ScenarioView from './pages/constructor/Scenario';
 import Curator from './pages/curator/Index';
+import CuratorHistory from './pages/curator/History';
 import Learner from './pages/curator/Learner';
 import CuratorArena from './pages/curator/Arena';
 import ArenaFeedback from './pages/curator/ArenaFeedback';
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/constructor/scenario/:scenarioId" element={<ScenarioView />} />
 
         <Route path="/curator" element={<Curator />} />
+        <Route path="/curator/history" element={<CuratorHistory />} />
         <Route path="/curator/learner/:userId" element={<Learner />} />
         <Route path="/curator/arena" element={<CuratorArena />} />
         <Route path="/curator/arena/:sessionId/feedback" element={<ArenaFeedback />} />
