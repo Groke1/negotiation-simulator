@@ -392,7 +392,7 @@ func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 		issues = append(issues, validationIssue("error", "MISSING_BLOCKS", "At least one block is required", "scenario", nil))
 	}
 	for _, block := range doc.Blocks {
-		if containsString(doc.SupportedRuntimes, "deterministic") && len(block.DeterministicDialogue.Nodes) == 0 {
+		if containsString(doc.SupportedRuntimes, "deterministic") && block.Type != "start" && block.Type != "end" && len(block.DeterministicDialogue.Nodes) == 0 {
 			id := block.ID
 			issues = append(issues, validationIssue("error", "MISSING_DIALOGUE_NODES", "Deterministic block must contain dialogue nodes", "block", &id))
 		}

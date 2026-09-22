@@ -132,6 +132,14 @@ func (r *Repository) Complete(ctx context.Context, sessionID string, score int, 
 	return sessionFromSQL(row, ""), nil
 }
 
+func (r *Repository) CompleteLinkedAssignment(ctx context.Context, sessionID string) error {
+	pgID, err := pgxconv.StringToUUID(sessionID)
+	if err != nil {
+		return entity.ErrInvalidRequest
+	}
+	return r.getQueries(ctx).CompleteLinkedAssignment(ctx, pgID)
+}
+
 func (r *Repository) CreateMessage(ctx context.Context, params entity.CreateTrainingMessage) (*entity.TrainingMessage, error) {
 	id := params.ID
 	if id == "" {

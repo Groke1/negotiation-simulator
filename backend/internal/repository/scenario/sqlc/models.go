@@ -14,9 +14,9 @@ import (
 type ScenariosScenarioDifficulty string
 
 const (
-	ScenariosScenarioDifficultyL1 ScenariosScenarioDifficulty = "L1"
-	ScenariosScenarioDifficultyL2 ScenariosScenarioDifficulty = "L2"
-	ScenariosScenarioDifficultyL3 ScenariosScenarioDifficulty = "L3"
+	ScenariosScenarioDifficultyEasy   ScenariosScenarioDifficulty = "easy"
+	ScenariosScenarioDifficultyMedium ScenariosScenarioDifficulty = "medium"
+	ScenariosScenarioDifficultyHard   ScenariosScenarioDifficulty = "hard"
 )
 
 func (e *ScenariosScenarioDifficulty) Scan(src interface{}) error {

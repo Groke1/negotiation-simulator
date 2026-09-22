@@ -373,7 +373,7 @@ func createScenarioFromRequest(userID string, req scenarioRequest) entity.Create
 		Constraints:          json.RawMessage("{}"),
 		Parameters:           json.RawMessage("[]"),
 		PrivateInformation:   json.RawMessage("{}"),
-		Difficulty:           entity.ScenarioDifficultyL1,
+		Difficulty:           entity.ScenarioDifficultyEasy,
 		Competencies:         []string{},
 		ObservationRules:     json.RawMessage("[]"),
 		CompletionConditions: json.RawMessage("[]"),

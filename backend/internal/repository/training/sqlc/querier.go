@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	CompleteLinkedAssignment(ctx context.Context, sessionID pgtype.UUID) error
 	CompleteTrainingSession(ctx context.Context, arg CompleteTrainingSessionParams) (LearningTrainingSession, error)
 	CreateTrainingMessage(ctx context.Context, arg CreateTrainingMessageParams) (LearningTrainingMessage, error)
 	CreateTrainingSession(ctx context.Context, arg CreateTrainingSessionParams) (LearningTrainingSession, error)

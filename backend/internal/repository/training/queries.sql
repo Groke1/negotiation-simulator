@@ -39,6 +39,16 @@ SET status = 'completed', score = sqlc.arg(score), analysis = sqlc.arg(analysis)
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
+-- name: CompleteLinkedAssignment :exec
+UPDATE learning.assignments
+SET status = 'completed', completed_at = NOW()
+WHERE learning.assignments.id = (
+    SELECT assignment_id
+    FROM learning.training_sessions
+    WHERE learning.training_sessions.id = sqlc.arg(session_id)
+)
+  AND status = 'pending';
+
 -- name: CreateTrainingMessage :one
 INSERT INTO learning.training_messages (
     id, session_id, author, content, semantic_action_code, semantic_annotations, expected_action_code, classification

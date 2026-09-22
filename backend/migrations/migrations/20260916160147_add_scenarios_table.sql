@@ -15,7 +15,7 @@ CREATE TYPE scenarios.scenario_mode AS ENUM ('training', 'arena', 'live');
 
 CREATE TYPE scenarios.scenario_channel AS ENUM ('chat', 'voice', 'meeting');
 
-CREATE TYPE scenarios.scenario_difficulty AS ENUM ('L1', 'L2', 'L3');
+CREATE TYPE scenarios.scenario_difficulty AS ENUM ('easy', 'medium', 'hard');
 
 CREATE TYPE scenarios.ai_provider AS ENUM ('mock', 'cloud', 'ollama');
 
@@ -75,7 +75,7 @@ CREATE TABLE scenarios.scenarios (
     -- Закрытая информация сторон.
      private_information     JSONB NOT NULL DEFAULT '{}'::jsonb,
 
-     difficulty              scenarios.scenario_difficulty NOT NULL DEFAULT 'L1',
+     difficulty              scenarios.scenario_difficulty NOT NULL DEFAULT 'easy',
 
     -- Названия 6 competency clusters.
     competencies            TEXT[] NOT NULL DEFAULT '{}',

@@ -14,6 +14,7 @@ type repository interface {
 	ListSessions(ctx context.Context, filter entity.TrainingSessionFilter) ([]entity.TrainingSession, error)
 	UpdateState(ctx context.Context, sessionID string, state []byte, status entity.TrainingStatus) (*entity.TrainingSession, error)
 	Complete(ctx context.Context, sessionID string, score int, analysis []byte) (*entity.TrainingSession, error)
+	CompleteLinkedAssignment(ctx context.Context, sessionID string) error
 	CreateMessage(ctx context.Context, params entity.CreateTrainingMessage) (*entity.TrainingMessage, error)
 	ListMessages(ctx context.Context, sessionID string) ([]entity.TrainingMessage, error)
 	GetMessage(ctx context.Context, sessionID, messageID string) (*entity.TrainingMessage, error)
@@ -234,6 +235,9 @@ func (s *Service) Complete(ctx context.Context, claims entity.AccessClaims, sess
 		if err != nil {
 			return err
 		}
+		if err := s.repository.CompleteLinkedAssignment(txCtx, session.ID); err != nil {
+			return err
+		}
 		result = &entity.TrainingCompletion{Session: *completed, Score: score, Outcome: outcome, ProfileChange: changes}
 		return nil
 	})
@@ -278,8 +282,12 @@ func initialState(doc entity.ScenarioDocument, mode entity.TrainingMode) trainin
 	if mode != entity.TrainingModeDeterministic || len(doc.Blocks) == 0 {
 		return trainingState{}
 	}
-	block := doc.Blocks[0]
-	return trainingState{BlockID: block.ID, CurrentNodeID: block.DeterministicDialogue.StartNodeID}
+	for _, block := range doc.Blocks {
+		if block.DeterministicDialogue.StartNodeID != "" && len(block.DeterministicDialogue.Nodes) > 0 {
+			return trainingState{BlockID: block.ID, CurrentNodeID: block.DeterministicDialogue.StartNodeID}
+		}
+	}
+	return trainingState{}
 }
 
 func sessionRuntime(session *entity.TrainingSession) (entity.ScenarioDocument, trainingState, error) {

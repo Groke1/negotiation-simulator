@@ -29,6 +29,7 @@ func NewController(logger *zap.Logger, service Service) *Controller {
 
 func (c *Controller) InitRoutes(r chi.Router) {
 	r.Get("/organizations", c.ListOrganizations)
+	r.Post("/organizations", c.CreateOrganization)
 }
 
 func (c *Controller) InitInternalRoutes(r chi.Router) {

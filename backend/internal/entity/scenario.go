@@ -25,14 +25,14 @@ func (s ScenarioStatus) Valid() bool {
 type ScenarioDifficulty string
 
 const (
-	ScenarioDifficultyL1 ScenarioDifficulty = "L1"
-	ScenarioDifficultyL2 ScenarioDifficulty = "L2"
-	ScenarioDifficultyL3 ScenarioDifficulty = "L3"
+	ScenarioDifficultyEasy   ScenarioDifficulty = "easy"
+	ScenarioDifficultyMedium ScenarioDifficulty = "medium"
+	ScenarioDifficultyHard   ScenarioDifficulty = "hard"
 )
 
 func (d ScenarioDifficulty) Valid() bool {
 	switch d {
-	case ScenarioDifficultyL1, ScenarioDifficultyL2, ScenarioDifficultyL3:
+	case ScenarioDifficultyEasy, ScenarioDifficultyMedium, ScenarioDifficultyHard:
 		return true
 	default:
 		return false

@@ -11,6 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const completeLinkedAssignment = `-- name: CompleteLinkedAssignment :exec
+UPDATE learning.assignments
+SET status = 'completed', completed_at = NOW()
+WHERE learning.assignments.id = (
+    SELECT assignment_id
+    FROM learning.training_sessions
+    WHERE learning.training_sessions.id = $1
+)
+  AND status = 'pending'
+`
+
+func (q *Queries) CompleteLinkedAssignment(ctx context.Context, sessionID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, completeLinkedAssignment, sessionID)
+	return err
+}
+
 const completeTrainingSession = `-- name: CompleteTrainingSession :one
 UPDATE learning.training_sessions
 SET status = 'completed', score = $1, analysis = $2, completed_at = NOW()

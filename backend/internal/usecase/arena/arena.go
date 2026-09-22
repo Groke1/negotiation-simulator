@@ -190,6 +190,9 @@ func (s *Service) CreateFeedback(ctx context.Context, claims entity.AccessClaims
 	if session.CreatedBy != claims.UserID {
 		return nil, entity.ErrArenaFeedbackForbidden
 	}
+	if session.Status != entity.ArenaSessionCompleted {
+		return nil, entity.ErrInvalidArenaState
+	}
 	if sessionParticipantRole(session.Participants, participantID) == "" {
 		return nil, entity.ErrArenaFeedbackParticipantInvalid
 	}
