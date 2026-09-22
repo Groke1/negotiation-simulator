@@ -3,7 +3,6 @@ package scenario
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 )
@@ -20,6 +19,10 @@ type scenarioRepository interface {
 	GetScenarioVersion(ctx context.Context, scenarioID, version string) (*entity.ScenarioVersion, error)
 }
 
+type profileRepository interface {
+	ListCompetencyClusters(ctx context.Context) ([]entity.CompetencyCluster, error)
+}
+
 type userRepository interface {
 	GetUserByID(ctx context.Context, id string) (*entity.User, error)
 }
@@ -30,12 +33,31 @@ type transactor interface {
 
 type scenarioService struct {
 	scenarioRepository scenarioRepository
+	profileRepository  profileRepository
 	userRepository     userRepository
 	transactor         transactor
 }
 
-func NewScenarioService(scenarioRepository scenarioRepository, userRepository userRepository, transactor transactor) *scenarioService {
-	return &scenarioService{scenarioRepository: scenarioRepository, userRepository: userRepository, transactor: transactor}
+func NewScenarioService(scenarioRepository scenarioRepository, profileRepository profileRepository, userRepository userRepository, transactor transactor) *scenarioService {
+	return &scenarioService{scenarioRepository: scenarioRepository, profileRepository: profileRepository, userRepository: userRepository, transactor: transactor}
+}
+
+func (s *scenarioService) ListCompetencyClusters(ctx context.Context) ([]entity.CompetencyCluster, error) {
+	return s.profileRepository.ListCompetencyClusters(ctx)
+}
+
+func (s *scenarioService) ListSemanticActions(context.Context) ([]entity.SemanticActionDefinition, error) {
+	return []entity.SemanticActionDefinition{
+		{Code: "ASK_QUESTION", Name: "Ask question", Description: "Clarifies interests, constraints, or criteria"},
+		{Code: "MAKE_PROPOSAL", Name: "Make proposal", Description: "Offers a concrete negotiation option"},
+		{Code: "MAKE_CONCESSION", Name: "Make concession", Description: "Gives value to move the negotiation forward"},
+		{Code: "REQUEST_RECIPROCITY", Name: "Request reciprocity", Description: "Asks for a reciprocal move"},
+		{Code: "HOLD_BOUNDARY", Name: "Hold boundary", Description: "Protects a limit or non-negotiable condition"},
+		{Code: "CHANGE_TOPIC", Name: "Change topic", Description: "Moves the conversation to another issue"},
+		{Code: "PAUSE", Name: "Pause", Description: "Slows down or defers a decision"},
+		{Code: "SUMMARIZE", Name: "Summarize", Description: "Checks shared understanding"},
+		{Code: "CLOSE_NEGOTIATION", Name: "Close negotiation", Description: "Finalizes agreement or no-deal outcome"},
+	}, nil
 }
 
 func (s *scenarioService) ListScenarios(ctx context.Context, claims entity.AccessClaims, params entity.ListScenarios) ([]entity.Scenario, error) {
@@ -89,7 +111,8 @@ func (s *scenarioService) CreateScenario(ctx context.Context, claims entity.Acce
 }
 
 func (s *scenarioService) GenerateScenario(context.Context, entity.AccessClaims, string) (*entity.Scenario, error) {
-	panic("implements me")
+	// TODO(ai): invoke the approved scenario-builder provider.
+	return nil, entity.ErrScenarioGenerationFailed
 }
 
 func (s *scenarioService) GetScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.Scenario, error) {
@@ -351,148 +374,48 @@ func rawJSON(value json.RawMessage) json.RawMessage {
 }
 
 func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
-	var goals map[string]string
-	var contextBlock struct {
-		ConflictType []string `json:"conflict_type"`
-		Description  string   `json:"description"`
+	doc := entity.ScenarioDocumentFromScenario(*s)
+	issues := []entity.ScenarioValidationIssue{}
+	if doc.Description == "" {
+		issues = append(issues, validationIssue("error", "MISSING_DESCRIPTION", "Scenario description is required", "scenario", nil))
 	}
-	var roles []struct {
-		ID string `json:"id"`
+	if len(doc.Roles) < 2 {
+		issues = append(issues, validationIssue("error", "MISSING_ROLES", "At least two roles are required", "scenario", nil))
 	}
-	var completionConditions []map[string]any
-	var nodes []validationNode
-	var rules []struct {
-		SemanticAction string `json:"semantic_action"`
-		Indicator      string `json:"indicator"`
+	if len(doc.SupportedRuntimes) == 0 {
+		issues = append(issues, validationIssue("error", "MISSING_RUNTIME", "At least one runtime is required", "scenario", nil))
 	}
-	if err := unmarshalScenarioJSON(s.Goals, &goals); err != nil {
-		return nil, err
+	if len(doc.SupportedChannels) == 0 {
+		issues = append(issues, validationIssue("error", "MISSING_CHANNEL", "At least one channel is required", "scenario", nil))
 	}
-	if err := unmarshalScenarioJSON(s.Context, &contextBlock); err != nil {
-		return nil, err
+	if len(doc.Blocks) == 0 {
+		issues = append(issues, validationIssue("error", "MISSING_BLOCKS", "At least one block is required", "scenario", nil))
 	}
-	if err := unmarshalScenarioJSON(s.Roles, &roles); err != nil {
-		return nil, err
+	for _, block := range doc.Blocks {
+		if containsString(doc.SupportedRuntimes, "deterministic") && len(block.DeterministicDialogue.Nodes) == 0 {
+			id := block.ID
+			issues = append(issues, validationIssue("error", "MISSING_DIALOGUE_NODES", "Deterministic block must contain dialogue nodes", "block", &id))
+		}
 	}
-	if err := unmarshalScenarioJSON(s.CompletionConditions, &completionConditions); err != nil {
-		return nil, err
+	errorsCount := 0
+	warningsCount := 0
+	for _, issue := range issues {
+		if issue.Severity == "warning" {
+			warningsCount++
+		} else {
+			errorsCount++
+		}
 	}
-	if err := unmarshalScenarioJSON(s.Nodes, &nodes); err != nil {
-		return nil, err
-	}
-	if err := unmarshalScenarioJSON(s.ObservationRules, &rules); err != nil {
-		return nil, err
-	}
-
-	structure := entity.ValidationStructure{
-		HasGoal:                 strings.TrimSpace(goals["learner"]) != "" && strings.TrimSpace(goals["partner"]) != "",
-		HasConflict:             len(contextBlock.ConflictType) > 0 && strings.TrimSpace(contextBlock.Description) != "",
-		HasRoles:                hasScenarioParty(roles, "learner") && hasScenarioParty(roles, "partner"),
-		HasCompletionConditions: len(completionConditions) > 0,
-	}
-	graph := validateGraph(nodes)
-	coverage := validateCoverage(rules, nodes)
-	valid := structure.HasGoal && structure.HasConflict && structure.HasRoles && structure.HasCompletionConditions && len(graph.DeadEnds) == 0 && len(graph.UnreachableNodes) == 0 && len(graph.Cycles) == 0 && len(coverage.UnderCoveredIndicators) == 0
-	return &entity.ScenarioValidation{Valid: valid, Structure: structure, Graph: graph, Coverage: coverage}, nil
+	return &entity.ScenarioValidation{Valid: errorsCount == 0, ErrorsCount: errorsCount, WarningsCount: warningsCount, Issues: issues}, nil
 }
 
-func unmarshalScenarioJSON(raw []byte, dst any) error {
-	if len(raw) == 0 {
-		return entity.ErrInvalidScenarioJSON
-	}
-	if err := json.Unmarshal(raw, dst); err != nil {
-		return entity.ErrInvalidScenarioJSON
-	}
-	return nil
+func validationIssue(severity, code, message, entityType string, entityID *string) entity.ScenarioValidationIssue {
+	return entity.ScenarioValidationIssue{Severity: severity, Code: code, Message: message, EntityType: entityType, EntityID: entityID}
 }
 
-type validationNode struct {
-	ID      string             `json:"id"`
-	Actions []validationAction `json:"actions"`
-	IsEnd   bool               `json:"is_end"`
-}
-
-type validationAction struct {
-	SemanticAction string  `json:"semantic_action"`
-	NextNodeID     *string `json:"next_node_id"`
-}
-
-func validateGraph(nodes []validationNode) entity.ValidationGraph {
-	graph := entity.ValidationGraph{DeadEnds: []string{}, UnreachableNodes: []string{}, Cycles: [][]string{}}
-	if len(nodes) == 0 {
-		return graph
-	}
-	nodeByID := make(map[string]validationNode, len(nodes))
-	for _, node := range nodes {
-		nodeByID[node.ID] = node
-		if !node.IsEnd && len(node.Actions) == 0 {
-			graph.DeadEnds = append(graph.DeadEnds, node.ID)
-		}
-	}
-	visited := map[string]bool{}
-	var walk func(id string, stack []string)
-	walk = func(id string, stack []string) {
-		if visited[id] {
-			return
-		}
-		for idx, stackID := range stack {
-			if stackID == id {
-				graph.Cycles = append(graph.Cycles, append(append([]string{}, stack[idx:]...), id))
-				return
-			}
-		}
-		node, ok := nodeByID[id]
-		if !ok {
-			return
-		}
-		visited[id] = true
-		stack = append(stack, id)
-		for _, action := range node.Actions {
-			if action.NextNodeID != nil && *action.NextNodeID != "" {
-				walk(*action.NextNodeID, stack)
-			}
-		}
-	}
-	walk(nodes[0].ID, nil)
-	for _, node := range nodes {
-		if !visited[node.ID] {
-			graph.UnreachableNodes = append(graph.UnreachableNodes, node.ID)
-		}
-	}
-	return graph
-}
-
-func validateCoverage(rules []struct {
-	SemanticAction string `json:"semantic_action"`
-	Indicator      string `json:"indicator"`
-}, nodes []validationNode) entity.ValidationCoverage {
-	actionCounts := map[string]int{}
-	for _, node := range nodes {
-		for _, action := range node.Actions {
-			actionCounts[action.SemanticAction]++
-		}
-	}
-	coverage := entity.ValidationCoverage{UnderCoveredIndicators: []entity.UnderCoveredIndicator{}}
-	seen := map[string]bool{}
-	for _, rule := range rules {
-		key := rule.SemanticAction + "\x00" + rule.Indicator
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		found := actionCounts[rule.SemanticAction]
-		if found < 1 {
-			coverage.UnderCoveredIndicators = append(coverage.UnderCoveredIndicators, entity.UnderCoveredIndicator{Indicator: rule.Indicator, ContextsFound: found, Required: 1})
-		}
-	}
-	return coverage
-}
-
-func hasScenarioParty(roles []struct {
-	ID string `json:"id"`
-}, party string) bool {
-	for _, role := range roles {
-		if role.ID == party {
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
 			return true
 		}
 	}

@@ -83,10 +83,8 @@ func (s *authService) Register(ctx context.Context, params entity.RegisterUser) 
 		if err != nil {
 			return err
 		}
-		if err := s.userRepository.AddUserRole(txCtx, createdUser.ID, entity.RoleLearner); err != nil {
-			return err
-		}
-		tokens, err = s.createTokenPair(txCtx, createdUser.ID, entity.RoleLearner)
+
+		tokens, err = s.createTokenPair(txCtx, createdUser.ID, entity.NoActiveRole)
 		return err
 	})
 	if err != nil {
@@ -110,8 +108,8 @@ func (s *authService) Login(ctx context.Context, params entity.LoginUser) (*enti
 	if err != nil {
 		return nil, err
 	}
-	activeRole := entity.RoleLearner
-	if !roleInList(activeRole, roles) && len(roles) > 0 {
+	activeRole := entity.NoActiveRole
+	if len(roles) > 0 {
 		activeRole = roles[0]
 	}
 	return s.createTokenPair(ctx, user.ID, activeRole)
@@ -243,7 +241,7 @@ func (s *authService) parseAccessToken(token string) (*entity.AccessClaims, erro
 		return nil, entity.ErrAccessTokenInvalid
 	}
 	role := entity.ProductRole(claims.ActiveRole)
-	if claims.UserID == "" || claims.SessionID == "" || !role.Valid() || claims.Subject != claims.UserID {
+	if claims.UserID == "" || claims.SessionID == "" || (role != entity.NoActiveRole && !role.Valid()) || claims.Subject != claims.UserID {
 		return nil, entity.ErrAccessTokenInvalid
 	}
 	return &entity.AccessClaims{

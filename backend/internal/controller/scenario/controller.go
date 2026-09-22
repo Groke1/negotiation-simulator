@@ -16,6 +16,8 @@ import (
 )
 
 type Service interface {
+	ListCompetencyClusters(ctx context.Context) ([]entity.CompetencyCluster, error)
+	ListSemanticActions(ctx context.Context) ([]entity.SemanticActionDefinition, error)
 	ListScenarios(ctx context.Context, claims entity.AccessClaims, params entity.ListScenarios) ([]entity.Scenario, error)
 	CreateScenario(ctx context.Context, claims entity.AccessClaims, params entity.CreateScenario) (*entity.Scenario, error)
 	GenerateScenario(ctx context.Context, claims entity.AccessClaims, prompt string) (*entity.Scenario, error)
@@ -38,6 +40,8 @@ func NewController(logger *zap.Logger, service Service) *Controller {
 }
 
 func (c *Controller) InitRoutes(router chi.Router) {
+	router.Get("/competency-clusters", c.ListCompetencyClusters)
+	router.Get("/semantic-actions", c.ListSemanticActions)
 	router.Route("/scenarios", func(r chi.Router) {
 		r.Get("/", c.ListScenarios)
 		r.Post("/", c.CreateScenario)
@@ -52,6 +56,32 @@ func (c *Controller) InitRoutes(router chi.Router) {
 			r.Get("/versions/{version}", c.GetScenarioVersion)
 		})
 	})
+}
+
+func (c *Controller) ListCompetencyClusters(w http.ResponseWriter, r *http.Request) {
+	clusters, err := c.service.ListCompetencyClusters(r.Context())
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	resp := competencyClusterListResponse{Clusters: make([]competencyClusterResponse, 0, len(clusters))}
+	for _, cluster := range clusters {
+		resp.Clusters = append(resp.Clusters, competencyClusterResponse{ID: cluster.ID, Code: cluster.Code, Name: cluster.Name, Description: cluster.Description})
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (c *Controller) ListSemanticActions(w http.ResponseWriter, r *http.Request) {
+	actions, err := c.service.ListSemanticActions(r.Context())
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	resp := semanticActionListResponse{Actions: make([]semanticActionResponse, 0, len(actions))}
+	for _, action := range actions {
+		resp.Actions = append(resp.Actions, semanticActionResponse{Code: action.Code, Name: action.Name, Description: action.Description})
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (c *Controller) ListScenarios(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +129,7 @@ func (c *Controller) CreateScenario(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusCreated, scenarioCreatedResponse{ID: scenario.ID})
+	pkghttpx.WriteJSON(w, http.StatusCreated, scenarioToResponse(*scenario))
 }
 
 func (c *Controller) GenerateScenario(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +177,12 @@ func (c *Controller) UpdateScenario(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	scenario, err := c.service.GetScenario(r.Context(), claims, scenarioID)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, scenarioToResponse(*scenario))
 }
 
 func (c *Controller) ValidateScenario(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +208,7 @@ func (c *Controller) PublishScenario(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, publishScenarioResponse{Version: version.Version, PublishedAt: version.PublishedAt})
+	pkghttpx.WriteJSON(w, http.StatusOK, publishScenarioResponse{ScenarioID: scenarioID, Status: string(entity.ScenarioStatusPublished), PublishedAt: version.PublishedAt, Warnings: []any{}})
 }
 
 func (c *Controller) ArchiveScenario(w http.ResponseWriter, r *http.Request) {
@@ -299,42 +334,17 @@ func readLimitOffset(w http.ResponseWriter, r *http.Request) (int32, int32, bool
 }
 
 func validScenarioRequest(req scenarioRequest) bool {
-	return validString(req.Version, 1, 32) && validString(req.Title, 1, 200) && req.Difficulty.Valid() && len(req.ModeSupport) > 0 && len(req.Channels) > 0 && rawObjectOrArray(req.Context) && rawObjectOrArray(req.Roles) && rawObjectOrArray(req.Goals) && rawObjectOrArray(req.Interests) && rawObjectOrArray(req.Constraints) && rawObjectOrArray(req.Parameters) && rawObjectOrArray(req.PrivateInformation) && rawObjectOrArray(req.ObservationRules) && rawObjectOrArray(req.CompletionConditions) && rawObjectOrArray(req.Nodes)
+	return validString(req.Title, 1, 200) && validString(req.Description, 1, 4000)
 }
 
 func validUpdateScenarioRequest(req updateScenarioRequest) bool {
-	set := false
-	if req.Version != nil {
-		set = true
-		if !validString(*req.Version, 1, 32) {
-			return false
-		}
-	}
-	if req.Title != nil {
-		set = true
-		if !validString(*req.Title, 1, 200) {
-			return false
-		}
-	}
-	if req.Difficulty != nil {
-		set = true
-		if !req.Difficulty.Valid() {
-			return false
-		}
-	}
-	jsonFields := []*json.RawMessage{req.Context, req.Roles, req.Goals, req.Interests, req.Constraints, req.Parameters, req.PrivateInformation, req.ObservationRules, req.CompletionConditions, req.Nodes}
-	for _, field := range jsonFields {
-		if field != nil {
-			set = true
-			if !rawObjectOrArray(*field) {
-				return false
-			}
-		}
-	}
-	if req.ModeSupport != nil || req.Competencies != nil || req.Channels != nil {
-		set = true
-	}
-	return set
+	return validString(req.Title, 1, 200) &&
+		validString(req.Description, 1, 4000) &&
+		req.Difficulty.Valid() &&
+		len(req.SupportedRuntimes) > 0 &&
+		len(req.SupportedChannels) > 0 &&
+		rawObjectOrArray(req.Roles) &&
+		rawObjectOrArray(req.Blocks)
 }
 
 func validString(value string, min, max int) bool {
@@ -351,17 +361,67 @@ func rawObjectOrArray(raw json.RawMessage) bool {
 }
 
 func createScenarioFromRequest(userID string, req scenarioRequest) entity.CreateScenario {
-	return entity.CreateScenario{UserID: userID, Version: strings.TrimSpace(req.Version), Title: strings.TrimSpace(req.Title), ModeSupport: req.ModeSupport, Context: req.Context, Roles: req.Roles, Goals: req.Goals, Interests: req.Interests, Constraints: req.Constraints, Parameters: req.Parameters, PrivateInformation: req.PrivateInformation, Difficulty: req.Difficulty, Competencies: req.Competencies, ObservationRules: req.ObservationRules, CompletionConditions: req.CompletionConditions, Channels: req.Channels, Nodes: req.Nodes}
+	return entity.CreateScenario{
+		UserID:               userID,
+		Version:              "1.0",
+		Title:                strings.TrimSpace(req.Title),
+		ModeSupport:          []string{"deterministic", "virtual_partner"},
+		Context:              entity.ScenarioContextJSON(req.Description, "", nil),
+		Roles:                json.RawMessage("[]"),
+		Goals:                json.RawMessage("{}"),
+		Interests:            json.RawMessage("{}"),
+		Constraints:          json.RawMessage("{}"),
+		Parameters:           json.RawMessage("[]"),
+		PrivateInformation:   json.RawMessage("{}"),
+		Difficulty:           entity.ScenarioDifficultyL1,
+		Competencies:         []string{},
+		ObservationRules:     json.RawMessage("[]"),
+		CompletionConditions: json.RawMessage("[]"),
+		Channels:             []string{"chat"},
+		Nodes:                json.RawMessage("[]"),
+	}
 }
 
 func updateScenarioFromRequest(scenarioID, userID string, req updateScenarioRequest) entity.UpdateScenario {
-	return entity.UpdateScenario{ScenarioID: scenarioID, UserID: userID, Version: req.Version, Title: req.Title, ModeSupport: req.ModeSupport, Context: req.Context, Roles: req.Roles, Goals: req.Goals, Interests: req.Interests, Constraints: req.Constraints, Parameters: req.Parameters, PrivateInformation: req.PrivateInformation, Difficulty: req.Difficulty, Competencies: req.Competencies, ObservationRules: req.ObservationRules, CompletionConditions: req.CompletionConditions, Channels: req.Channels, Nodes: req.Nodes}
+	title := strings.TrimSpace(req.Title)
+	context := entity.ScenarioContextJSON(req.Description, req.ExpandedContext, req.Tags)
+	difficulty := req.Difficulty
+	return entity.UpdateScenario{
+		ScenarioID:   scenarioID,
+		UserID:       userID,
+		Title:        &title,
+		ModeSupport:  &req.SupportedRuntimes,
+		Context:      &context,
+		Roles:        &req.Roles,
+		Difficulty:   &difficulty,
+		Competencies: &req.TargetClusterIDs,
+		Channels:     &req.SupportedChannels,
+		Nodes:        &req.Blocks,
+	}
 }
 
 func scenarioToSummary(s entity.Scenario) scenarioSummaryResponse {
-	return scenarioSummaryResponse{ScenarioID: s.ID, Title: s.Title, Version: s.Version, Status: s.Status, Difficulty: string(s.Difficulty), Channels: s.Channels, UpdatedAt: s.UpdatedAt}
+	doc := entity.ScenarioDocumentFromScenario(s)
+	return scenarioSummaryResponse{ScenarioID: s.ID, Title: s.Title, Description: doc.Description, Status: s.Status, Difficulty: string(s.Difficulty), Tags: doc.Tags, SupportedRuntimes: s.ModeSupport, SupportedChannels: s.Channels, UpdatedAt: s.UpdatedAt}
 }
 
 func scenarioToResponse(s entity.Scenario) scenarioResponse {
-	return scenarioResponse{ScenarioID: s.ID, Version: s.Version, Title: s.Title, ModeSupport: s.ModeSupport, Context: s.Context, Roles: s.Roles, Goals: s.Goals, Interests: s.Interests, Constraints: s.Constraints, Parameters: s.Parameters, PrivateInformation: s.PrivateInformation, Difficulty: s.Difficulty, Competencies: s.Competencies, ObservationRules: s.ObservationRules, CompletionConditions: s.CompletionConditions, Channels: s.Channels, Nodes: s.Nodes}
+	doc := entity.ScenarioDocumentFromScenario(s)
+	return scenarioResponse{
+		ScenarioID:        doc.ScenarioID,
+		Title:             doc.Title,
+		Description:       doc.Description,
+		ExpandedContext:   doc.ExpandedContext,
+		Status:            doc.Status,
+		Difficulty:        doc.Difficulty,
+		Tags:              doc.Tags,
+		SupportedRuntimes: doc.SupportedRuntimes,
+		SupportedChannels: doc.SupportedChannels,
+		TargetClusterIDs:  doc.TargetClusterIDs,
+		Roles:             doc.Roles,
+		Blocks:            doc.Blocks,
+		CreatedAt:         doc.CreatedAt,
+		UpdatedAt:         doc.UpdatedAt,
+		PublishedAt:       doc.PublishedAt,
+	}
 }

@@ -2,7 +2,9 @@ package user
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -108,6 +110,62 @@ func (r *userRepository) GetUserRoles(ctx context.Context, userID string) ([]ent
 		roles = append(roles, entity.ProductRole(role))
 	}
 	return roles, nil
+}
+
+func (r *userRepository) ListProfile(ctx context.Context, userID string) ([]entity.ProfileCluster, error) {
+	pgUserID, err := pgxconv.StringToUUID(userID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	rows, err := r.getQueries(ctx).ListProfile(ctx, pgUserID)
+	if err != nil {
+		return nil, err
+	}
+	profile := make([]entity.ProfileCluster, 0, len(rows))
+	for _, row := range rows {
+		profile = append(profile, entity.ProfileCluster{ClusterID: pgxconv.UUIDToString(row.ClusterID), Code: row.Code, Name: row.Name, Score: int(row.Score), UpdatedAt: pgxconv.TimestamptzToTime(row.UpdatedAt)})
+	}
+	return profile, nil
+}
+
+func (r *userRepository) ListProfileHistory(ctx context.Context, userID string, from, to *time.Time, limit, offset int32) ([]entity.ProfileHistoryEvent, error) {
+	pgUserID, err := pgxconv.StringToUUID(userID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	rows, err := r.getQueries(ctx).ListProfileHistory(ctx, sqlc.ListProfileHistoryParams{UserID: pgUserID, FromAt: pgxconv.TimeToTimestamptz(from), ToAt: pgxconv.TimeToTimestamptz(to), LimitCount: limit, OffsetCount: offset})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]entity.ProfileHistoryEvent, 0, len(rows))
+	for _, row := range rows {
+		var changes []entity.ProfileClusterChange
+		if err := json.Unmarshal(row.Changes, &changes); err != nil {
+			return nil, err
+		}
+		result = append(result, entity.ProfileHistoryEvent{ID: pgxconv.UUIDToString(row.ID), Source: row.Source, SourceID: pgxconv.UUIDToString(row.SourceID), Changes: changes, CreatedAt: row.CreatedAt.Time})
+	}
+	return result, nil
+}
+
+func (r *userRepository) ListOrganizationUsers(ctx context.Context, requesterID string, limit, offset int32) ([]entity.OrganizationUser, error) {
+	pgRequesterID, err := pgxconv.StringToUUID(requesterID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	rows, err := r.getQueries(ctx).ListOrganizationUsers(ctx, sqlc.ListOrganizationUsersParams{RequesterID: pgRequesterID, LimitCount: limit, OffsetCount: offset})
+	if err != nil {
+		return nil, err
+	}
+	users := make([]entity.OrganizationUser, 0, len(rows))
+	for _, row := range rows {
+		roles := make([]entity.ProductRole, 0, len(row.Roles))
+		for _, role := range row.Roles {
+			roles = append(roles, entity.ProductRole(role))
+		}
+		users = append(users, entity.OrganizationUser{ID: pgxconv.UUIDToString(row.ID), Username: row.Username, Email: row.Email, Roles: roles, CreatedAt: row.CreatedAt.Time})
+	}
+	return users, nil
 }
 
 func (r *userRepository) SetUserOrganization(ctx context.Context, userID, organizationID string) (*entity.User, error) {

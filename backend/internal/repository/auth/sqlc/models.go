@@ -55,12 +55,12 @@ func (ns NullUsersProductRole) Value() (driver.Value, error) {
 }
 
 type UsersRefreshToken struct {
-	ID         pgtype.UUID        `json:"id"`
-	UserID     pgtype.UUID        `json:"user_id"`
-	TokenHash  string             `json:"token_hash"`
-	ActiveRole UsersProductRole   `json:"active_role"`
-	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ID         pgtype.UUID          `json:"id"`
+	UserID     pgtype.UUID          `json:"user_id"`
+	TokenHash  string               `json:"token_hash"`
+	ActiveRole NullUsersProductRole `json:"active_role"`
+	ExpiresAt  pgtype.Timestamptz   `json:"expires_at"`
+	RevokedAt  pgtype.Timestamptz   `json:"revoked_at"`
+	CreatedAt  pgtype.Timestamptz   `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz   `json:"updated_at"`
 }

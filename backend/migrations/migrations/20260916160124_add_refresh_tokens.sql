@@ -5,7 +5,7 @@ CREATE TABLE users.refresh_tokens (
       id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id     UUID NOT NULL REFERENCES users.users(id) ON DELETE CASCADE,
       token_hash  CHAR(64) NOT NULL UNIQUE,
-      active_role users.product_role NOT NULL DEFAULT 'learner',
+      active_role users.product_role NULL,
 
       expires_at  TIMESTAMPTZ NOT NULL,
       revoked_at  TIMESTAMPTZ NULL,

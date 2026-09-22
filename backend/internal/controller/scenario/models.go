@@ -8,55 +8,33 @@ import (
 )
 
 type scenarioRequest struct {
-	Version              string                    `json:"version"`
-	Title                string                    `json:"title"`
-	ModeSupport          []string                  `json:"mode_support"`
-	Context              json.RawMessage           `json:"context"`
-	Roles                json.RawMessage           `json:"roles"`
-	Goals                json.RawMessage           `json:"goals"`
-	Interests            json.RawMessage           `json:"interests"`
-	Constraints          json.RawMessage           `json:"constraints"`
-	Parameters           json.RawMessage           `json:"parameters"`
-	PrivateInformation   json.RawMessage           `json:"private_information"`
-	Difficulty           entity.ScenarioDifficulty `json:"difficulty"`
-	Competencies         []string                  `json:"competencies"`
-	ObservationRules     json.RawMessage           `json:"observation_rules"`
-	CompletionConditions json.RawMessage           `json:"completion_conditions"`
-	Channels             []string                  `json:"channels"`
-	Nodes                json.RawMessage           `json:"nodes"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type updateScenarioRequest struct {
-	Version              *string                    `json:"version"`
-	Title                *string                    `json:"title"`
-	ModeSupport          *[]string                  `json:"mode_support"`
-	Context              *json.RawMessage           `json:"context"`
-	Roles                *json.RawMessage           `json:"roles"`
-	Goals                *json.RawMessage           `json:"goals"`
-	Interests            *json.RawMessage           `json:"interests"`
-	Constraints          *json.RawMessage           `json:"constraints"`
-	Parameters           *json.RawMessage           `json:"parameters"`
-	PrivateInformation   *json.RawMessage           `json:"private_information"`
-	Difficulty           *entity.ScenarioDifficulty `json:"difficulty"`
-	Competencies         *[]string                  `json:"competencies"`
-	ObservationRules     *json.RawMessage           `json:"observation_rules"`
-	CompletionConditions *json.RawMessage           `json:"completion_conditions"`
-	Channels             *[]string                  `json:"channels"`
-	Nodes                *json.RawMessage           `json:"nodes"`
-}
-
-type scenarioCreatedResponse struct {
-	ID string `json:"id"`
+	Title             string                    `json:"title"`
+	Description       string                    `json:"description"`
+	ExpandedContext   string                    `json:"expanded_context"`
+	Difficulty        entity.ScenarioDifficulty `json:"difficulty"`
+	Tags              []string                  `json:"tags"`
+	SupportedRuntimes []string                  `json:"supported_runtimes"`
+	SupportedChannels []string                  `json:"supported_channels"`
+	TargetClusterIDs  []string                  `json:"target_cluster_ids"`
+	Roles             json.RawMessage           `json:"roles"`
+	Blocks            json.RawMessage           `json:"blocks"`
 }
 
 type scenarioSummaryResponse struct {
-	ScenarioID string                `json:"scenario_id"`
-	Title      string                `json:"title"`
-	Version    string                `json:"version"`
-	Status     entity.ScenarioStatus `json:"status"`
-	Difficulty string                `json:"difficulty"`
-	Channels   []string              `json:"channels"`
-	UpdatedAt  time.Time             `json:"updated_at"`
+	ScenarioID        string                `json:"scenario_id"`
+	Title             string                `json:"title"`
+	Description       string                `json:"description"`
+	Status            entity.ScenarioStatus `json:"status"`
+	Difficulty        string                `json:"difficulty"`
+	Tags              []string              `json:"tags"`
+	SupportedRuntimes []string              `json:"supported_runtimes"`
+	SupportedChannels []string              `json:"supported_channels"`
+	UpdatedAt         time.Time             `json:"updated_at"`
 }
 
 type scenarioListResponse struct {
@@ -64,23 +42,21 @@ type scenarioListResponse struct {
 }
 
 type scenarioResponse struct {
-	ScenarioID           string                    `json:"scenario_id"`
-	Version              string                    `json:"version"`
-	Title                string                    `json:"title"`
-	ModeSupport          []string                  `json:"mode_support"`
-	Context              json.RawMessage           `json:"context"`
-	Roles                json.RawMessage           `json:"roles"`
-	Goals                json.RawMessage           `json:"goals"`
-	Interests            json.RawMessage           `json:"interests"`
-	Constraints          json.RawMessage           `json:"constraints"`
-	Parameters           json.RawMessage           `json:"parameters"`
-	PrivateInformation   json.RawMessage           `json:"private_information"`
-	Difficulty           entity.ScenarioDifficulty `json:"difficulty"`
-	Competencies         []string                  `json:"competencies"`
-	ObservationRules     json.RawMessage           `json:"observation_rules"`
-	CompletionConditions json.RawMessage           `json:"completion_conditions"`
-	Channels             []string                  `json:"channels"`
-	Nodes                json.RawMessage           `json:"nodes"`
+	ScenarioID        string                    `json:"scenario_id"`
+	Title             string                    `json:"title"`
+	Description       string                    `json:"description"`
+	ExpandedContext   string                    `json:"expanded_context"`
+	Status            entity.ScenarioStatus     `json:"status"`
+	Difficulty        entity.ScenarioDifficulty `json:"difficulty"`
+	Tags              []string                  `json:"tags"`
+	SupportedRuntimes []string                  `json:"supported_runtimes"`
+	SupportedChannels []string                  `json:"supported_channels"`
+	TargetClusterIDs  []string                  `json:"target_cluster_ids"`
+	Roles             []entity.ScenarioRole     `json:"roles"`
+	Blocks            []entity.ScenarioBlock    `json:"blocks"`
+	CreatedAt         time.Time                 `json:"created_at"`
+	UpdatedAt         time.Time                 `json:"updated_at"`
+	PublishedAt       *time.Time                `json:"published_at,omitempty"`
 }
 
 type generateScenarioRequest struct {
@@ -94,8 +70,31 @@ type generateScenarioResponse struct {
 }
 
 type publishScenarioResponse struct {
-	Version     string    `json:"version"`
+	ScenarioID  string    `json:"scenario_id"`
+	Status      string    `json:"status"`
 	PublishedAt time.Time `json:"published_at"`
+	Warnings    []any     `json:"warnings"`
+}
+
+type competencyClusterListResponse struct {
+	Clusters []competencyClusterResponse `json:"clusters"`
+}
+
+type competencyClusterResponse struct {
+	ID          string `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type semanticActionListResponse struct {
+	Actions []semanticActionResponse `json:"actions"`
+}
+
+type semanticActionResponse struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type scenarioVersionSummaryResponse struct {

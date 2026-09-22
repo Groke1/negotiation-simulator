@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	"time"
 
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 )
@@ -12,6 +13,47 @@ type userRepository interface {
 	GetUserRoles(ctx context.Context, userID string) ([]entity.ProductRole, error)
 	AddUserRole(ctx context.Context, userID string, role entity.ProductRole) error
 	SetUserOrganization(ctx context.Context, userID, organizationID string) (*entity.User, error)
+	ListProfile(ctx context.Context, userID string) ([]entity.ProfileCluster, error)
+	ListProfileHistory(ctx context.Context, userID string, from, to *time.Time, limit, offset int32) ([]entity.ProfileHistoryEvent, error)
+	ListOrganizationUsers(ctx context.Context, requesterID string, limit, offset int32) ([]entity.OrganizationUser, error)
+}
+
+func (s *userService) GetProfile(ctx context.Context, claims entity.AccessClaims, userID string) ([]entity.ProfileCluster, error) {
+	user, err := s.userRepository.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if claims.UserID != userID {
+		requester, err := s.userRepository.GetUserByID(ctx, claims.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if claims.ActiveRole != entity.RoleCurator || requester.OrganizationID == nil || user.OrganizationID == nil || *requester.OrganizationID != *user.OrganizationID {
+			return nil, entity.ErrUserDataAccessDenied
+		}
+	}
+	return s.userRepository.ListProfile(ctx, userID)
+}
+
+func (s *userService) GetProfileHistory(ctx context.Context, claims entity.AccessClaims, userID string, from, to *time.Time, limit, offset int32) ([]entity.ProfileHistoryEvent, error) {
+	if _, err := s.GetProfile(ctx, claims, userID); err != nil {
+		return nil, err
+	}
+	return s.userRepository.ListProfileHistory(ctx, userID, from, to, limit, offset)
+}
+
+func (s *userService) ListOrganizationUsers(ctx context.Context, claims entity.AccessClaims, limit, offset int32) ([]entity.OrganizationUser, error) {
+	if claims.ActiveRole != entity.RoleCurator {
+		return nil, entity.ErrCuratorRoleRequired
+	}
+	user, err := s.userRepository.GetUserByID(ctx, claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if user.OrganizationID == nil {
+		return nil, entity.ErrOrganizationRequired
+	}
+	return s.userRepository.ListOrganizationUsers(ctx, claims.UserID, limit, offset)
 }
 
 type organizationRepository interface {

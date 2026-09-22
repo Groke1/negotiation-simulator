@@ -128,6 +128,162 @@ func (q *Queries) GetUserRoles(ctx context.Context, userID pgtype.UUID) ([]Users
 	return items, nil
 }
 
+const listOrganizationUsers = `-- name: ListOrganizationUsers :many
+SELECT u.id, u.username, u.email, COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}')::users.product_role[] AS roles, u.created_at
+FROM users.users requester
+JOIN users.users u ON u.organization_id = requester.organization_id
+LEFT JOIN users.user_roles ur ON ur.user_id = u.id
+WHERE requester.id = $1
+GROUP BY u.id, u.username, u.email, u.created_at
+ORDER BY u.created_at DESC, u.id DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListOrganizationUsersParams struct {
+	RequesterID pgtype.UUID `json:"requester_id"`
+	OffsetCount int32       `json:"offset_count"`
+	LimitCount  int32       `json:"limit_count"`
+}
+
+type ListOrganizationUsersRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	Username  string             `json:"username"`
+	Email     string             `json:"email"`
+	Roles     []UsersProductRole `json:"roles"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListOrganizationUsers(ctx context.Context, arg ListOrganizationUsersParams) ([]ListOrganizationUsersRow, error) {
+	rows, err := q.db.Query(ctx, listOrganizationUsers, arg.RequesterID, arg.OffsetCount, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOrganizationUsersRow
+	for rows.Next() {
+		var i ListOrganizationUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Email,
+			&i.Roles,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProfile = `-- name: ListProfile :many
+WITH seeded AS (
+    INSERT INTO learning.user_profile (user_id, cluster_id, score)
+    SELECT $1, id, 50 FROM learning.competency_clusters
+    ON CONFLICT (user_id, cluster_id) DO NOTHING
+)
+SELECT c.id AS cluster_id, c.code, c.name, p.score::integer AS score, p.updated_at
+FROM learning.competency_clusters c
+JOIN learning.user_profile p ON p.cluster_id = c.id
+WHERE p.user_id = $1
+ORDER BY c.code
+`
+
+type ListProfileRow struct {
+	ClusterID pgtype.UUID        `json:"cluster_id"`
+	Code      string             `json:"code"`
+	Name      string             `json:"name"`
+	Score     int32              `json:"score"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListProfile(ctx context.Context, userID pgtype.UUID) ([]ListProfileRow, error) {
+	rows, err := q.db.Query(ctx, listProfile, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProfileRow
+	for rows.Next() {
+		var i ListProfileRow
+		if err := rows.Scan(
+			&i.ClusterID,
+			&i.Code,
+			&i.Name,
+			&i.Score,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProfileHistory = `-- name: ListProfileHistory :many
+SELECT id, source, source_id, changes, created_at
+FROM learning.profile_history
+WHERE user_id = $1
+  AND ($2::timestamptz IS NULL OR created_at >= $2)
+  AND ($3::timestamptz IS NULL OR created_at <= $3)
+ORDER BY created_at DESC
+LIMIT $5 OFFSET $4
+`
+
+type ListProfileHistoryParams struct {
+	UserID      pgtype.UUID        `json:"user_id"`
+	FromAt      pgtype.Timestamptz `json:"from_at"`
+	ToAt        pgtype.Timestamptz `json:"to_at"`
+	OffsetCount int32              `json:"offset_count"`
+	LimitCount  int32              `json:"limit_count"`
+}
+
+type ListProfileHistoryRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	Source    string             `json:"source"`
+	SourceID  pgtype.UUID        `json:"source_id"`
+	Changes   []byte             `json:"changes"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListProfileHistory(ctx context.Context, arg ListProfileHistoryParams) ([]ListProfileHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listProfileHistory,
+		arg.UserID,
+		arg.FromAt,
+		arg.ToAt,
+		arg.OffsetCount,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProfileHistoryRow
+	for rows.Next() {
+		var i ListProfileHistoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Source,
+			&i.SourceID,
+			&i.Changes,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setUserOrganization = `-- name: SetUserOrganization :one
 UPDATE users.users
 SET organization_id = $1, updated_at = NOW()

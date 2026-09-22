@@ -3,6 +3,8 @@ package user
 import (
 	"context"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -18,6 +20,9 @@ type Service interface {
 	ListRoles(ctx context.Context, userID string) ([]entity.ProductRole, error)
 	SwitchActiveRole(ctx context.Context, params entity.SwitchRole) (*entity.JWT, error)
 	GrantRole(ctx context.Context, params entity.GrantRole) error
+	GetProfile(ctx context.Context, claims entity.AccessClaims, userID string) ([]entity.ProfileCluster, error)
+	GetProfileHistory(ctx context.Context, claims entity.AccessClaims, userID string, from, to *time.Time, limit, offset int32) ([]entity.ProfileHistoryEvent, error)
+	ListOrganizationUsers(ctx context.Context, claims entity.AccessClaims, limit, offset int32) ([]entity.OrganizationUser, error)
 }
 
 type Controller struct {
@@ -33,7 +38,156 @@ func (c *Controller) InitRoutes(r chi.Router) {
 	r.Get("/users/me", c.GetCurrentUser)
 	r.Put("/users/me/organization", c.SetOrganization)
 	r.Get("/roles", c.ListRoles)
+	r.Post("/roles", c.GrantCurrentUserRole)
+	r.Get("/organizations/me/users", c.ListOrganizationUsers)
 	r.Put("/roles/active", c.SwitchActiveRole)
+	r.Get("/users/me/profile", c.GetMyProfile)
+	r.Get("/users/{user_id}/profile", c.GetProfile)
+	r.Get("/users/{user_id}/profile/history", c.GetProfileHistory)
+}
+
+func (c *Controller) ListOrganizationUsers(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ctrlmw.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrAccessTokenInvalid)
+		return
+	}
+	limit, offset := int32(20), int32(0)
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 100 {
+			httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+			return
+		}
+		limit = int32(n)
+	}
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+			return
+		}
+		offset = int32(n)
+	}
+	users, err := c.service.ListOrganizationUsers(r.Context(), claims, limit, offset)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, organizationUserListResponse{Users: users})
+}
+
+func (c *Controller) GetMyProfile(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ctrlmw.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrAccessTokenInvalid)
+		return
+	}
+	c.writeProfile(w, r, claims, claims.UserID)
+}
+
+func (c *Controller) GetProfile(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ctrlmw.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrAccessTokenInvalid)
+		return
+	}
+	userID, err := entity.NormalizeUUID(chi.URLParam(r, "user_id"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	c.writeProfile(w, r, claims, userID)
+}
+
+func (c *Controller) writeProfile(w http.ResponseWriter, r *http.Request, claims entity.AccessClaims, userID string) {
+	clusters, err := c.service.GetProfile(r.Context(), claims, userID)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	var updatedAt *time.Time
+	for _, cluster := range clusters {
+		if cluster.UpdatedAt != nil && (updatedAt == nil || cluster.UpdatedAt.After(*updatedAt)) {
+			updatedAt = cluster.UpdatedAt
+		}
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, profileResponse{UserID: userID, Clusters: clusters, UpdatedAt: updatedAt})
+}
+
+func (c *Controller) GetProfileHistory(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ctrlmw.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrAccessTokenInvalid)
+		return
+	}
+	userID, err := entity.NormalizeUUID(chi.URLParam(r, "user_id"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	limit, offset := int32(20), int32(0)
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 100 {
+			httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+			return
+		}
+		limit = int32(n)
+	}
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+			return
+		}
+		offset = int32(n)
+	}
+	from, err := optionalTime(r.URL.Query().Get("from"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	to, err := optionalTime(r.URL.Query().Get("to"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	events, err := c.service.GetProfileHistory(r.Context(), claims, userID, from, to, limit, offset)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, profileHistoryResponse{Events: events})
+}
+
+func optionalTime(raw string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func (c *Controller) GrantCurrentUserRole(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ctrlmw.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrAccessTokenInvalid)
+		return
+	}
+	var req grantRoleRequest
+	if err := pkghttpx.DecodeJSON(w, r, &req); err != nil || !req.Role.Valid() {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	if err := c.service.GrantRole(r.Context(), entity.GrantRole{UserID: claims.UserID, Role: req.Role}); err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *Controller) InitInternalRoutes(r chi.Router) {
@@ -138,9 +292,13 @@ func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusUnauthorized
 	case httpx.ErrRoleNotAssigned:
 		status = http.StatusForbidden
+	case httpx.ErrUserDataAccessDenied:
+		status = http.StatusForbidden
+	case httpx.ErrCuratorRoleRequired:
+		status = http.StatusForbidden
 	case httpx.ErrOrganizationNotFound, httpx.ErrUserNotFound:
 		status = http.StatusNotFound
-	case httpx.ErrRoleAlreadyAssigned:
+	case httpx.ErrRoleAlreadyAssigned, httpx.ErrOrganizationRequired:
 		status = http.StatusConflict
 	}
 	if status == http.StatusInternalServerError {

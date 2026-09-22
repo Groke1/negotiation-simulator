@@ -30,11 +30,11 @@ RETURNING id, user_id, token_hash, active_role, expires_at, revoked_at, created_
 `
 
 type CreateRefreshTokenParams struct {
-	ID         pgtype.UUID        `json:"id"`
-	UserID     pgtype.UUID        `json:"user_id"`
-	TokenHash  string             `json:"token_hash"`
-	ActiveRole UsersProductRole   `json:"active_role"`
-	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	ID         pgtype.UUID          `json:"id"`
+	UserID     pgtype.UUID          `json:"user_id"`
+	TokenHash  string               `json:"token_hash"`
+	ActiveRole NullUsersProductRole `json:"active_role"`
+	ExpiresAt  pgtype.Timestamptz   `json:"expires_at"`
 }
 
 func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (UsersRefreshToken, error) {
@@ -153,9 +153,9 @@ RETURNING id, user_id, token_hash, active_role, expires_at, revoked_at, created_
 `
 
 type UpdateRefreshTokenActiveRoleParams struct {
-	ActiveRole UsersProductRole `json:"active_role"`
-	ID         pgtype.UUID      `json:"id"`
-	UserID     pgtype.UUID      `json:"user_id"`
+	ActiveRole NullUsersProductRole `json:"active_role"`
+	ID         pgtype.UUID          `json:"id"`
+	UserID     pgtype.UUID          `json:"user_id"`
 }
 
 func (q *Queries) UpdateRefreshTokenActiveRole(ctx context.Context, arg UpdateRefreshTokenActiveRoleParams) (UsersRefreshToken, error) {

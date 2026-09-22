@@ -1,6 +1,9 @@
 package user
 
-import "sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
+import (
+	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
+	"time"
+)
 
 type organizationResponse struct {
 	ID   string `json:"id"`
@@ -35,4 +38,18 @@ type accessTokenResponse struct {
 type rolesResponse struct {
 	Items      []entity.ProductRole `json:"items"`
 	ActiveRole entity.ProductRole   `json:"active_role"`
+}
+
+type profileResponse struct {
+	UserID    string                  `json:"user_id"`
+	Clusters  []entity.ProfileCluster `json:"clusters"`
+	UpdatedAt *time.Time              `json:"updated_at"`
+}
+
+type profileHistoryResponse struct {
+	Events []entity.ProfileHistoryEvent `json:"events"`
+}
+
+type organizationUserListResponse struct {
+	Users []entity.OrganizationUser `json:"users"`
 }

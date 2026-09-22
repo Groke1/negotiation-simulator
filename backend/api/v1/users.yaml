@@ -387,7 +387,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProductRole'
-          minItems: 1
           uniqueItems: true
         active_role:
           $ref: '#/components/schemas/ProductRole'

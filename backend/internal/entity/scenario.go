@@ -115,38 +115,29 @@ type ListScenarios struct {
 	Offset int32
 }
 
-type ValidationStructure struct {
-	HasGoal                 bool `json:"has_goal"`
-	HasConflict             bool `json:"has_conflict"`
-	HasRoles                bool `json:"has_roles"`
-	HasCompletionConditions bool `json:"has_completion_conditions"`
-}
-
-type ValidationGraph struct {
-	DeadEnds         []string   `json:"dead_ends"`
-	UnreachableNodes []string   `json:"unreachable_nodes"`
-	Cycles           [][]string `json:"cycles"`
-}
-
-type UnderCoveredIndicator struct {
-	Indicator     string `json:"indicator"`
-	ContextsFound int    `json:"contexts_found"`
-	Required      int    `json:"required"`
-}
-
-type ValidationCoverage struct {
-	UnderCoveredIndicators []UnderCoveredIndicator `json:"under_covered_indicators"`
-}
-
 type ScenarioValidation struct {
-	Valid     bool                `json:"valid"`
-	Structure ValidationStructure `json:"structure"`
-	Graph     ValidationGraph     `json:"graph"`
-	Coverage  ValidationCoverage  `json:"coverage"`
+	Valid         bool                      `json:"valid"`
+	ErrorsCount   int                       `json:"errors_count"`
+	WarningsCount int                       `json:"warnings_count"`
+	Issues        []ScenarioValidationIssue `json:"issues"`
+}
+
+type ScenarioValidationIssue struct {
+	Severity   string  `json:"severity"`
+	Code       string  `json:"code"`
+	Message    string  `json:"message"`
+	EntityType string  `json:"entity_type"`
+	EntityID   *string `json:"entity_id,omitempty"`
 }
 
 type ScenarioVersion struct {
 	Version     string
 	Snapshot    json.RawMessage
 	PublishedAt time.Time
+}
+
+type SemanticActionDefinition struct {
+	Code        string
+	Name        string
+	Description string
 }

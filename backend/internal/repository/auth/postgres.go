@@ -34,7 +34,7 @@ func (r *authRepository) CreateRefreshToken(ctx context.Context, token entity.Re
 		ID:         id,
 		UserID:     userID,
 		TokenHash:  token.TokenHash,
-		ActiveRole: sqlc.UsersProductRole(token.ActiveRole),
+		ActiveRole: nullableRole(token.ActiveRole),
 		ExpiresAt:  pgxconv.TimeToRequiredTimestamptz(token.ExpiresAt),
 	})
 	if err != nil {
@@ -94,7 +94,7 @@ func (r *authRepository) UpdateRefreshTokenActiveRole(ctx context.Context, sessi
 	row, err := r.getQueries(ctx).UpdateRefreshTokenActiveRole(ctx, sqlc.UpdateRefreshTokenActiveRoleParams{
 		ID:         pgSessionID,
 		UserID:     pgUserID,
-		ActiveRole: sqlc.UsersProductRole(role),
+		ActiveRole: nullableRole(role),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, entity.ErrAccessTokenInvalid
@@ -117,10 +117,24 @@ func refreshTokenFromSQL(row sqlc.UsersRefreshToken) *entity.RefreshToken {
 		ID:         pgxconv.UUIDToString(row.ID),
 		UserID:     pgxconv.UUIDToString(row.UserID),
 		TokenHash:  row.TokenHash,
-		ActiveRole: entity.ProductRole(row.ActiveRole),
+		ActiveRole: activeRoleFromSQL(row.ActiveRole),
 		ExpiresAt:  row.ExpiresAt.Time,
 		RevokedAt:  pgxconv.TimestamptzToTime(row.RevokedAt),
 		CreatedAt:  row.CreatedAt.Time,
 		UpdatedAt:  row.UpdatedAt.Time,
 	}
+}
+
+func nullableRole(role entity.ProductRole) sqlc.NullUsersProductRole {
+	if role == entity.NoActiveRole {
+		return sqlc.NullUsersProductRole{}
+	}
+	return sqlc.NullUsersProductRole{UsersProductRole: sqlc.UsersProductRole(role), Valid: true}
+}
+
+func activeRoleFromSQL(role sqlc.NullUsersProductRole) entity.ProductRole {
+	if !role.Valid {
+		return entity.NoActiveRole
+	}
+	return entity.ProductRole(role.UsersProductRole)
 }

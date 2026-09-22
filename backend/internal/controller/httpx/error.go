@@ -32,9 +32,38 @@ const (
 	ErrOrganizationNotFound      ErrorCode = "ORGANIZATION_NOT_FOUND"
 	ErrOrganizationAlreadySet    ErrorCode = "ORGANIZATION_ALREADY_SET"
 
-	ErrUserNotFound        ErrorCode = "USER_NOT_FOUND"
-	ErrRoleAlreadyAssigned ErrorCode = "ROLE_ALREADY_ASSIGNED"
-	ErrRoleNotAssigned     ErrorCode = "ROLE_NOT_ASSIGNED"
+	ErrUserNotFound         ErrorCode = "USER_NOT_FOUND"
+	ErrRoleAlreadyAssigned  ErrorCode = "ROLE_ALREADY_ASSIGNED"
+	ErrRoleNotAssigned      ErrorCode = "ROLE_NOT_ASSIGNED"
+	ErrUserDataAccessDenied ErrorCode = "USER_DATA_ACCESS_DENIED"
+	ErrMediaTooLarge        ErrorCode = "MEDIA_TOO_LARGE"
+	ErrUnsupportedMediaType ErrorCode = "UNSUPPORTED_MEDIA_TYPE"
+	ErrMediaAccessDenied    ErrorCode = "MEDIA_ACCESS_DENIED"
+	ErrMediaNotFound        ErrorCode = "MEDIA_NOT_FOUND"
+
+	ErrTrainingSessionNotFound           ErrorCode = "TRAINING_SESSION_NOT_FOUND"
+	ErrTrainingAccessDenied              ErrorCode = "TRAINING_ACCESS_DENIED"
+	ErrScenarioNotAvailable              ErrorCode = "SCENARIO_NOT_AVAILABLE"
+	ErrTrainingConfigurationNotSupported ErrorCode = "TRAINING_CONFIGURATION_NOT_SUPPORTED"
+	ErrInvalidTrainingState              ErrorCode = "INVALID_TRAINING_STATE"
+	ErrActionNotAvailable                ErrorCode = "ACTION_NOT_AVAILABLE"
+	ErrTrainingMessageChannelMismatch    ErrorCode = "TRAINING_MESSAGE_CHANNEL_MISMATCH"
+	ErrTrainingMessageNotFound           ErrorCode = "TRAINING_MESSAGE_NOT_FOUND"
+	ErrMessageAlreadyClassified          ErrorCode = "MESSAGE_ALREADY_CLASSIFIED"
+	ErrMessageNotClassifiable            ErrorCode = "MESSAGE_NOT_CLASSIFIABLE"
+
+	ErrCuratorRoleRequired    ErrorCode = "CURATOR_ROLE_REQUIRED"
+	ErrAssignmentAccessDenied ErrorCode = "ASSIGNMENT_ACCESS_DENIED"
+	ErrAssignmentConflict     ErrorCode = "ASSIGNMENT_CONFLICT"
+
+	ErrArenaAssignmentNotFound         ErrorCode = "ARENA_ASSIGNMENT_NOT_FOUND"
+	ErrArenaSessionNotFound            ErrorCode = "ARENA_SESSION_NOT_FOUND"
+	ErrArenaAccessDenied               ErrorCode = "ARENA_ACCESS_DENIED"
+	ErrArenaJoinNotAllowed             ErrorCode = "ARENA_JOIN_NOT_ALLOWED"
+	ErrInvalidArenaState               ErrorCode = "INVALID_ARENA_STATE"
+	ErrArenaFeedbackForbidden          ErrorCode = "ARENA_FEEDBACK_FORBIDDEN"
+	ErrArenaFeedbackConflict           ErrorCode = "ARENA_FEEDBACK_CONFLICT"
+	ErrArenaFeedbackParticipantInvalid ErrorCode = "ARENA_FEEDBACK_PARTICIPANT_INVALID"
 
 	ErrMethodistRoleRequired         ErrorCode = "METHODIST_ROLE_REQUIRED"
 	ErrOrganizationRequired          ErrorCode = "ORGANIZATION_REQUIRED"
@@ -95,6 +124,58 @@ func (e ErrorCode) Message() string {
 		return "Requested role is already assigned to the user"
 	case ErrRoleNotAssigned:
 		return "Requested role is not assigned to the user"
+	case ErrUserDataAccessDenied:
+		return "Access to this user data is denied"
+	case ErrMediaTooLarge:
+		return "Media file is too large"
+	case ErrUnsupportedMediaType:
+		return "Media type is not supported"
+	case ErrMediaAccessDenied:
+		return "Access to this media is denied"
+	case ErrMediaNotFound:
+		return "Media not found"
+	case ErrTrainingSessionNotFound:
+		return "Training session not found"
+	case ErrTrainingAccessDenied:
+		return "Access to this training session is denied"
+	case ErrScenarioNotAvailable:
+		return "Scenario is not available"
+	case ErrTrainingConfigurationNotSupported:
+		return "Training configuration is not supported"
+	case ErrInvalidTrainingState:
+		return "Training state does not allow this operation"
+	case ErrActionNotAvailable:
+		return "Requested action is not available"
+	case ErrTrainingMessageChannelMismatch:
+		return "Message content does not match session channel"
+	case ErrTrainingMessageNotFound:
+		return "Training message not found"
+	case ErrMessageAlreadyClassified:
+		return "Message is already classified"
+	case ErrMessageNotClassifiable:
+		return "Message cannot be classified"
+	case ErrCuratorRoleRequired:
+		return "Active role must be curator"
+	case ErrAssignmentAccessDenied:
+		return "Access to this assignment is denied"
+	case ErrAssignmentConflict:
+		return "Assignment already exists"
+	case ErrArenaAssignmentNotFound:
+		return "Arena assignment not found"
+	case ErrArenaSessionNotFound:
+		return "Arena session not found"
+	case ErrArenaAccessDenied:
+		return "Access to this arena is denied"
+	case ErrArenaJoinNotAllowed:
+		return "Cannot join this arena"
+	case ErrInvalidArenaState:
+		return "Arena state does not allow this operation"
+	case ErrArenaFeedbackForbidden:
+		return "Feedback is forbidden"
+	case ErrArenaFeedbackConflict:
+		return "Feedback already exists"
+	case ErrArenaFeedbackParticipantInvalid:
+		return "Feedback participant is invalid"
 	case ErrMethodistRoleRequired:
 		return "Active role must be methodist"
 	case ErrOrganizationRequired:
@@ -164,6 +245,58 @@ func ErrorCodeFromError(err error) ErrorCode {
 		return ErrRoleAlreadyAssigned
 	case errors.Is(err, entity.ErrRoleNotAssigned):
 		return ErrRoleNotAssigned
+	case errors.Is(err, entity.ErrUserDataAccessDenied):
+		return ErrUserDataAccessDenied
+	case errors.Is(err, entity.ErrMediaTooLarge):
+		return ErrMediaTooLarge
+	case errors.Is(err, entity.ErrUnsupportedMediaType):
+		return ErrUnsupportedMediaType
+	case errors.Is(err, entity.ErrMediaAccessDenied):
+		return ErrMediaAccessDenied
+	case errors.Is(err, entity.ErrMediaNotFound):
+		return ErrMediaNotFound
+	case errors.Is(err, entity.ErrTrainingSessionNotFound):
+		return ErrTrainingSessionNotFound
+	case errors.Is(err, entity.ErrTrainingAccessDenied):
+		return ErrTrainingAccessDenied
+	case errors.Is(err, entity.ErrScenarioNotAvailable):
+		return ErrScenarioNotAvailable
+	case errors.Is(err, entity.ErrTrainingConfigurationNotSupported):
+		return ErrTrainingConfigurationNotSupported
+	case errors.Is(err, entity.ErrInvalidTrainingState):
+		return ErrInvalidTrainingState
+	case errors.Is(err, entity.ErrActionNotAvailable):
+		return ErrActionNotAvailable
+	case errors.Is(err, entity.ErrTrainingMessageChannelMismatch):
+		return ErrTrainingMessageChannelMismatch
+	case errors.Is(err, entity.ErrTrainingMessageNotFound):
+		return ErrTrainingMessageNotFound
+	case errors.Is(err, entity.ErrMessageAlreadyClassified):
+		return ErrMessageAlreadyClassified
+	case errors.Is(err, entity.ErrMessageNotClassifiable):
+		return ErrMessageNotClassifiable
+	case errors.Is(err, entity.ErrCuratorRoleRequired):
+		return ErrCuratorRoleRequired
+	case errors.Is(err, entity.ErrAssignmentAccessDenied):
+		return ErrAssignmentAccessDenied
+	case errors.Is(err, entity.ErrAssignmentConflict):
+		return ErrAssignmentConflict
+	case errors.Is(err, entity.ErrArenaAssignmentNotFound):
+		return ErrArenaAssignmentNotFound
+	case errors.Is(err, entity.ErrArenaSessionNotFound):
+		return ErrArenaSessionNotFound
+	case errors.Is(err, entity.ErrArenaAccessDenied):
+		return ErrArenaAccessDenied
+	case errors.Is(err, entity.ErrArenaJoinNotAllowed):
+		return ErrArenaJoinNotAllowed
+	case errors.Is(err, entity.ErrInvalidArenaState):
+		return ErrInvalidArenaState
+	case errors.Is(err, entity.ErrArenaFeedbackForbidden):
+		return ErrArenaFeedbackForbidden
+	case errors.Is(err, entity.ErrArenaFeedbackConflict):
+		return ErrArenaFeedbackConflict
+	case errors.Is(err, entity.ErrArenaFeedbackParticipantInvalid):
+		return ErrArenaFeedbackParticipantInvalid
 	case errors.Is(err, entity.ErrMethodistRoleRequired):
 		return ErrMethodistRoleRequired
 	case errors.Is(err, entity.ErrOrganizationRequired):

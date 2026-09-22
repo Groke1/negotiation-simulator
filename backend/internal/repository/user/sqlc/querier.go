@@ -16,6 +16,9 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (UsersUser, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (UsersUser, error)
 	GetUserRoles(ctx context.Context, userID pgtype.UUID) ([]UsersProductRole, error)
+	ListOrganizationUsers(ctx context.Context, arg ListOrganizationUsersParams) ([]ListOrganizationUsersRow, error)
+	ListProfile(ctx context.Context, userID pgtype.UUID) ([]ListProfileRow, error)
+	ListProfileHistory(ctx context.Context, arg ListProfileHistoryParams) ([]ListProfileHistoryRow, error)
 	SetUserOrganization(ctx context.Context, arg SetUserOrganizationParams) (UsersUser, error)
 }
 
