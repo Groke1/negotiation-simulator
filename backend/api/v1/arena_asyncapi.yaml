@@ -1,8 +1,11 @@
 asyncapi: 3.0.0
 info:
-  title: Arena WebSocket API
-  version: 0.1.0
-  description: WebSocket-протокол текстового чата между двумя реальными участниками Arena.
+  title: Negotiation Trainer - Arena WebSocket API
+  version: 1.0.0
+  description: |
+    WebSocket-протокол live text chat между двумя реальными участниками Arena. Сохраняет старый
+    канал и события. Единственное содержательное расширение message.send/message.created —
+    semantic_action_code, который отправитель выбирает для собственной реплики.
 defaultContentType: application/json
 servers:
   local:
@@ -14,96 +17,143 @@ channels:
     address: /ws/arena/sessions/{arena_session_id}
     parameters:
       arena_session_id:
-        description: UUID Arena Session.
+        description: UUID ArenaSession, полученный через POST /arena/assignments/{arena_assignment_id}/join.
     messages:
-      messageSend: { $ref: '#/components/messages/MessageSend' }
-      messageCreated: { $ref: '#/components/messages/MessageCreated' }
-      participantJoined: { $ref: '#/components/messages/ParticipantJoined' }
-      participantLeft: { $ref: '#/components/messages/ParticipantLeft' }
-      arenaCompleted: { $ref: '#/components/messages/ArenaCompleted' }
-      error: { $ref: '#/components/messages/ErrorMessage' }
+      messageSend:
+        $ref: '#/components/messages/MessageSend'
+      messageCreated:
+        $ref: '#/components/messages/MessageCreated'
+      participantJoined:
+        $ref: '#/components/messages/ParticipantJoined'
+      participantLeft:
+        $ref: '#/components/messages/ParticipantLeft'
+      arenaCompleted:
+        $ref: '#/components/messages/ArenaCompleted'
+      error:
+        $ref: '#/components/messages/ErrorMessage'
 operations:
   sendMessage:
     action: send
-    channel: { $ref: '#/channels/arenaChat' }
+    channel:
+      $ref: '#/channels/arenaChat'
     messages:
-      - { $ref: '#/channels/arenaChat/messages/messageSend' }
+      - $ref: '#/channels/arenaChat/messages/messageSend'
   receiveEvents:
     action: receive
-    channel: { $ref: '#/channels/arenaChat' }
+    channel:
+      $ref: '#/channels/arenaChat'
     messages:
-      - { $ref: '#/channels/arenaChat/messages/messageCreated' }
-      - { $ref: '#/channels/arenaChat/messages/participantJoined' }
-      - { $ref: '#/channels/arenaChat/messages/participantLeft' }
-      - { $ref: '#/channels/arenaChat/messages/arenaCompleted' }
-      - { $ref: '#/channels/arenaChat/messages/error' }
+      - $ref: '#/channels/arenaChat/messages/messageCreated'
+      - $ref: '#/channels/arenaChat/messages/participantJoined'
+      - $ref: '#/channels/arenaChat/messages/participantLeft'
+      - $ref: '#/channels/arenaChat/messages/arenaCompleted'
+      - $ref: '#/channels/arenaChat/messages/error'
 components:
   securitySchemes:
     bearerSubprotocol:
       type: http
       scheme: bearer
-      description: JWT передаётся вторым значением заголовка Sec-WebSocket-Protocol после `arena-v1`.
+      description: JWT передаётся вторым значением Sec-WebSocket-Protocol после `arena-v1`.
   messages:
     MessageSend:
       name: message.send
+      title: Отправить chat-сообщение
+      summary: Клиент отправляет собственную реплику и выбранный semantic action.
       payload:
         type: object
-        additionalProperties: false
-        required: [type, message_id, text]
+        required: [type, message_id, text, semantic_action_code]
         properties:
-          type: { const: message.send }
-          message_id: { type: string, format: uuid }
-          text: { type: string, minLength: 1, maxLength: 5000 }
+          type:
+            type: string
+            const: message.send
+          message_id:
+            type: string
+            format: uuid
+            description: |
+              Генерируется frontend до отправки. Является постоянным ID сообщения и ключом
+              идемпотентности: повторная отправка того же message_id не создаёт дубль.
+          text:
+            type: string
+            minLength: 1
+            maxLength: 5000
+            description: Текст собственной реплики участника.
+          semantic_action_code:
+            type: string
+            description: Код из GET /semantic-actions, выбранный отправителем для своей реплики.
     MessageCreated:
       name: message.created
+      title: Сообщение сохранено
+      summary: Сервер рассылает сохранённое сообщение участникам Arena.
       payload:
         type: object
-        additionalProperties: false
         required: [type, message]
         properties:
-          type: { const: message.created }
+          type:
+            type: string
+            const: message.created
           message:
             type: object
-            additionalProperties: false
-            required: [message_id, sender_id, text, created_at]
+            required: [message_id, sender_id, text, semantic_action_code, created_at]
             properties:
-              message_id: { type: string, format: uuid }
-              sender_id: { type: string, format: uuid }
-              text: { type: string }
-              created_at: { type: string, format: date-time }
+              message_id:
+                type: string
+                format: uuid
+              sender_id:
+                type: string
+                format: uuid
+              text:
+                type: string
+              semantic_action_code:
+                type: string
+                description: Semantic action, выбранный автором для своей реплики.
+              created_at:
+                type: string
+                format: date-time
     ParticipantJoined:
       name: participant.joined
       payload:
         type: object
-        additionalProperties: false
         required: [type, user_id]
         properties:
-          type: { const: participant.joined }
-          user_id: { type: string, format: uuid }
+          type:
+            type: string
+            const: participant.joined
+          user_id:
+            type: string
+            format: uuid
     ParticipantLeft:
       name: participant.left
       payload:
         type: object
-        additionalProperties: false
         required: [type, user_id]
         properties:
-          type: { const: participant.left }
-          user_id: { type: string, format: uuid }
+          type:
+            type: string
+            const: participant.left
+          user_id:
+            type: string
+            format: uuid
     ArenaCompleted:
       name: arena.completed
       payload:
         type: object
-        additionalProperties: false
         required: [type]
         properties:
-          type: { const: arena.completed }
+          type:
+            type: string
+            const: arena.completed
     ErrorMessage:
       name: error
       payload:
         type: object
-        additionalProperties: false
         required: [type, code, message]
         properties:
-          type: { const: error }
-          code: { type: string }
-          message: { type: string }
+          type:
+            type: string
+            const: error
+          code:
+            type: string
+            description: Машиночитаемый код ошибки WebSocket-протокола.
+          message:
+            type: string
+            description: Человекочитаемое описание ошибки.

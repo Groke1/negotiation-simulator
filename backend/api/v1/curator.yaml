@@ -1,119 +1,159 @@
 openapi: 3.1.0
 info:
-  title: Curator API
-  version: 0.4.0
+  title: Negotiation Trainer - Curator API
+  version: 1.0.0
+  description: 'API назначений куратора и командной аналитики. Сохраняет старые пути `/curator/team`, `/assignments` и `/curator/team/analytics`, расширяя их под новую модель кластеров и историю попыток.
+
+
+    Для MVP команда куратора определяется просто: все пользователи с ролью learner в той же организации.
+
+    '
 servers:
-- url: http://localhost:8080/api/v1
+  - url: http://localhost:8080/api/v1
 tags:
-- name: Curator
-  description: Команда, динамика профиля, назначения и командная аналитика.
+  - name: Curator
+    description: Команда куратора и просмотр активности learner.
+  - name: Assignments
+    description: Назначения опубликованных сценариев learner.
+  - name: Curator Analytics
+    description: Агрегированная аналитика организации.
 paths:
   /curator/team:
     get:
       tags:
-      - Curator
-      summary: Получение команды куратора
-      description: Возвращает сотрудников, закреплённых за текущим curator.
+        - Curator
+      summary: Получить команду куратора
+      description: 'Для текущего MVP команда — все пользователи с ролью learner в организации текущего curator.
+
+        Отдельное закрепление learner за curator не используется.
+
+        '
       operationId: getCuratorTeam
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       parameters:
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200':
-          description: Команда куратора.
+          description: Список learner текущей организации.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CuratorTeamResponse'
-        '400':
-          description: Некорректные query-параметры.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidRequestError'
         '401':
           $ref: '#/components/responses/AccessUnauthorized'
         '403':
-          description: Active role должна быть curator.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CuratorRoleRequiredError'
+          $ref: '#/components/responses/CuratorRoleRequired'
         '500':
           $ref: '#/components/responses/InternalServerError'
-  /users/{user_id}/profile/history:
-    parameters:
-    - $ref: '#/components/parameters/UserId'
+  /curator/team/sessions:
     get:
       tags:
-      - Curator
-      summary: Получение динамики профиля «до/после»
-      description: Нужно передать либо from+to, либо session_id_from+session_id_to. Доступно самому learner либо curator
-        для сотрудника своей команды.
-      operationId: getProfileHistory
+        - Curator
+      summary: Получить историю сессий команды
+      description: 'Общий read-model для экрана истории куратора. Возвращает TrainingSession и ArenaSession
+
+        learner текущей организации, не создавая отдельный источник истины.
+
+        '
+      operationId: getCuratorTeamSessions
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       parameters:
-      - name: from
-        in: query
-        required: false
-        schema:
-          type: string
-          format: date
-      - name: to
-        in: query
-        required: false
-        schema:
-          type: string
-          format: date
-      - name: session_id_from
-        in: query
-        required: false
-        schema:
-          type: string
-          format: uuid
-      - name: session_id_to
-        in: query
-        required: false
-        schema:
-          type: string
-          format: uuid
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/TeamSessionType'
+        - name: user_id
+          in: query
+          required: false
+          description: Фильтр по участнику.
+          schema:
+            type: string
+            format: uuid
+        - name: scenario_id
+          in: query
+          required: false
+          description: Фильтр по сценарию.
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200':
-          description: Сравнение профиля.
+          description: История Training и Arena команды.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProfileHistoryResponse'
+                $ref: '#/components/schemas/TeamSessionListResponse'
         '400':
-          description: Диапазон задан некорректно.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProfileHistoryRangeInvalidError'
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/AccessUnauthorized'
         '403':
-          description: Нет доступа к данным пользователя.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserDataAccessDeniedError'
-        '404':
-          $ref: '#/components/responses/UserNotFound'
+          $ref: '#/components/responses/CuratorRoleRequired'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /assignments:
+    get:
+      tags:
+        - Assignments
+      summary: Получить назначения тренировок
+      description: 'learner получает свои назначения. curator получает назначения learner своей организации и
+
+        может фильтровать их по learner_id и status. Назначение не ограничивает доступ к каталогу:
+
+        все опубликованные сценарии остаются доступны для самостоятельного прохождения.
+
+        '
+      operationId: listAssignments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: learner_id
+          in: query
+          required: false
+          description: Фильтр по learner; применяется для curator.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AssignmentStatus'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Назначения, доступные текущему пользователю.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          $ref: '#/components/responses/AssignmentAccessDenied'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
       tags:
-      - Curator
-      summary: Назначение тренировки сотруднику
-      description: Создаёт pending assignment для learner своей команды. Назначить можно только published Scenario.
+        - Assignments
+      summary: Назначить сценарий learner
+      description: 'Сохраняет старый endpoint. Curator назначает опубликованный Scenario learner своей организации.
+
+        Дедлайн в текущем MVP отсутствует. Назначение считается completed после завершения связанной попытки.
+
+        '
       operationId: createAssignment
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -126,38 +166,40 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateAssignmentResponse'
+                $ref: '#/components/schemas/Assignment'
         '400':
-          description: Некорректный запрос.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidRequestError'
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/AccessUnauthorized'
         '403':
-          description: Active role не curator либо learner не относится к команде.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CuratorAssignmentForbiddenError'
+          $ref: '#/components/responses/CuratorRoleRequired'
         '404':
-          description: Scenario не найден либо не опубликован.
+          description: learner или Scenario не найден.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AssignmentNotFoundError'
+                $ref: '#/components/schemas/ResourceNotFoundError'
+        '409':
+          description: Scenario не опубликован либо уже существует pending назначение этого Scenario этому learner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentConflictError'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /curator/team/analytics:
     get:
       tags:
-      - Curator
-      summary: Получение аналитики по команде
-      description: Возвращает распределение команды по уровням каждого кластера и самый частый слабый кластер.
+        - Curator Analytics
+      summary: Получить агрегированную аналитику команды
+      description: 'Сохраняет старый endpoint. Значения рассчитываются из Profile, TrainingSession,
+
+        Assignment и ArenaSession пользователей организации.
+
+        '
       operationId: getCuratorTeamAnalytics
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
         '200':
           description: Командная аналитика.
@@ -168,11 +210,7 @@ paths:
         '401':
           $ref: '#/components/responses/AccessUnauthorized'
         '403':
-          description: Active role должна быть curator.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CuratorRoleRequiredError'
+          $ref: '#/components/responses/CuratorRoleRequired'
         '500':
           $ref: '#/components/responses/InternalServerError'
 components:
@@ -182,11 +220,18 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      description: UUID пользователя.
+      schema:
+        type: string
+        format: uuid
     Limit:
       name: limit
       in: query
       required: false
-      description: Размер страницы.
       schema:
         type: integer
         minimum: 1
@@ -196,359 +241,392 @@ components:
       name: offset
       in: query
       required: false
-      description: Смещение от начала выборки.
       schema:
         type: integer
         minimum: 0
         default: 0
-    UserId:
-      name: user_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
   schemas:
-    CompetencyCluster:
-      type: string
-      enum:
-      - Цели и границы
-      - Диагностика
-      - Создание ценности
-      - Аргументация
-      - Торг и обмен
-      - Конфликт и регуляция
-      description: Шесть кластеров компетенций; адаптивность — поперечная характеристика.
+    ProfileCluster:
+      type: object
+      required:
+        - cluster_id
+        - code
+        - name
+        - score
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+          description: ID из справочника `GET /competency-clusters` Scenarios API.
+        code:
+          type: string
+          description: Машиночитаемый код кластера.
+        name:
+          type: string
+          description: Название кластера для UI.
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Текущее значение характеристики пользователя.
+        updated_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+          description: Время последнего изменения этого кластера.
     CuratorTeamMember:
       type: object
       required:
-      - user_id
-      - name
-      - last_session_at
-      - weakest_cluster
+        - user_id
+        - name
+        - sessions_count
+        - last_session_at
+        - average_score
+        - clusters
       properties:
         user_id:
           type: string
           format: uuid
         name:
           type: string
+        sessions_count:
+          type: integer
+          minimum: 0
+          description: Количество TrainingSession пользователя.
         last_session_at:
           oneOf:
-          - type: string
-            format: date-time
-          - type: 'null'
-        weakest_cluster:
+            - type: string
+              format: date-time
+            - type: 'null'
+        average_score:
           oneOf:
-          - $ref: '#/components/schemas/CompetencyCluster'
-          - type: 'null'
+            - type: number
+              minimum: 0
+              maximum: 100
+            - type: 'null'
+          description: Средний score завершённых TrainingSession.
+        clusters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileCluster'
     CuratorTeamResponse:
       type: object
       required:
-      - team
+        - team
       properties:
         team:
           type: array
           items:
             $ref: '#/components/schemas/CuratorTeamMember'
-    InvalidRequestError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - INVALID_REQUEST
-        message:
-          type: string
-          enum:
-          - Request validation failed
-    AccessTokenMissingError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - ACCESS_TOKEN_MISSING
-        message:
-          type: string
-          enum:
-          - Access token is required
-    AccessTokenInvalidError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - ACCESS_TOKEN_INVALID
-        message:
-          type: string
-          enum:
-          - Access token is invalid
-    AccessTokenExpiredError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - ACCESS_TOKEN_EXPIRED
-        message:
-          type: string
-          enum:
-          - Access token has expired
-    AccessUnauthorizedError:
-      oneOf:
-      - $ref: '#/components/schemas/AccessTokenMissingError'
-      - $ref: '#/components/schemas/AccessTokenInvalidError'
-      - $ref: '#/components/schemas/AccessTokenExpiredError'
-    CuratorRoleRequiredError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - CURATOR_ROLE_REQUIRED
-        message:
-          type: string
-          enum:
-          - Active role must be curator
-    InternalErrorError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - INTERNAL_ERROR
-        message:
-          type: string
-          enum:
-          - Internal server error
-    ProfileHistoryPoint:
-      type: object
-      required:
-      - indicator
-      - level
-      properties:
-        indicator:
-          type: string
-        level:
-          type: integer
-          minimum: 0
-          maximum: 4
-    ProfileHistoryCluster:
-      type: object
-      required:
-      - cluster
-      - before
-      - after
-      properties:
-        cluster:
-          $ref: '#/components/schemas/CompetencyCluster'
-        before:
-          $ref: '#/components/schemas/ProfileHistoryPoint'
-        after:
-          $ref: '#/components/schemas/ProfileHistoryPoint'
-    ProfileHistoryResponse:
-      type: object
-      required:
-      - clusters
-      properties:
-        clusters:
-          type: array
-          items:
-            $ref: '#/components/schemas/ProfileHistoryCluster'
-    ProfileHistoryRangeInvalidError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - PROFILE_HISTORY_RANGE_INVALID
-        message:
-          type: string
-          enum:
-          - Profile history range is invalid
-    UserDataAccessDeniedError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - USER_DATA_ACCESS_DENIED
-        message:
-          type: string
-          enum:
-          - Access to this user's data is denied
-    UserNotFoundError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - USER_NOT_FOUND
-        message:
-          type: string
-          enum:
-          - User not found
+    AssignmentStatus:
+      type: string
+      enum:
+        - pending
+        - completed
     CreateAssignmentRequest:
       type: object
       required:
-      - learner_id
-      - scenario_id
+        - learner_id
+        - scenario_id
       properties:
+        learner_id:
+          type: string
+          format: uuid
+          description: learner той же организации, которому назначается Scenario.
+        scenario_id:
+          type: string
+          format: uuid
+          description: Опубликованный Scenario.
+    Assignment:
+      type: object
+      required:
+        - assignment_id
+        - curator_id
+        - learner_id
+        - scenario_id
+        - scenario_title
+        - status
+        - created_at
+        - completed_at
+      properties:
+        assignment_id:
+          type: string
+          format: uuid
+        curator_id:
+          type: string
+          format: uuid
         learner_id:
           type: string
           format: uuid
         scenario_id:
           type: string
           format: uuid
-    AssignmentStatus:
-      type: string
-      enum:
-      - pending
-      - completed
-    CreateAssignmentResponse:
-      type: object
-      required:
-      - assignment_id
-      - status
-      properties:
-        assignment_id:
+        scenario_title:
           type: string
-          format: uuid
         status:
           $ref: '#/components/schemas/AssignmentStatus'
-    LearnerNotInTeamError:
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    AssignmentListResponse:
       type: object
       required:
-      - code
-      - message
+        - assignments
       properties:
-        code:
-          type: string
-          enum:
-          - LEARNER_NOT_IN_TEAM
-        message:
-          type: string
-          enum:
-          - Learner does not belong to the current curator's team
-    CuratorAssignmentForbiddenError:
-      oneOf:
-      - $ref: '#/components/schemas/CuratorRoleRequiredError'
-      - $ref: '#/components/schemas/LearnerNotInTeamError'
-    ScenarioNotFoundError:
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Assignment'
+    TeamSessionType:
+      type: string
+      enum:
+        - training
+        - arena
+    TeamSessionListItem:
       type: object
       required:
-      - code
-      - message
+        - type
+        - session_id
+        - user_ids
+        - scenario_id
+        - scenario_title
+        - status
+        - started_at
+        - completed_at
       properties:
-        code:
+        type:
+          $ref: '#/components/schemas/TeamSessionType'
+        session_id:
           type: string
-          enum:
-          - SCENARIO_NOT_FOUND
-        message:
+          format: uuid
+        user_ids:
+          type: array
+          minItems: 1
+          maxItems: 2
+          description: Один learner для training, два участника для arena.
+          items:
+            type: string
+            format: uuid
+        scenario_id:
           type: string
-          enum:
-          - Scenario not found
-    ScenarioNotPublishedError:
+          format: uuid
+        scenario_title:
+          type: string
+        status:
+          type: string
+          description: Исходный статус соответствующей TrainingSession или ArenaSession.
+        score:
+          oneOf:
+            - type: number
+              minimum: 0
+              maximum: 100
+            - type: 'null'
+          description: Training score; для arena обычно null.
+        started_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        completed_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    TeamSessionListResponse:
       type: object
       required:
-      - code
-      - message
+        - sessions
       properties:
-        code:
-          type: string
-          enum:
-          - SCENARIO_NOT_PUBLISHED
-        message:
-          type: string
-          enum:
-          - Scenario is not published
-    AssignmentNotFoundError:
-      oneOf:
-      - $ref: '#/components/schemas/ScenarioNotFoundError'
-      - $ref: '#/components/schemas/ScenarioNotPublishedError'
-    ClusterDistribution:
-      type: object
-      required:
-      - level_0_1
-      - level_2_3
-      - level_4
-      properties:
-        level_0_1:
-          type: integer
-          minimum: 0
-        level_2_3:
-          type: integer
-          minimum: 0
-        level_4:
-          type: integer
-          minimum: 0
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamSessionListItem'
     TeamAnalyticsCluster:
       type: object
       required:
-      - cluster
-      - distribution
+        - cluster_id
+        - code
+        - name
+        - average_score
       properties:
-        cluster:
-          $ref: '#/components/schemas/CompetencyCluster'
-        distribution:
-          $ref: '#/components/schemas/ClusterDistribution'
+        cluster_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        average_score:
+          type: number
+          minimum: 0
+          maximum: 100
     TeamAnalyticsResponse:
       type: object
       required:
-      - clusters
-      - most_common_weak_cluster
+        - users_count
+        - training_sessions_count
+        - arena_sessions_count
+        - clusters
       properties:
+        users_count:
+          type: integer
+          minimum: 0
+        training_sessions_count:
+          type: integer
+          minimum: 0
+        arena_sessions_count:
+          type: integer
+          minimum: 0
+        pending_assignments_count:
+          type: integer
+          minimum: 0
+          description: Количество незавершённых curator assignments.
         clusters:
           type: array
           items:
             $ref: '#/components/schemas/TeamAnalyticsCluster'
-        most_common_weak_cluster:
-          oneOf:
-          - $ref: '#/components/schemas/CompetencyCluster'
-          - type: 'null'
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    InvalidRequestError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: INVALID_REQUEST
+            message:
+              type: string
+              const: Request validation failed
+    AccessUnauthorizedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: ACCESS_TOKEN_INVALID
+            message:
+              type: string
+              const: Access token is invalid
+    CuratorRoleRequiredError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: CURATOR_ROLE_REQUIRED
+            message:
+              type: string
+              const: Active curator role is required
+    AssignmentAccessDeniedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: ASSIGNMENT_ACCESS_DENIED
+            message:
+              type: string
+              const: Access to assignments is denied
+    ResourceNotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: RESOURCE_NOT_FOUND
+            message:
+              type: string
+              const: Learner or scenario not found
+    AssignmentConflictError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: ASSIGNMENT_CONFLICT
+            message:
+              type: string
+              const: Scenario is not published or pending assignment already exists
+    InternalServerErrorBody:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: INTERNAL_ERROR
+            message:
+              type: string
+              const: Internal server error
   responses:
+    InvalidRequest:
+      description: Некорректный запрос.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InvalidRequestError'
     AccessUnauthorized:
       description: Access token отсутствует, невалиден или истёк.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/AccessUnauthorizedError'
+    CuratorRoleRequired:
+      description: Требуется активная роль curator.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CuratorRoleRequiredError'
+    AssignmentAccessDenied:
+      description: Нет доступа к назначениям.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AssignmentAccessDeniedError'
     InternalServerError:
-      description: Непредвиденная ошибка сервера.
+      description: Внутренняя ошибка сервера.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/InternalErrorError'
-    UserNotFound:
-      description: Пользователь не найден.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/UserNotFoundError'
+            $ref: '#/components/schemas/InternalServerErrorBody'

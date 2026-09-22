@@ -3,24 +3,26 @@ info:
   title: Users & Roles API
   version: 0.4.0
 servers:
-- url: http://localhost:8080/api/v1
+  - url: http://localhost:8080/api/v1
 tags:
-- name: Users
-  description: Текущий пользователь.
-- name: Organizations
-  description: Выбор организации текущего пользователя.
-- name: Roles
-  description: Назначенные роли и active role.
+  - name: Profile
+    description: Текущее состояние и история кластеров пользователя.
+  - name: Users
+    description: Текущий пользователь.
+  - name: Organizations
+    description: Выбор организации текущего пользователя.
+  - name: Roles
+    description: Назначенные роли и active role.
 paths:
   /users/me:
     get:
       tags:
-      - Users
+        - Users
       summary: Получение текущего пользователя
       description: Возвращает профиль текущего аккаунта, доступные роли, активную роль и выбранную организацию.
       operationId: getCurrentUser
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
         '200':
           description: Текущий пользователь.
@@ -35,12 +37,12 @@ paths:
   /users/me/organization:
     put:
       tags:
-      - Organizations
+        - Organizations
       summary: Выбор организации текущего пользователя
       description: В MVP пользователь может состоять только в одной организации.
       operationId: setCurrentUserOrganization
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -69,12 +71,12 @@ paths:
   /roles:
     get:
       tags:
-      - Roles
+        - Roles
       summary: Получение ролей текущего пользователя
       description: Возвращает все назначенные пользователю роли и активную роль текущей сессии.
       operationId: listCurrentUserRoles
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
         '200':
           description: Роли пользователя.
@@ -83,8 +85,8 @@ paths:
               schema:
                 type: object
                 required:
-                - items
-                - active_role
+                  - items
+                  - active_role
                 properties:
                   items:
                     type: array
@@ -98,12 +100,12 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       tags:
-      - Roles
+        - Roles
       summary: Добавить роль текущему пользователю
       description: Нужен для первоначального выбора ролей при онбординге. Повторное добавление роли возвращает конфликт.
       operationId: grantCurrentUserRole
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -132,12 +134,12 @@ paths:
   /organizations/me/users:
     get:
       tags:
-      - Organizations
+        - Organizations
       summary: Получить участников своей организации
       description: Доступно при активной роли curator. Используется для назначения Arena и просмотра команды.
       operationId: listCurrentOrganizationUsers
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
         '200':
           description: Участники организации.
@@ -164,13 +166,12 @@ paths:
   /roles/active:
     put:
       tags:
-      - Roles
+        - Roles
       summary: Смена активной роли
-      description: Проверяет, что роль пользователю доступна, сохраняет её как active_role текущей серверной сессии
-        и сразу выпускает новый access token. Refresh token при смене роли не ротируется.
+      description: Проверяет, что роль пользователю доступна, сохраняет её как active_role текущей серверной сессии и сразу выпускает новый access token. Refresh token при смене роли не ротируется.
       operationId: switchActiveRole
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -202,15 +203,15 @@ paths:
           $ref: '#/components/responses/InternalServerError'
   /users/{user_id}/roles:
     parameters:
-    - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/UserId'
     post:
       tags:
-      - Internal
+        - Internal
       summary: Внутреннее назначение роли пользователю
       description: Internal MVP endpoint для demo-аккаунтов и выдачи дополнительных ролей.
       operationId: internalGrantUserRole
       servers:
-      - url: http://localhost:8080/internal/v1
+        - url: http://localhost:8080/internal/v1
       security: []
       requestBody:
         required: true
@@ -237,6 +238,105 @@ paths:
                 $ref: '#/components/schemas/RoleAlreadyAssignedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /users/me/profile:
+    get:
+      tags:
+        - Profile
+      summary: Получить свой профиль
+      description: Возвращает текущие значения кластеров текущего пользователя.
+      operationId: getMyProfile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Текущий профиль.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /users/{user_id}/profile:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags:
+        - Profile
+      summary: Получить текущий профиль пользователя
+      description: 'Доступно самому пользователю либо curator той же организации. Curator использует метод
+
+        для просмотра текущих характеристик learner.
+
+        '
+      operationId: getUserProfile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Текущий профиль пользователя.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          $ref: '#/components/responses/UserDataAccessDenied'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /users/{user_id}/profile/history:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags:
+        - Profile
+      summary: Получить историю изменения профиля
+      description: 'Сохраняет старый endpoint, но возвращает полноценную последовательность изменений Profile.
+
+        Источником изменения может быть завершённая TrainingSession или оценённая Arena.
+
+        '
+      operationId: getUserProfileHistory
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Начало периода включительно.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Конец периода включительно.
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: История изменений профиля.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileHistoryResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '403':
+          $ref: '#/components/responses/UserDataAccessDenied'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -247,15 +347,15 @@ components:
     ProductRole:
       type: string
       enum:
-      - learner
-      - methodist
-      - curator
+        - learner
+        - methodist
+        - curator
       description: Продуктовая роль. У пользователя может быть несколько ролей, одна из них активна в auth-сессии.
     Organization:
       type: object
       required:
-      - id
-      - name
+        - id
+        - name
       properties:
         id:
           type: string
@@ -268,12 +368,12 @@ components:
     CurrentUser:
       type: object
       required:
-      - id
-      - username
-      - email
-      - roles
-      - active_role
-      - organization
+        - id
+        - username
+        - email
+        - roles
+        - active_role
+        - organization
       properties:
         id:
           type: string
@@ -293,73 +393,73 @@ components:
           $ref: '#/components/schemas/ProductRole'
         organization:
           oneOf:
-          - $ref: '#/components/schemas/Organization'
-          - type: 'null'
+            - $ref: '#/components/schemas/Organization'
+            - type: 'null'
     AccessTokenMissingError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - ACCESS_TOKEN_MISSING
+            - ACCESS_TOKEN_MISSING
         message:
           type: string
           enum:
-          - Access token is required
+            - Access token is required
     AccessTokenInvalidError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - ACCESS_TOKEN_INVALID
+            - ACCESS_TOKEN_INVALID
         message:
           type: string
           enum:
-          - Access token is invalid
+            - Access token is invalid
     AccessTokenExpiredError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - ACCESS_TOKEN_EXPIRED
+            - ACCESS_TOKEN_EXPIRED
         message:
           type: string
           enum:
-          - Access token has expired
+            - Access token has expired
     AccessUnauthorizedError:
       oneOf:
-      - $ref: '#/components/schemas/AccessTokenMissingError'
-      - $ref: '#/components/schemas/AccessTokenInvalidError'
-      - $ref: '#/components/schemas/AccessTokenExpiredError'
+        - $ref: '#/components/schemas/AccessTokenMissingError'
+        - $ref: '#/components/schemas/AccessTokenInvalidError'
+        - $ref: '#/components/schemas/AccessTokenExpiredError'
     InternalErrorError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - INTERNAL_ERROR
+            - INTERNAL_ERROR
         message:
           type: string
           enum:
-          - Internal server error
+            - Internal server error
     SetOrganizationRequest:
       type: object
       required:
-      - organization_id
+        - organization_id
       properties:
         organization_id:
           type: string
@@ -367,60 +467,60 @@ components:
     InvalidRequestError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - INVALID_REQUEST
+            - INVALID_REQUEST
         message:
           type: string
           enum:
-          - Request validation failed
+            - Request validation failed
     OrganizationAlreadySetError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - ORGANIZATION_ALREADY_SET
+            - ORGANIZATION_ALREADY_SET
         message:
           type: string
           enum:
-          - User already belongs to an organization
+            - User already belongs to an organization
     SetOrganizationBadRequestError:
       oneOf:
-      - $ref: '#/components/schemas/InvalidRequestError'
-      - $ref: '#/components/schemas/OrganizationAlreadySetError'
+        - $ref: '#/components/schemas/InvalidRequestError'
+        - $ref: '#/components/schemas/OrganizationAlreadySetError'
     OrganizationNotFoundError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - ORGANIZATION_NOT_FOUND
+            - ORGANIZATION_NOT_FOUND
         message:
           type: string
           enum:
-          - Organization not found
+            - Organization not found
     SwitchRoleRequest:
       type: object
       required:
-      - role
+        - role
       properties:
         role:
           $ref: '#/components/schemas/ProductRole'
     AccessTokenResponse:
       type: object
       required:
-      - access_token
+        - access_token
       properties:
         access_token:
           type: string
@@ -429,32 +529,32 @@ components:
     RoleNotAssignedError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - ROLE_NOT_ASSIGNED
+            - ROLE_NOT_ASSIGNED
         message:
           type: string
           enum:
-          - Requested role is not assigned to the user
+            - Requested role is not assigned to the user
     GrantRoleRequest:
       type: object
       required:
-      - role
+        - role
       properties:
         role:
           $ref: '#/components/schemas/ProductRole'
     OrganizationUser:
       type: object
       required:
-      - id
-      - username
-      - email
-      - roles
-      - created_at
+        - id
+        - username
+        - email
+        - roles
+        - created_at
       properties:
         id:
           type: string
@@ -474,7 +574,7 @@ components:
     OrganizationUserListResponse:
       type: object
       required:
-      - users
+        - users
       properties:
         users:
           type: array
@@ -483,59 +583,192 @@ components:
     CuratorRoleRequiredError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - CURATOR_ROLE_REQUIRED
+            - CURATOR_ROLE_REQUIRED
         message:
           type: string
           enum:
-          - Active role must be curator
+            - Active role must be curator
     OrganizationRequiredError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - ORGANIZATION_REQUIRED
+            - ORGANIZATION_REQUIRED
         message:
           type: string
           enum:
-          - User must belong to an organization
+            - User must belong to an organization
     UserNotFoundError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - USER_NOT_FOUND
+            - USER_NOT_FOUND
         message:
           type: string
           enum:
-          - User not found
+            - User not found
     RoleAlreadyAssignedError:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - ROLE_ALREADY_ASSIGNED
+            - ROLE_ALREADY_ASSIGNED
         message:
           type: string
           enum:
-          - Requested role is already assigned to the user
+            - Requested role is already assigned to the user
+    ProfileCluster:
+      type: object
+      required:
+        - cluster_id
+        - code
+        - name
+        - score
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+          description: ID из справочника `GET /competency-clusters` Scenarios API.
+        code:
+          type: string
+          description: Машиночитаемый код кластера.
+        name:
+          type: string
+          description: Название кластера для UI.
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Текущее значение характеристики пользователя.
+        updated_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+          description: Время последнего изменения этого кластера.
+    UserProfile:
+      type: object
+      required:
+        - user_id
+        - clusters
+        - updated_at
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        clusters:
+          type: array
+          description: Текущие значения всех кластеров профиля.
+          items:
+            $ref: '#/components/schemas/ProfileCluster'
+        updated_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+          description: Время последнего изменения любого кластера профиля.
+    ProfileChangeSource:
+      type: string
+      enum:
+        - training
+        - arena_feedback
+      description: Событие, которое привело к изменению Profile.
+    ProfileClusterChange:
+      type: object
+      required:
+        - cluster_id
+        - before
+        - after
+        - delta
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+        before:
+          type: number
+          minimum: 0
+          maximum: 100
+        after:
+          type: number
+          minimum: 0
+          maximum: 100
+        delta:
+          type: number
+          minimum: -100
+          maximum: 100
+    ProfileHistoryEvent:
+      type: object
+      required:
+        - source
+        - source_id
+        - created_at
+        - changes
+      properties:
+        source:
+          $ref: '#/components/schemas/ProfileChangeSource'
+        source_id:
+          type: string
+          format: uuid
+          description: TrainingSession ID или ArenaSession ID в зависимости от source.
+        created_at:
+          type: string
+          format: date-time
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileClusterChange'
+    ProfileHistoryResponse:
+      type: object
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileHistoryEvent'
+    UserDataAccessDeniedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: USER_DATA_ACCESS_DENIED
+            message:
+              type: string
+              const: Access to this user data is denied
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
   responses:
     AccessUnauthorized:
       description: Access token отсутствует, невалиден или истёк.
@@ -555,6 +788,18 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/UserNotFoundError'
+    InvalidRequest:
+      description: Некорректный запрос.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InvalidRequestError'
+    UserDataAccessDenied:
+      description: Нет доступа к данным пользователя.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UserDataAccessDeniedError'
   parameters:
     UserId:
       name: user_id
@@ -563,3 +808,20 @@ components:
       schema:
         type: string
         format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0

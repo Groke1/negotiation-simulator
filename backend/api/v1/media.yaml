@@ -1,0 +1,320 @@
+openapi: 3.1.0
+info:
+  title: Negotiation Trainer - Media API
+  version: 1.0.0
+  description: 'Минимальный Media API для voice_message в Training. Аудиозвонки, streaming и сложный
+
+    media-processing намеренно не входят в текущий MVP.
+
+    '
+servers:
+  - url: http://localhost:8080/api/v1
+tags:
+  - name: Media
+    description: Загрузка и получение метаданных пользовательских аудиофайлов.
+paths:
+  /media:
+    post:
+      tags:
+        - Media
+      summary: Загрузить voice message
+      description: 'Загружает аудиофайл перед отправкой Training message. Возвращённый media_id передаётся
+
+        в `content.media_id` запроса `POST /training/sessions/{session_id}/messages`.
+
+        '
+      operationId: uploadMedia
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Аудиофайл голосового сообщения.
+      responses:
+        '201':
+          description: Media загружено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAsset'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: Файл превышает допустимый размер.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaTooLargeError'
+        '415':
+          description: Формат файла не поддерживается.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnsupportedMediaTypeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /media/{media_id}:
+    parameters:
+      - name: media_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - Media
+      summary: Получить метаданные media
+      operationId: getMedia
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Метаданные media.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAsset'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Нет доступа к media.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAccessDeniedError'
+        '404':
+          description: Media не найдено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /media/{media_id}/content:
+    parameters:
+      - name: media_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      tags:
+        - Media
+      summary: Получить аудиофайл
+      description: |
+        Возвращает содержимое загруженного аудиофайла.
+        Используется клиентом для воспроизведения voice message.
+      operationId: getMediaContent
+      security:
+        - bearerAuth: []
+
+      responses:
+        '200':
+          description: Аудиофайл.
+          content:
+            audio/*:
+              schema:
+                type: string
+                format: binary
+
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+        '403':
+          description: Нет доступа к media.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAccessDeniedError'
+
+        '404':
+          description: Media не найдено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaNotFoundError'
+
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    MediaAsset:
+      type: object
+      required:
+        - media_id
+        - media_type
+        - content_type
+        - url
+        - created_at
+      properties:
+        media_id:
+          type: string
+          format: uuid
+        media_type:
+          type: string
+          enum:
+            - voice_message
+        content_type:
+          type: string
+          description: MIME type сохранённого аудио.
+        duration_seconds:
+          oneOf:
+            - type: number
+              minimum: 0
+            - type: 'null'
+        transcript:
+          oneOf:
+            - type: string
+            - type: 'null'
+          description: Транскрипт, если распознавание речи подключено; иначе null.
+        created_at:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    InvalidRequestError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: INVALID_REQUEST
+            message:
+              type: string
+              const: Request validation failed
+    UnauthorizedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: ACCESS_TOKEN_INVALID
+            message:
+              type: string
+              const: Access token is invalid
+    MediaTooLargeError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: MEDIA_TOO_LARGE
+            message:
+              type: string
+              const: Media file is too large
+    UnsupportedMediaTypeError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: UNSUPPORTED_MEDIA_TYPE
+            message:
+              type: string
+              const: Media format is not supported
+    MediaAccessDeniedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: MEDIA_ACCESS_DENIED
+            message:
+              type: string
+              const: Access to this media is denied
+    MediaNotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: MEDIA_NOT_FOUND
+            message:
+              type: string
+              const: Media not found
+    InternalServerErrorBody:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: INTERNAL_ERROR
+            message:
+              type: string
+              const: Internal server error
+  responses:
+    InvalidRequest:
+      description: Некорректный запрос.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InvalidRequestError'
+    Unauthorized:
+      description: Access token отсутствует, невалиден или истёк.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UnauthorizedError'
+    InternalServerError:
+      description: Внутренняя ошибка сервера.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalServerErrorBody'

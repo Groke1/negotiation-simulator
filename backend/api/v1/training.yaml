@@ -1,154 +1,388 @@
 openapi: 3.1.0
 info:
-  title: Training API
-  version: 0.5.0
-  description: >-
-    Обычная тренировка. Поддерживает два runtime-режима: deterministic — пользователь выбирает
-    подготовленные действия из графа Scenario; virtual_partner — пользователь свободно пишет
-    виртуальному партнёру. В текущем MVP поддерживается только текстовый chat.
+  title: Negotiation Trainer - Training API
+  version: 1.0.0
+  description: 'API индивидуальных тренировок. Сохраняет основные пути старого Training API и расширяет
+
+    payload под новые сценарии, историю попыток, каналы chat/email/voice_message и пользовательскую
+
+    semantic-разметку реплик.
+
+
+    Runtime:
+
+    - deterministic — пользователь выбирает готовые реплики из deterministic-дерева Scenario;
+
+    - virtual_partner — пользователь общается с AI-партнёром.
+
+
+    В текущей версии audio_call не поддерживается Training API и может быть добавлен позже.
+
+    '
 servers:
   - url: http://localhost:8080/api/v1
 tags:
   - name: Training
-    description: Запуск, прохождение и разбор обычных тренировок.
+    description: Запуск, прохождение, история и завершение индивидуальных тренировок.
+  - name: Training Classification
+    description: Проверка того, как пользователь распознал semantic action входящей реплики AI.
 paths:
   /training/sessions:
+    get:
+      tags:
+        - Training
+      summary: Получить историю попыток текущего пользователя
+      description: 'Возвращает все TrainingSession текущего пользователя. Один опубликованный сценарий можно
+
+        проходить многократно; каждая попытка хранится отдельной сессией.
+
+        '
+      operationId: listTrainingSessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: scenario_id
+          in: query
+          required: false
+          description: Фильтр по сценарию.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Фильтр по статусу попытки.
+          schema:
+            $ref: '#/components/schemas/TrainingStatus'
+        - name: mode
+          in: query
+          required: false
+          description: Фильтр по runtime-режиму.
+          schema:
+            $ref: '#/components/schemas/TrainingMode'
+        - name: channel
+          in: query
+          required: false
+          description: Фильтр по каналу общения.
+          schema:
+            $ref: '#/components/schemas/TrainingChannel'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: История попыток.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrainingSessionListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
-      tags: [Training]
+      tags:
+        - Training
       summary: Запустить тренировку
-      security: [{ bearerAuth: [] }]
+      description: 'Создаёт новую попытку по опубликованному Scenario. Повторное прохождение ранее завершённого
+
+        Scenario разрешено. Пользователь выбирает одну из двух ролей сценария.
+
+        '
+      operationId: startTrainingSession
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/StartTrainingSessionRequest' }
+            schema:
+              $ref: '#/components/schemas/StartTrainingSessionRequest'
       responses:
         '201':
-          description: Тренировка создана.
+          description: TrainingSession создана.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/StartTrainingSessionResponse' }
-        '400': { $ref: '#/components/responses/InvalidRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/ScenarioNotFound' }
+              schema:
+                $ref: '#/components/schemas/StartTrainingSessionResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/ScenarioNotFound'
+        '409':
+          description: Scenario недоступен для запуска в текущем статусе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScenarioNotAvailableError'
         '422':
-          description: Scenario не поддерживает выбранный training mode.
+          description: Выбранные runtime, channel или роль не поддерживаются сценарием.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TrainingModeNotSupportedError' }
-
+              schema:
+                $ref: '#/components/schemas/TrainingConfigurationNotSupportedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /training/sessions/{session_id}:
     parameters:
       - $ref: '#/components/parameters/SessionId'
     get:
-      tags: [Training]
+      tags:
+        - Training
       summary: Получить состояние тренировки
-      security: [{ bearerAuth: [] }]
+      description: 'Используется в том числе для возобновления незавершённой тренировки после закрытия страницы.
+
+        Возвращает историю сообщений для virtual_partner либо текущий deterministic-узел.
+
+        '
+      operationId: getTrainingSession
+      security:
+        - bearerAuth: []
       responses:
         '200':
-          description: Текущее состояние тренировки.
+          description: Текущее состояние TrainingSession.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TrainingSessionResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/TrainingSessionNotFound' }
-
+              schema:
+                $ref: '#/components/schemas/TrainingSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/TrainingSessionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /training/sessions/{session_id}/actions:
     parameters:
       - $ref: '#/components/parameters/SessionId'
     post:
-      tags: [Training]
-      summary: Выбрать действие в deterministic training
-      description: Разрешено только для mode=deterministic.
-      security: [{ bearerAuth: [] }]
+      tags:
+        - Training
+      summary: Выбрать реплику в deterministic training
+      description: 'Сохраняет выбранный вариант реплики и semantic action, который пользователь приписал своей
+
+        реплике. Backend знает ожидаемый semantic action из Scenario и возвращает результат сравнения.
+
+        Разрешено только для mode=deterministic.
+
+        '
+      operationId: submitDeterministicAction
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/TrainingActionRequest' }
+            schema:
+              $ref: '#/components/schemas/TrainingActionRequest'
       responses:
         '200':
-          description: Действие обработано.
+          description: Реплика обработана, состояние deterministic runtime обновлено.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TrainingActionResponse' }
-        '400': { $ref: '#/components/responses/InvalidRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/TrainingSessionNotFound' }
-        '409': { $ref: '#/components/responses/InvalidState' }
+              schema:
+                $ref: '#/components/schemas/TrainingActionResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/TrainingSessionNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidState'
         '422':
-          description: action_id недоступен в текущем узле.
+          description: action_id недоступен в текущем deterministic-узле.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ActionNotAvailableError' }
-
+              schema:
+                $ref: '#/components/schemas/ActionNotAvailableError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /training/sessions/{session_id}/messages:
     parameters:
       - $ref: '#/components/parameters/SessionId'
     post:
-      tags: [Training]
-      summary: Отправить сообщение виртуальному партнёру
-      description: >-
-        Разрешено только для mode=virtual_partner. Backend сохраняет сообщение learner,
-        классифицирует semantic actions и в текущем MVP возвращает детерминированный ответ-заглушку
-        виртуального партнёра. Интеграция LLM добавляется отдельным этапом.
-      security: [{ bearerAuth: [] }]
+      tags:
+        - Training
+      summary: Отправить сообщение AI-партнёру
+      description: 'Разрешено только для mode=virtual_partner.
+
+
+        Для chat пользователь отправляет текст и один semantic_action_code.
+
+        Для voice_message пользователь отправляет media_id и один semantic_action_code.
+
+        Для email пользователь отправляет subject, body и semantic_annotations: выделенные диапазоны
+
+        body, каждому из которых назначен semantic action.
+
+
+        message_id генерируется frontend и является ключом идемпотентности: повторный запрос с тем же
+
+        message_id не создаёт второе сообщение.
+
+        '
+      operationId: sendTrainingMessage
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/TrainingMessageRequest' }
+            schema:
+              $ref: '#/components/schemas/TrainingMessageRequest'
       responses:
         '200':
-          description: Сообщение принято, виртуальный партнёр ответил.
+          description: Сообщение learner сохранено, ответ AI-партнёра сформирован и сохранён.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TrainingMessageResponse' }
-        '400': { $ref: '#/components/responses/InvalidRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/TrainingSessionNotFound' }
-        '409': { $ref: '#/components/responses/InvalidState' }
+              schema:
+                $ref: '#/components/schemas/TrainingMessageResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/TrainingSessionNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidState'
+        '422':
+          description: Тип сообщения не соответствует channel TrainingSession.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrainingMessageChannelMismatchError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /training/sessions/{session_id}/messages/{message_id}/classification:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+      - $ref: '#/components/parameters/MessageId'
+    post:
+      tags:
+        - Training Classification
+      summary: Проверить semantic action входящей реплики AI
+      description: 'Пользователь выбирает semantic action, которым, по его мнению, является конкретное сообщение
 
+        virtual_partner. Backend сравнивает выбор с ожидаемым кодом и только после ответа пользователя
+
+        сообщает правильный semantic action. Одна реплика классифицируется пользователем один раз.
+
+        '
+      operationId: classifyVirtualPartnerMessage
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassifyPartnerMessageRequest'
+      responses:
+        '200':
+          description: Результат проверки.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassifyPartnerMessageResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: TrainingSession или сообщение не найдено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrainingMessageNotFoundError'
+        '409':
+          description: Сообщение уже было классифицировано либо сессия находится в неподходящем состоянии.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageAlreadyClassifiedError'
+        '422':
+          description: Сообщение не является входящей репликой AI-партнёра.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageNotClassifiableError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /training/sessions/{session_id}/complete:
     parameters:
       - $ref: '#/components/parameters/SessionId'
     post:
-      tags: [Training]
+      tags:
+        - Training
       summary: Завершить тренировку
-      description: Вычисляет outcome и формирует итоговые наблюдения. Preview не обновляет профиль.
-      security: [{ bearerAuth: [] }]
+      description: 'Завершает попытку, формирует итоговый score, outcome и обновление Profile. Если TrainingSession
+
+        связана с pending Assignment, соответствующее назначение становится completed.
+
+        '
+      operationId: completeTrainingSession
+      security:
+        - bearerAuth: []
       responses:
         '200':
-          description: Тренировка завершена.
+          description: TrainingSession завершена.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CompleteTrainingResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/TrainingSessionNotFound' }
-        '409': { $ref: '#/components/responses/InvalidState' }
-
+              schema:
+                $ref: '#/components/schemas/CompleteTrainingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/TrainingSessionNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidState'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /training/sessions/{session_id}/analysis:
     parameters:
       - $ref: '#/components/parameters/SessionId'
     get:
-      tags: [Training]
-      summary: Получить разбор тренировки
-      security: [{ bearerAuth: [] }]
+      tags:
+        - Training
+      summary: Получить итоговый разбор тренировки
+      description: 'Возвращает результат переговоров, разбор процесса, сильные стороны, зоны развития,
+
+        оценки кластеров и изменение профиля до/после попытки.
+
+        '
+      operationId: getTrainingAnalysis
+      security:
+        - bearerAuth: []
       responses:
         '200':
-          description: Разбор Result / Process / Competency.
+          description: Итоговый разбор завершённой TrainingSession.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TrainingAnalysisResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/TrainingSessionNotFound' }
-        '409': { $ref: '#/components/responses/InvalidState' }
-
+              schema:
+                $ref: '#/components/schemas/TrainingAnalysisResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/TrainingSessionNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidState'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -160,246 +394,1086 @@ components:
       name: session_id
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      description: UUID TrainingSession.
+      schema:
+        type: string
+        format: uuid
+    MessageId:
+      name: message_id
+      in: path
+      required: true
+      description: UUID сообщения, сгенерированный frontend.
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Размер страницы.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Смещение от начала выборки.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+  schemas:
+    TrainingMode:
+      type: string
+      enum:
+        - deterministic
+        - virtual_partner
+      description: Runtime индивидуальной тренировки.
+    TrainingChannel:
+      type: string
+      enum:
+        - chat
+        - email
+        - voice_message
+      description: 'Канал текущей TrainingSession. audio_call намеренно не включён в текущий runtime API
+
+        и может быть добавлен новым enum-значением позже.
+
+        '
+    TrainingStatus:
+      type: string
+      enum:
+        - in_progress
+        - ready_to_complete
+        - completed
+        - abandoned
+      description: Жизненный цикл отдельной попытки тренировки.
+    StartTrainingSessionRequest:
+      type: object
+      required:
+        - scenario_id
+        - scenario_role_id
+        - mode
+        - channel
+      properties:
+        scenario_id:
+          type: string
+          format: uuid
+          description: Опубликованный Scenario, который пользователь хочет пройти.
+        scenario_role_id:
+          type: string
+          format: uuid
+          description: Одна из двух ролей Scenario, за которую проходит тренировку текущий пользователь.
+        mode:
+          $ref: '#/components/schemas/TrainingMode'
+        channel:
+          $ref: '#/components/schemas/TrainingChannel'
+        assignment_id:
+          type: string
+          format: uuid
+          description: 'Необязательный ID curator Assignment. Если указан, завершение TrainingSession закрывает
+
+            именно это назначение. Если не указан, backend может связать попытку с активным назначением
+
+            этого Scenario автоматически.
+
+            '
+    TrainingPreparation:
+      type: object
+      required:
+        - scenario_id
+        - title
+        - description
+        - expanded_context
+        - my_role
+        - partner_role
+      properties:
+        scenario_id:
+          type: string
+          format: uuid
+          description: Scenario текущей попытки.
+        title:
+          type: string
+          description: Название Scenario.
+        description:
+          type: string
+          description: Исходное описание Scenario, введённое методистом.
+        expanded_context:
+          type: string
+          description: Развёрнутый контекст Scenario.
+        my_role:
+          $ref: '#/components/schemas/MyScenarioRole'
+        partner_role:
+          $ref: '#/components/schemas/VisiblePartnerRole'
+    MyScenarioRole:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - goal
+        - interests
+        - constraints
+        - private_information
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID роли пользователя в Scenario.
+        name:
+          type: string
+          description: Название переговорной роли.
+        description:
+          type: string
+          description: Описание роли.
+        goal:
+          type: string
+          description: Общая цель роли.
+        interests:
+          type: string
+          description: Интересы роли, доступные пользователю при подготовке.
+        constraints:
+          type: string
+          description: Ограничения роли, доступные пользователю при подготовке.
+        private_information:
+          type: string
+          description: Закрытая информация только своей роли. Private information партнёра не возвращается.
+    VisiblePartnerRole:
+      type: object
+      required:
+        - id
+        - name
+        - description
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID роли партнёра.
+        name:
+          type: string
+          description: Название роли партнёра.
+        description:
+          type: string
+          description: Публичное описание роли партнёра.
+    DeterministicAvailableAction:
+      type: object
+      required:
+        - action_id
+        - text
+      properties:
+        action_id:
+          type: string
+          format: uuid
+          description: ID DeterministicReplyOption из Scenario.
+        text:
+          type: string
+          description: Готовая реплика, которую пользователь может выбрать.
+    DeterministicCurrentNode:
+      type: object
+      required:
+        - node_id
+        - block_id
+        - available_actions
+      properties:
+        node_id:
+          type: string
+          format: uuid
+          description: Текущий узел deterministic_dialogue внутри блока.
+        block_id:
+          type: string
+          format: uuid
+          description: Текущий ScenarioBlock.
+        incoming_message:
+          oneOf:
+            - $ref: '#/components/schemas/PartnerDeterministicMessage'
+            - type: 'null'
+          description: Реплика партнёра перед выбором пользователя. null, если пользователь начинает первым.
+        available_actions:
+          type: array
+          description: Готовые варианты следующей реплики пользователя.
+          items:
+            $ref: '#/components/schemas/DeterministicAvailableAction'
+    PartnerDeterministicMessage:
+      type: object
+      required:
+        - message_id
+        - text
+      properties:
+        message_id:
+          type: string
+          format: uuid
+          description: ID runtime-сообщения deterministic-партнёра.
+        text:
+          type: string
+          description: Текст входящей реплики. Ожидаемый semantic action пользователю не раскрывается.
+    ChatContent:
+      type: object
+      required:
+        - type
+        - text
+      properties:
+        type:
+          type: string
+          enum:
+            - chat
+        text:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: Текст сообщения в обычном чате.
+    EmailContent:
+      type: object
+      required:
+        - type
+        - subject
+        - body
+      properties:
+        type:
+          type: string
+          enum:
+            - email
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Название/тема тренировочного письма.
+        body:
+          type: string
+          minLength: 1
+          maxLength: 30000
+          description: Основной текст тренировочного письма.
+    VoiceMessageContent:
+      type: object
+      required:
+        - type
+        - media_id
+      properties:
+        type:
+          type: string
+          enum:
+            - voice_message
+        media_id:
+          type: string
+          format: uuid
+          description: ID предварительно загруженного аудиофайла из Media API.
+        transcript:
+          type: string
+          description: Транскрипт голосового сообщения, если он уже доступен.
+    TrainingMessageContent:
+      oneOf:
+        - $ref: '#/components/schemas/ChatContent'
+        - $ref: '#/components/schemas/EmailContent'
+        - $ref: '#/components/schemas/VoiceMessageContent'
+    EmailSemanticAnnotation:
+      type: object
+      required:
+        - start_offset
+        - end_offset
+        - semantic_action_code
+      properties:
+        start_offset:
+          type: integer
+          minimum: 0
+          description: Начальная позиция выделенного фрагмента в `body`, включительно.
+        end_offset:
+          type: integer
+          minimum: 1
+          description: Конечная позиция выделенного фрагмента в `body`, не включительно; должна быть больше start_offset.
+        semantic_action_code:
+          type: string
+          description: Код из справочника `GET /semantic-actions` в Scenarios API.
+    ChatMessageSendRequest:
+      type: object
+      required:
+        - message_id
+        - content
+        - semantic_action_code
+      properties:
+        message_id:
+          type: string
+          format: uuid
+          description: ID сообщения, генерируемый frontend и используемый для идемпотентности.
+        content:
+          $ref: '#/components/schemas/ChatContent'
+        semantic_action_code:
+          type: string
+          description: Один semantic action, который пользователь приписал своей chat-реплике.
+    VoiceMessageSendRequest:
+      type: object
+      required:
+        - message_id
+        - content
+        - semantic_action_code
+      properties:
+        message_id:
+          type: string
+          format: uuid
+          description: ID сообщения, генерируемый frontend и используемый для идемпотентности.
+        content:
+          $ref: '#/components/schemas/VoiceMessageContent'
+        semantic_action_code:
+          type: string
+          description: Один semantic action, который пользователь приписал голосовой реплике.
+    EmailMessageSendRequest:
+      type: object
+      required:
+        - message_id
+        - content
+        - semantic_annotations
+      properties:
+        message_id:
+          type: string
+          format: uuid
+          description: ID сообщения, генерируемый frontend и используемый для идемпотентности.
+        content:
+          $ref: '#/components/schemas/EmailContent'
+        semantic_annotations:
+          type: array
+          minItems: 1
+          description: 'Размеченные пользователем фрагменты body. Один email может содержать несколько разных
+
+            semantic actions, поэтому action хранится на диапазоне текста, а не на сообщении целиком.
+
+            '
+          items:
+            $ref: '#/components/schemas/EmailSemanticAnnotation'
+    TrainingMessageRequest:
+      oneOf:
+        - $ref: '#/components/schemas/ChatMessageSendRequest'
+        - $ref: '#/components/schemas/EmailMessageSendRequest'
+        - $ref: '#/components/schemas/VoiceMessageSendRequest'
+    TrainingMessage:
+      type: object
+      required:
+        - message_id
+        - author
+        - content
+        - created_at
+      properties:
+        message_id:
+          type: string
+          format: uuid
+          description: Постоянный ID сообщения.
+        author:
+          type: string
+          enum:
+            - learner
+            - virtual_partner
+          description: Автор сообщения.
+        content:
+          $ref: '#/components/schemas/TrainingMessageContent'
+        semantic_action_code:
+          type: string
+          description: 'Разметка learner для chat/voice_message. У сообщения virtual_partner отсутствует до
+
+            отдельной проверки пользователем и не раскрывает ожидаемый ответ заранее.
+
+            '
+        semantic_annotations:
+          type: array
+          description: Разметки body learner-email. Для остальных типов сообщений поле отсутствует.
+          items:
+            $ref: '#/components/schemas/EmailSemanticAnnotation'
+        classification:
+          oneOf:
+            - $ref: '#/components/schemas/StoredPartnerClassification'
+            - type: 'null'
+          description: Результат уже выполненной пользователем классификации входящего AI-сообщения.
+        created_at:
+          type: string
+          format: date-time
+          description: Время сохранения сообщения.
+    StoredPartnerClassification:
+      type: object
+      required:
+        - selected_semantic_action_code
+        - expected_semantic_action_code
+        - correct
+      properties:
+        selected_semantic_action_code:
+          type: string
+          description: Код, выбранный пользователем.
+        expected_semantic_action_code:
+          type: string
+          description: Правильный код, раскрытый после ответа пользователя.
+        correct:
+          type: boolean
+          description: Совпал ли выбранный код с ожидаемым.
+    StartTrainingSessionResponse:
+      type: object
+      required:
+        - session_id
+        - scenario_id
+        - scenario_role_id
+        - mode
+        - channel
+        - status
+        - preparation
+        - current_node
+        - messages
+        - started_at
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: ID новой TrainingSession.
+        scenario_id:
+          type: string
+          format: uuid
+          description: Scenario попытки.
+        scenario_role_id:
+          type: string
+          format: uuid
+          description: Роль learner в Scenario.
+        assignment_id:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+          description: Связанное назначение куратора, если оно есть.
+        mode:
+          $ref: '#/components/schemas/TrainingMode'
+        channel:
+          $ref: '#/components/schemas/TrainingChannel'
+        status:
+          $ref: '#/components/schemas/TrainingStatus'
+        preparation:
+          $ref: '#/components/schemas/TrainingPreparation'
+        current_node:
+          oneOf:
+            - $ref: '#/components/schemas/DeterministicCurrentNode'
+            - type: 'null'
+        messages:
+          type: array
+          description: Уже созданные сообщения. Обычно пусто на старте.
+          items:
+            $ref: '#/components/schemas/TrainingMessage'
+        started_at:
+          type: string
+          format: date-time
+    TrainingSessionResponse:
+      type: object
+      required:
+        - session_id
+        - scenario_id
+        - scenario_title
+        - scenario_role_id
+        - mode
+        - channel
+        - status
+        - preparation
+        - current_node
+        - messages
+        - score
+        - started_at
+        - completed_at
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string
+          format: uuid
+        scenario_title:
+          type: string
+        scenario_role_id:
+          type: string
+          format: uuid
+        assignment_id:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        mode:
+          $ref: '#/components/schemas/TrainingMode'
+        channel:
+          $ref: '#/components/schemas/TrainingChannel'
+        status:
+          $ref: '#/components/schemas/TrainingStatus'
+        preparation:
+          $ref: '#/components/schemas/TrainingPreparation'
+        current_node:
+          oneOf:
+            - $ref: '#/components/schemas/DeterministicCurrentNode'
+            - type: 'null'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrainingMessage'
+        score:
+          oneOf:
+            - type: number
+              minimum: 0
+              maximum: 100
+            - type: 'null'
+          description: Итоговая оценка попытки. null до завершения; используется для определения best_attempt.
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    TrainingSessionListItem:
+      type: object
+      required:
+        - session_id
+        - scenario_id
+        - scenario_title
+        - scenario_role_id
+        - mode
+        - channel
+        - status
+        - score
+        - started_at
+        - completed_at
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string
+          format: uuid
+        scenario_title:
+          type: string
+        scenario_role_id:
+          type: string
+          format: uuid
+        mode:
+          $ref: '#/components/schemas/TrainingMode'
+        channel:
+          $ref: '#/components/schemas/TrainingChannel'
+        status:
+          $ref: '#/components/schemas/TrainingStatus'
+        score:
+          oneOf:
+            - type: number
+              minimum: 0
+              maximum: 100
+            - type: 'null'
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    TrainingSessionListResponse:
+      type: object
+      required:
+        - sessions
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrainingSessionListItem'
+    TrainingActionRequest:
+      type: object
+      required:
+        - action_id
+        - semantic_action_code
+        - client_event_id
+      properties:
+        action_id:
+          type: string
+          format: uuid
+          description: ID выбранного DeterministicReplyOption.
+        semantic_action_code:
+          type: string
+          description: Semantic action, который пользователь приписал выбранной реплике.
+        client_event_id:
+          type: string
+          format: uuid
+          description: Frontend-generated ID для идемпотентности deterministic action.
+    SemanticClassificationResult:
+      type: object
+      required:
+        - selected_semantic_action_code
+        - expected_semantic_action_code
+        - correct
+      properties:
+        selected_semantic_action_code:
+          type: string
+        expected_semantic_action_code:
+          type: string
+        correct:
+          type: boolean
+    TrainingActionResponse:
+      type: object
+      required:
+        - event_id
+        - classification
+        - next_node
+        - status
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: ID сохранённого события deterministic runtime.
+        classification:
+          $ref: '#/components/schemas/SemanticClassificationResult'
+        next_node:
+          oneOf:
+            - $ref: '#/components/schemas/DeterministicCurrentNode'
+            - type: 'null'
+          description: Новый deterministic-узел; null при выходе к завершению.
+        status:
+          $ref: '#/components/schemas/TrainingStatus'
+    TrainingMessageResponse:
+      type: object
+      required:
+        - learner_message
+        - partner_message
+        - status
+      properties:
+        learner_message:
+          $ref: '#/components/schemas/TrainingMessage'
+        partner_message:
+          $ref: '#/components/schemas/TrainingMessage'
+        status:
+          $ref: '#/components/schemas/TrainingStatus'
+    ClassifyPartnerMessageRequest:
+      type: object
+      required:
+        - semantic_action_code
+      properties:
+        semantic_action_code:
+          type: string
+          description: Код semantic action, выбранный пользователем для входящей реплики AI.
+    ClassifyPartnerMessageResponse:
+      type: object
+      required:
+        - message_id
+        - selected_semantic_action_code
+        - expected_semantic_action_code
+        - correct
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        selected_semantic_action_code:
+          type: string
+        expected_semantic_action_code:
+          type: string
+        correct:
+          type: boolean
+    Outcome:
+      type: object
+      description: Фактический результат переговоров; не является оценкой переговорной компетентности.
+      properties:
+        summary:
+          type: string
+          description: Краткое описание фактического результата переговоров.
+        goals_met:
+          type: array
+          items:
+            type: string
+        goals_missed:
+          type: array
+          items:
+            type: string
+    ProfileClusterChange:
+      type: object
+      required:
+        - cluster_id
+        - before
+        - after
+        - delta
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+          description: ID кластера из `GET /competency-clusters` Scenarios API.
+        before:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Значение профиля до завершения попытки.
+        after:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Значение профиля после завершения попытки.
+        delta:
+          type: number
+          minimum: -100
+          maximum: 100
+          description: Изменение after - before.
+    ProfileChange:
+      type: object
+      required:
+        - changes
+      properties:
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileClusterChange'
+    CompleteTrainingResponse:
+      type: object
+      required:
+        - session_id
+        - status
+        - score
+        - outcome
+        - profile_change
+        - completed_at
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - completed
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Итоговая оценка попытки, используемая в том числе для best_attempt сценария.
+        outcome:
+          $ref: '#/components/schemas/Outcome'
+        profile_change:
+          $ref: '#/components/schemas/ProfileChange'
+        completed_at:
+          type: string
+          format: date-time
+    AnalysisNote:
+      type: object
+      required:
+        - title
+        - description
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+    ProcessAnalysisItem:
+      type: object
+      required:
+        - order
+        - summary
+      properties:
+        order:
+          type: integer
+          minimum: 1
+          description: Порядок элемента в разборе.
+        summary:
+          type: string
+          description: Что произошло на этом участке переговоров.
+        semantic_action_codes:
+          type: array
+          description: Semantic actions пользователя, относящиеся к этому участку.
+          items:
+            type: string
+    TrainingCompetencyResult:
+      type: object
+      required:
+        - cluster_id
+        - score
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Оценка проявления кластера в конкретной попытке, не текущее значение Profile.
+        comment:
+          type: string
+          description: Объяснение оценки кластера в этой попытке.
+    TrainingAnalysisResponse:
+      type: object
+      required:
+        - session_id
+        - score
+        - result
+        - process
+        - strengths
+        - improvements
+        - competencies
+        - profile_change
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+        result:
+          $ref: '#/components/schemas/Outcome'
+        process:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProcessAnalysisItem'
+        strengths:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisNote'
+        improvements:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisNote'
+        competencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrainingCompetencyResult'
+        profile_change:
+          $ref: '#/components/schemas/ProfileChange'
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Машиночитаемый код ошибки.
+        message:
+          type: string
+          description: Человекочитаемое описание ошибки.
+    InvalidRequestError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: INVALID_REQUEST
+            message:
+              type: string
+              const: Request validation failed
+    UnauthorizedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: ACCESS_TOKEN_INVALID
+            message:
+              type: string
+              const: Access token is invalid
+    TrainingAccessDeniedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: TRAINING_ACCESS_DENIED
+            message:
+              type: string
+              const: Access to this training session is denied
+    TrainingSessionNotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: TRAINING_SESSION_NOT_FOUND
+            message:
+              type: string
+              const: Training session not found
+    ScenarioNotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: SCENARIO_NOT_FOUND
+            message:
+              type: string
+              const: Scenario not found
+    ScenarioNotAvailableError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: SCENARIO_NOT_AVAILABLE
+            message:
+              type: string
+              const: Scenario is not available for training
+    TrainingConfigurationNotSupportedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: TRAINING_CONFIGURATION_NOT_SUPPORTED
+            message:
+              type: string
+              const: Selected role, mode or channel is not supported
+    InvalidTrainingStateError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: INVALID_TRAINING_STATE
+            message:
+              type: string
+              const: Training session state does not allow this operation
+    ActionNotAvailableError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: ACTION_NOT_AVAILABLE
+            message:
+              type: string
+              const: Action is not available in the current node
+    TrainingMessageChannelMismatchError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: TRAINING_MESSAGE_CHANNEL_MISMATCH
+            message:
+              type: string
+              const: Message content type does not match training channel
+    TrainingMessageNotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: TRAINING_MESSAGE_NOT_FOUND
+            message:
+              type: string
+              const: Training message not found
+    MessageAlreadyClassifiedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: MESSAGE_ALREADY_CLASSIFIED
+            message:
+              type: string
+              const: Message has already been classified by the learner
+    MessageNotClassifiableError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: MESSAGE_NOT_CLASSIFIABLE
+            message:
+              type: string
+              const: Only virtual partner messages can be classified
+    InternalServerErrorBody:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: INTERNAL_ERROR
+            message:
+              type: string
+              const: Internal server error
   responses:
     InvalidRequest:
       description: Некорректный запрос.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/InvalidRequestError' }
+          schema:
+            $ref: '#/components/schemas/InvalidRequestError'
     Unauthorized:
       description: Access token отсутствует, невалиден или истёк.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/UnauthorizedError' }
+          schema:
+            $ref: '#/components/schemas/UnauthorizedError'
     Forbidden:
-      description: Нет доступа к тренировке.
+      description: Нет доступа к TrainingSession.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/TrainingAccessDeniedError' }
+          schema:
+            $ref: '#/components/schemas/TrainingAccessDeniedError'
     ScenarioNotFound:
       description: Scenario не найден.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ScenarioNotFoundError' }
+          schema:
+            $ref: '#/components/schemas/ScenarioNotFoundError'
     TrainingSessionNotFound:
-      description: Training Session не найдена.
+      description: TrainingSession не найдена.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/TrainingSessionNotFoundError' }
+          schema:
+            $ref: '#/components/schemas/TrainingSessionNotFoundError'
     InvalidState:
-      description: Текущее состояние или runtime-режим не допускает операцию.
+      description: Текущее состояние или runtime не допускают операцию.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/InvalidTrainingStateError' }
-  schemas:
-    TrainingMode:
-      type: string
-      enum: [deterministic, virtual_partner]
-      description: Тип runtime обычной тренировки.
-    TrainingChannel:
-      type: string
-      enum: [chat]
-      description: Пока только текстовый чат; voice можно добавить позже.
-    TrainingStatus:
-      type: string
-      enum: [in_progress, ready_to_complete, completed, abandoned]
-    SemanticAction:
-      type: string
-      enum:
-        - ASK_QUESTION
-        - MAKE_PROPOSAL
-        - MAKE_CONCESSION
-        - REQUEST_RECIPROCITY
-        - HOLD_BOUNDARY
-        - CHANGE_TOPIC
-        - PAUSE
-        - SUMMARIZE
-        - CLOSE_NEGOTIATION
-    StartTrainingSessionRequest:
-      type: object
-      required: [scenario_id, mode, channel]
-      properties:
-        scenario_id: { type: string, format: uuid }
-        mode: { $ref: '#/components/schemas/TrainingMode' }
-        channel: { $ref: '#/components/schemas/TrainingChannel' }
-        preview:
-          type: boolean
-          default: false
-          description: Предпросмотр methodist; не обновляет профиль learner.
-    AvailableAction:
-      type: object
-      required: [action_id, label, semantic_action]
-      properties:
-        action_id: { type: string }
-        label: { type: string }
-        semantic_action: { $ref: '#/components/schemas/SemanticAction' }
-    CurrentNode:
-      type: object
-      required: [node_id, speaker, text, available_actions]
-      properties:
-        node_id: { type: string }
-        speaker: { type: string, enum: [partner] }
-        text: { type: string }
-        available_actions:
-          type: array
-          items: { $ref: '#/components/schemas/AvailableAction' }
-    ChatMessage:
-      type: object
-      required: [message_id, author, text, created_at]
-      properties:
-        message_id: { type: string, format: uuid }
-        author: { type: string, enum: [learner, virtual_partner] }
-        text: { type: string }
-        created_at: { type: string, format: date-time }
-    StartTrainingSessionResponse:
-      type: object
-      required: [session_id, mode, status, current_node, messages]
-      properties:
-        session_id: { type: string, format: uuid }
-        mode: { $ref: '#/components/schemas/TrainingMode' }
-        status: { $ref: '#/components/schemas/TrainingStatus' }
-        current_node:
-          oneOf:
-            - { $ref: '#/components/schemas/CurrentNode' }
-            - { type: 'null' }
-        messages:
-          type: array
-          items: { $ref: '#/components/schemas/ChatMessage' }
-    TrainingSessionResponse:
-      type: object
-      required: [session_id, scenario_id, scenario_version, mode, channel, status, current_node, messages]
-      properties:
-        session_id: { type: string, format: uuid }
-        scenario_id: { type: string, format: uuid }
-        scenario_version: { type: string }
-        mode: { $ref: '#/components/schemas/TrainingMode' }
-        channel: { $ref: '#/components/schemas/TrainingChannel' }
-        status: { $ref: '#/components/schemas/TrainingStatus' }
-        current_node:
-          oneOf:
-            - { $ref: '#/components/schemas/CurrentNode' }
-            - { type: 'null' }
-        messages:
-          type: array
-          items: { $ref: '#/components/schemas/ChatMessage' }
-    TrainingActionRequest:
-      type: object
-      required: [action_id, client_event_id]
-      properties:
-        action_id: { type: string }
-        client_event_id: { type: string, format: uuid }
-    TrainingActionResponse:
-      type: object
-      required: [event_id, next_node, status]
-      properties:
-        event_id: { type: string, format: uuid }
-        next_node:
-          oneOf:
-            - { $ref: '#/components/schemas/CurrentNode' }
-            - { type: 'null' }
-        status: { $ref: '#/components/schemas/TrainingStatus' }
-    TrainingMessageRequest:
-      type: object
-      required: [text, message_id]
-      properties:
-        text: { type: string, minLength: 1, maxLength: 5000 }
-        message_id: { type: string, format: uuid }
-    TrainingMessageResponse:
-      type: object
-      required: [learner_message, partner_message, detected_semantic_actions]
-      properties:
-        learner_message: { $ref: '#/components/schemas/ChatMessage' }
-        partner_message: { $ref: '#/components/schemas/ChatMessage' }
-        detected_semantic_actions:
-          type: array
-          items: { $ref: '#/components/schemas/SemanticAction' }
-    Outcome:
-      type: object
-      description: Фактический результат сделки; не является оценкой компетенции.
-      properties:
-        contract_extended: { type: boolean }
-        price_change: { type: number }
-        sla_change: { type: string }
-        contract_term_months: { type: integer }
-        goals_met: { type: array, items: { type: string } }
-        goals_missed: { type: array, items: { type: string } }
-    CompleteTrainingResponse:
-      type: object
-      required: [outcome]
-      properties:
-        outcome: { $ref: '#/components/schemas/Outcome' }
-    TrainingAnalysisResponse:
-      type: object
-      required: [result, process, competency]
-      properties:
-        result: { $ref: '#/components/schemas/Outcome' }
-        process:
-          type: array
-          items:
-            type: object
-            required: [step, summary, semantic_actions]
-            properties:
-              step: { type: integer, minimum: 1 }
-              summary: { type: string }
-              semantic_actions:
-                type: array
-                items: { $ref: '#/components/schemas/SemanticAction' }
-        competency:
-          type: array
-          items:
-            type: object
-            required: [cluster, indicator, level, note]
-            properties:
-              cluster: { type: string }
-              indicator: { type: string }
-              level: { type: integer, minimum: 0, maximum: 4 }
-              note: { type: string }
-    InvalidRequestError:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string, enum: [INVALID_REQUEST] }
-        message: { type: string, enum: [Request validation failed] }
-    UnauthorizedError:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string, enum: [ACCESS_TOKEN_INVALID] }
-        message: { type: string, enum: [Access token is invalid] }
-    TrainingAccessDeniedError:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string, enum: [TRAINING_ACCESS_DENIED] }
-        message: { type: string, enum: [Access to this training session is denied] }
-    TrainingSessionNotFoundError:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string, enum: [TRAINING_SESSION_NOT_FOUND] }
-        message: { type: string, enum: [Training session not found] }
-    ScenarioNotFoundError:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string, enum: [SCENARIO_NOT_FOUND] }
-        message: { type: string, enum: [Scenario not found] }
-    TrainingModeNotSupportedError:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string, enum: [TRAINING_MODE_NOT_SUPPORTED] }
-        message: { type: string, enum: [Training mode is not supported by this scenario] }
-    InvalidTrainingStateError:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string, enum: [INVALID_TRAINING_STATE] }
-        message: { type: string, enum: [Training session state does not allow this operation] }
-    ActionNotAvailableError:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string, enum: [ACTION_NOT_AVAILABLE] }
-        message: { type: string, enum: [Action is not available in the current node] }
+          schema:
+            $ref: '#/components/schemas/InvalidTrainingStateError'
+    InternalServerError:
+      description: Внутренняя ошибка сервера.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalServerErrorBody'

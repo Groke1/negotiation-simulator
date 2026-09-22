@@ -1,33 +1,145 @@
 openapi: 3.1.0
 info:
-  title: Scenarios API
-  version: 0.4.0
+  title: Negotiation Trainer - Scenarios API
+  version: 1.0.0
+  description: |
+    API конструктора переговорных сценариев для MVP тренажёра переговоров.
+
+    Основные принципы этой версии:
+    - сценарий редактируется только в статусе `draft`;
+    - после публикации содержимое сценария неизменяемо;
+    - версионирование опубликованных сценариев в MVP отсутствует;
+    - сценарий содержит ровно две переговорные роли перед публикацией;
+    - `description` и описания блоков вводит методист;
+    - `expanded_context` предусмотрен для будущей AI-генерации, но AI endpoints в этой спецификации отсутствуют;
+    - блок является состоянием переговоров и может содержать многоходовое deterministic-дерево реплик;
+    - переходы блока описывают выход из состояния в другие блоки и не заменяют внутреннее дерево реплик;
+    - `valid=false` при валидации является нормальным HTTP 200 ответом.
 servers:
-- url: http://localhost:8080/api/v1
+  - url: http://localhost:8080/api/v1
+
 tags:
-- name: Scenarios
-  description: Конструктор Scenario, валидация, публикация и snapshots.
+  - name: Scenarios
+    description: Создание, редактирование, валидация, публикация и архивация сценариев.
+  - name: Dictionaries
+    description: Справочники кластеров компетенций и семантических действий.
+
 paths:
-  /scenarios:
+  /competency-clusters:
     get:
-      tags:
-      - Scenarios
-      summary: Получение библиотеки сценариев
-      description: Чтение доступно любой активной роли. limit/offset ограничивают выборку.
-      operationId: listOwnScenarios
+      tags: [Dictionaries]
+      summary: Получить кластеры компетенций
+      description: |
+        Возвращает справочник характеристик профиля пользователя. Сценарии ссылаются
+        на кластеры по `cluster_id`; сами названия кластеров не зашиваются в OpenAPI enum.
+      operationId: listCompetencyClusters
       security:
-      - bearerAuth: []
-      parameters:
-      - name: status
-        in: query
-        required: false
-        schema:
-          $ref: '#/components/schemas/ScenarioStatus'
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/Offset'
+        - bearerAuth: []
       responses:
         '200':
-          description: Список Scenario.
+          description: Справочник кластеров компетенций.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompetencyClusterListResponse'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /semantic-actions:
+    get:
+      tags: [Dictionaries]
+      summary: Получить семантические действия
+      description: |
+        Возвращает словарь действий, который frontend использует для кнопок разметки реплик
+        и который методист использует при настройке правил блоков и deterministic-реплик.
+      operationId: listSemanticActions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Справочник семантических действий.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SemanticActionListResponse'
+        '401':
+          $ref: '#/components/responses/AccessUnauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /scenarios:
+    get:
+      summary: Получить каталог сценариев
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - draft
+              - published
+              - archived
+        - name: difficulty
+          in: query
+          schema:
+            type: string
+            enum:
+              - easy
+              - medium
+              - hard
+        - name: tag
+          in: query
+          schema:
+            type: string
+        - name: runtime
+          in: query
+          schema:
+            type: string
+            enum:
+              - deterministic
+              - virtual_partner
+              - arena
+        - name: channel
+          in: query
+          schema:
+            type: string
+            enum:
+              - chat
+              - email
+              - voice_message
+              - audio_call
+        - name: favorite
+          in: query
+          schema:
+            type: boolean
+        - name: assigned_by_curator
+          in: query
+          schema:
+            type: boolean
+        - name: completed
+          in: query
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Список сценариев. Для learner содержит персональное состояние каталога.
           content:
             application/json:
               schema:
@@ -39,17 +151,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvalidRequestError'
         '401':
-          $ref: '#/components/responses/AccessUnauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+          description: Access token отсутствует, невалиден или истёк.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessTokenInvalidError'
     post:
-      tags:
-      - Scenarios
-      summary: Создание сценария
-      description: Создаёт сценарий со статусом draft. Запись доступна только active role=methodist; в ответе id сценария
+      tags: [Scenarios]
+      summary: Создать draft сценария
+      description: |
+        Создаёт пустой редактируемый сценарий. Backend генерирует `scenario_id`,
+        выставляет `status=draft` и начальные значения коллекций.
+        Дальнейшее состояние конструктора сохраняется через `PUT /scenarios/{scenario_id}`.
       operationId: createScenario
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -58,102 +174,36 @@ paths:
               $ref: '#/components/schemas/CreateScenarioRequest'
       responses:
         '201':
-          description: Scenario создан.
+          description: Draft сценария создан.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ScenarioCreatedResponse'
+                $ref: '#/components/schemas/Scenario'
         '400':
-          description: Некорректный JSON/формат запроса.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidRequestError'
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/AccessUnauthorized'
         '403':
-          description: Активная роль должна быть METHODIST.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MethodistRoleRequiredError'
+          $ref: '#/components/responses/MethodistRoleRequired'
         '409':
-          description: Для создания сценария сначала нужно выбрать организацию.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OrganizationRequiredError'
+          $ref: '#/components/responses/OrganizationRequired'
         '500':
           $ref: '#/components/responses/InternalServerError'
-  /scenarios/generate:
-    post:
-      tags:
-      - Scenarios
-      summary: Генерация сценария через AI Scenario Builder
-      description: Генерирует сценария из prompt и сразу сохраняет его как draft. В ответе возвращается сохранённый scenario_draft с scenario_id.
-      operationId: generateScenarioDraft
-      security:
-      - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GenerateScenarioRequest'
-      responses:
-        '201':
-          description: Draft сгенерирован и сохранён.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GenerateScenarioResponse'
-        '400':
-          description: Некорректный запрос.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidRequestError'
-        '401':
-          $ref: '#/components/responses/AccessUnauthorized'
-        '403':
-          description: Активная роль должна быть METHODIST.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MethodistRoleRequiredError'
-        '409':
-          description: Для генерации сценария сначала нужно выбрать организацию.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OrganizationRequiredError'
-        '429':
-          description: Превышен лимит генераций.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioGenerationRateLimitedError'
-        '502':
-          description: Провайдер ИИ не смог сгенерировать пригодный ответ.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioGenerationFailedError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+
   /scenarios/{scenario_id}:
     parameters:
-    - $ref: '#/components/parameters/ScenarioId'
+      - $ref: '#/components/parameters/ScenarioId'
+
     get:
-      tags:
-      - Scenarios
-      summary: Получение сценария
-      operationId: getOwnScenario
+      tags: [Scenarios]
+      summary: Получить сценарий
+      description: Возвращает полную структуру сценария, включая роли, блоки, переходы и deterministic-деревья.
+      operationId: getScenario
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
         '200':
-          description: Сценарий.
+          description: Сценарий найден.
           content:
             application/json:
               schema:
@@ -164,15 +214,17 @@ paths:
           $ref: '#/components/responses/ScenarioNotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
+
     put:
-      tags:
-      - Scenarios
-      summary: Редактирование сценария
-      description: Частично обновляет текущий Scenario. Snapshot создаётся только при publish; изменение инвалидирует
-        предыдущий validate.
-      operationId: updateOwnScenario
+      tags: [Scenarios]
+      summary: Сохранить текущее состояние конструктора
+      description: |
+        Полностью заменяет редактируемое содержимое draft-сценария. Frontend может сохранять
+        промежуточно невалидный граф: семантические ошибки структуры выявляются отдельным validate.
+        Published и archived сценарии изменять нельзя.
+      operationId: replaceScenarioDraft
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -180,46 +232,47 @@ paths:
             schema:
               $ref: '#/components/schemas/UpdateScenarioRequest'
       responses:
-        '204':
-          description: Изменения сохранены. Тело ответа отсутствует.
-        '400':
-          description: Некорректный запрос.
+        '200':
+          description: Draft сохранён.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/InvalidRequestError'
+                $ref: '#/components/schemas/Scenario'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/AccessUnauthorized'
         '403':
-          description: Нет прав на изменение сценария.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioWriteForbiddenError'
+          $ref: '#/components/responses/MethodistRoleRequired'
         '404':
           $ref: '#/components/responses/ScenarioNotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
         '409':
-          description: Текущий статус не позволяет редактирование.
+          description: Сценарий нельзя редактировать или пользователь не выбрал организацию.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/InvalidScenarioStatusError'
+                oneOf:
+                  - $ref: '#/components/schemas/ScenarioImmutableError'
+                  - $ref: '#/components/schemas/OrganizationRequiredError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /scenarios/{scenario_id}/validate:
     parameters:
-    - $ref: '#/components/parameters/ScenarioId'
+      - $ref: '#/components/parameters/ScenarioId'
     post:
-      tags:
-      - Scenarios
-      summary: Валидация сценария
-      description: Проверяет структуру, граф и покрытие индикаторов. valid=false — нормальный ответ 200, а не ошибка.
+      tags: [Scenarios]
+      summary: Провалидировать сценарий
+      description: |
+        Проверяет полноту, граф блоков, ссылки между сущностями и deterministic-деревья.
+        Ошибки имеют `severity=error`, предупреждения — `severity=warning`.
+        `valid=true`, если ошибок нет; warnings публикацию не блокируют.
       operationId: validateScenario
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
         '200':
-          description: Результат проверки.
+          description: Результат продуктовой валидации. `valid=false` также возвращается с HTTP 200.
           content:
             application/json:
               schema:
@@ -227,35 +280,29 @@ paths:
         '401':
           $ref: '#/components/responses/AccessUnauthorized'
         '403':
-          description: Нет прав на сценарий.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioWriteForbiddenError'
+          $ref: '#/components/responses/MethodistRoleRequired'
         '404':
           $ref: '#/components/responses/ScenarioNotFound'
+        '409':
+          $ref: '#/components/responses/OrganizationRequired'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '400':
-          description: Сохранённый Scenario содержит некорректную JSON-структуру.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidScenarioJsonError'
+
   /scenarios/{scenario_id}/publish:
     parameters:
-    - $ref: '#/components/parameters/ScenarioId'
+      - $ref: '#/components/parameters/ScenarioId'
     post:
-      tags:
-      - Scenarios
-      summary: Публикация сценария
-      description: Создаёт immutable snapshot текущей version и переводит Scenario в published.
+      tags: [Scenarios]
+      summary: Опубликовать сценарий
+      description: |
+        Повторно запускает актуальную валидацию и, если ошибок нет, переводит draft в published.
+        После публикации содержимое сценария становится неизменяемым. Warnings публикацию не блокируют.
       operationId: publishScenario
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
         '200':
-          description: Версия опубликована.
+          description: Сценарий опубликован.
           content:
             application/json:
               schema:
@@ -263,1196 +310,983 @@ paths:
         '401':
           $ref: '#/components/responses/AccessUnauthorized'
         '403':
-          description: Нет прав на сценарий.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioWriteForbiddenError'
+          $ref: '#/components/responses/MethodistRoleRequired'
         '404':
           $ref: '#/components/responses/ScenarioNotFound'
         '409':
-          description: Такая версия уже опубликована.
+          description: Текущий статус не позволяет публикацию или пользователь не выбрал организацию.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ScenarioVersionAlreadyExistsError'
+                oneOf:
+                  - $ref: '#/components/schemas/InvalidScenarioStatusError'
+                  - $ref: '#/components/schemas/OrganizationRequiredError'
         '422':
-          description: Сценарий не прошёл актуальную проверку.
+          description: Сценарий содержит ошибки валидации и не может быть опубликован.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ScenarioPublishUnprocessableError'
+                $ref: '#/components/schemas/ScenarioPublishValidationError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+
   /scenarios/{scenario_id}/archive:
     parameters:
-    - $ref: '#/components/parameters/ScenarioId'
+      - $ref: '#/components/parameters/ScenarioId'
     post:
-      tags:
-      - Scenarios
-      summary: Архивация Scenario
-      description: Переводит Scenario в archived; опубликованные snapshots и старые Session не меняются.
+      tags: [Scenarios]
+      summary: Архивировать сценарий
+      description: |
+        Переводит сценарий в `archived`. Архивация изменяет только жизненный цикл,
+        но не редактируемое содержимое опубликованного сценария. Archived сценарий нельзя изменять.
       operationId: archiveScenario
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
         '204':
           description: Сценарий архивирован.
         '401':
           $ref: '#/components/responses/AccessUnauthorized'
         '403':
-          description: Нет прав на сценарий.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioWriteForbiddenError'
+          $ref: '#/components/responses/MethodistRoleRequired'
         '404':
           $ref: '#/components/responses/ScenarioNotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
         '409':
-          description: Статус сценария не позволяет архивацию.
+          description: Текущий статус не позволяет архивацию или пользователь не выбрал организацию.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/InvalidScenarioStatusError'
-  /scenarios/{scenario_id}/versions:
-    parameters:
-    - $ref: '#/components/parameters/ScenarioId'
-    get:
-      tags:
-      - Scenarios
-      summary: Получение опубликованных версий Scenario
-      description: Возвращает immutable snapshots от новых к старым; limit/offset ограничивают выборку.
-      operationId: listScenarioVersions
-      security:
-      - bearerAuth: []
-      parameters:
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/Offset'
-      responses:
-        '200':
-          description: История версий.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioVersionListResponse'
-        '400':
-          description: Некорректные query-параметры.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidRequestError'
-        '401':
-          $ref: '#/components/responses/AccessUnauthorized'
-        '404':
-          $ref: '#/components/responses/ScenarioNotFound'
+                oneOf:
+                  - $ref: '#/components/schemas/InvalidScenarioStatusError'
+                  - $ref: '#/components/schemas/OrganizationRequiredError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-  /scenarios/{scenario_id}/versions/{version}:
-    parameters:
-    - $ref: '#/components/parameters/ScenarioId'
-    - $ref: '#/components/parameters/Version'
-    get:
-      tags:
-      - Scenarios
-      summary: Получение конкретного snapshot Scenario
-      description: Возвращает конкретную опубликованную версию Scenario в режиме только чтения.
-      operationId: getScenarioVersion
-      security:
-      - bearerAuth: []
-      responses:
-        '200':
-          description: Опубликованный snapshot.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioVersionResponse'
-        '401':
-          $ref: '#/components/responses/AccessUnauthorized'
-        '404':
-          description: Scenario или указанная version не найдены.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioOrVersionNotFoundError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+
+  parameters:
+    ScenarioId:
+      name: scenario_id
+      in: path
+      required: true
+      description: Уникальный идентификатор сценария.
+      schema:
+        type: string
+        format: uuid
+
   schemas:
     ScenarioStatus:
       type: string
-      enum:
-      - draft
-      - published
-      - archived
-      description: Статус Scenario. archived сохранён как согласованное расширение.
+      enum: [draft, published, archived]
+      description: |
+        Жизненный цикл сценария. `draft` редактируется; `published` доступен для новых тренировок
+        и арен и не редактируется; `archived` не используется для новых запусков и также не редактируется.
+
     ScenarioDifficulty:
       type: string
-      enum:
-      - L1
-      - L2
-      - L3
-      description: Уровень сложности Scenario.
+      enum: [easy, medium, hard]
+      description: Уровень сложности переговорного сценария.
+
+    ScenarioRuntime:
+      type: string
+      enum: [deterministic, virtual_partner, arena]
+      description: |
+        Runtime, в котором может использоваться сценарий: deterministic — готовое дерево реплик;
+        virtual_partner — свободный диалог с AI-партнёром; arena — переговоры двух реальных пользователей.
+
     ScenarioChannel:
       type: string
-      enum:
-      - chat
-      - voice
-      - meeting
-      description: Поддерживаемые форматом Scenario каналы.
-    ScenarioSummary:
+      enum: [chat, email, voice_message, audio_call]
+      description: |
+        Канал общения. `audio_call` зарезервирован для будущего real-time аудиозвонка;
+        остальные значения могут использоваться в текущем развитии MVP.
+
+    CompetencyClusterDefinition:
+      type: object
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Стабильный идентификатор кластера, используемый в ссылках из сценариев и профиля.
+        code:
+          type: string
+          description: Машиночитаемый стабильный код кластера.
+        name:
+          type: string
+          description: Человекочитаемое название характеристики профиля.
+        description:
+          type: string
+          description: Пояснение, какое переговорное поведение относится к кластеру.
+
+    CompetencyClusterListResponse:
+      type: object
+      required: [clusters]
+      properties:
+        clusters:
+          type: array
+          description: Все доступные в системе кластеры компетенций.
+          items:
+            $ref: '#/components/schemas/CompetencyClusterDefinition'
+
+    SemanticActionDefinition:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+          description: Стабильный машиночитаемый код семантического действия.
+        name:
+          type: string
+          description: Название действия, отображаемое на кнопке frontend.
+        description:
+          type: string
+          description: Краткое объяснение смысла семантического действия.
+
+    SemanticActionListResponse:
+      type: object
+      required: [actions]
+      properties:
+        actions:
+          type: array
+          description: Все доступные семантические действия.
+          items:
+            $ref: '#/components/schemas/SemanticActionDefinition'
+
+    CreateScenarioRequest:
+      type: object
+      required: [title, description]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Название сценария в конструкторе и каталоге.
+
+    UpdateScenarioRequest:
       type: object
       required:
-      - scenario_id
-      - title
-      - version
-      - status
-      - difficulty
-      - channels
-      - updated_at
+        - title
+        - description
+        - difficulty
+        - tags
+        - supported_runtimes
+        - supported_channels
+        - target_cluster_ids
+        - roles
+        - blocks
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          description: Название сценария. Для draft допускается временно пустое значение; validate сообщит об ошибке.
+        description:
+          type: string
+          maxLength: 10000
+          description: Исходное описание переговорной ситуации, введённое методистом.
+        expanded_context:
+          type: string
+          maxLength: 50000
+          description: |
+            Развёрнутый общий контекст сценария. Поле предусмотрено под будущую AI-генерацию,
+            но может быть сохранено и отредактировано как обычный текст.
+        difficulty:
+          $ref: '#/components/schemas/ScenarioDifficulty'
+        tags:
+          type: array
+          maxItems: 50
+          description: Произвольные теги для каталога и фильтрации, например B2B, закупки, конфликт.
+          items:
+            type: string
+            maxLength: 100
+        supported_runtimes:
+          type: array
+          uniqueItems: true
+          description: Runtime-режимы, в которых разрешено запускать сценарий.
+          items:
+            $ref: '#/components/schemas/ScenarioRuntime'
+        supported_channels:
+          type: array
+          uniqueItems: true
+          description: Каналы общения, которые поддерживает сценарий.
+          items:
+            $ref: '#/components/schemas/ScenarioChannel'
+        target_cluster_ids:
+          type: array
+          uniqueItems: true
+          description: |
+            Кластеры компетенций, на развитие которых ориентирован сценарий. Это metadata для каталога,
+            рекомендаций и аналитики; само наличие кластера здесь не повышает score пользователя.
+          items:
+            type: string
+            format: uuid
+        roles:
+          type: array
+          maxItems: 2
+          description: |
+            Переговорные роли сценария. Draft может временно содержать 0 или 1 роль,
+            но publish требует ровно две роли.
+          items:
+            $ref: '#/components/schemas/ScenarioRole'
+        blocks:
+          type: array
+          description: |
+            Состояния переговорного графа. Межблочные связи задаются в `transitions`,
+            а многоходовые deterministic-реплики — в `deterministic_dialogue` каждого блока.
+          items:
+            $ref: '#/components/schemas/ScenarioBlock'
+
+    Scenario:
+      type: object
+      required:
+        - scenario_id
+        - title
+        - description
+        - status
+        - difficulty
+        - tags
+        - supported_runtimes
+        - supported_channels
+        - target_cluster_ids
+        - roles
+        - blocks
+        - created_at
+        - updated_at
       properties:
         scenario_id:
           type: string
           format: uuid
+          readOnly: true
+          description: Уникальный идентификатор сценария, создаваемый backend.
         title:
           type: string
-        version:
+          maxLength: 200
+          description: Название сценария.
+        description:
           type: string
+          maxLength: 10000
+          description: Исходное описание переговорной ситуации, введённое методистом.
+        expanded_context:
+          type: string
+          maxLength: 50000
+          description: Развёрнутый общий контекст, который в дальнейшем может генерироваться AI.
         status:
           $ref: '#/components/schemas/ScenarioStatus'
         difficulty:
           $ref: '#/components/schemas/ScenarioDifficulty'
-        channels:
+        tags:
           type: array
+          description: Теги сценария для каталога и фильтрации.
+          items:
+            type: string
+        supported_runtimes:
+          type: array
+          uniqueItems: true
+          description: Runtime-режимы, поддерживаемые сценарием.
+          items:
+            $ref: '#/components/schemas/ScenarioRuntime'
+        supported_channels:
+          type: array
+          uniqueItems: true
+          description: Каналы общения, поддерживаемые сценарием.
+          items:
+            $ref: '#/components/schemas/ScenarioChannel'
+        target_cluster_ids:
+          type: array
+          uniqueItems: true
+          description: Идентификаторы кластеров, которые целевым образом тренирует сценарий.
+          items:
+            type: string
+            format: uuid
+        roles:
+          type: array
+          maxItems: 2
+          description: Две стороны переговоров. В draft список может быть неполным.
+          items:
+            $ref: '#/components/schemas/ScenarioRole'
+        blocks:
+          type: array
+          description: Полный граф состояний сценария.
+          items:
+            $ref: '#/components/schemas/ScenarioBlock'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Время создания сценария.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Время последнего изменения draft или жизненного цикла сценария.
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Время публикации. Отсутствует у draft.
+
+    ScenarioSummary:
+      type: object
+      required:
+        - scenario_id
+        - title
+        - description
+        - status
+        - difficulty
+        - tags
+        - supported_runtimes
+        - supported_channels
+        - updated_at
+      properties:
+        scenario_id:
+          type: string
+          format: uuid
+          description: Идентификатор сценария.
+        title:
+          type: string
+          description: Название сценария.
+        description:
+          type: string
+          description: Краткое исходное описание сценария.
+        status:
+          $ref: '#/components/schemas/ScenarioStatus'
+        difficulty:
+          $ref: '#/components/schemas/ScenarioDifficulty'
+        tags:
+          type: array
+          description: Теги сценария.
+          items:
+            type: string
+        supported_runtimes:
+          type: array
+          description: Поддерживаемые runtime-режимы.
+          items:
+            $ref: '#/components/schemas/ScenarioRuntime'
+        supported_channels:
+          type: array
+          description: Поддерживаемые каналы.
           items:
             $ref: '#/components/schemas/ScenarioChannel'
         updated_at:
           type: string
           format: date-time
+          description: Время последнего изменения.
+
     ScenarioListResponse:
       type: object
-      required:
-      - scenarios
+      required: [scenarios]
       properties:
         scenarios:
           type: array
+          description: Текущая страница сценариев.
           items:
             $ref: '#/components/schemas/ScenarioSummary'
-    InvalidRequestError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - INVALID_REQUEST
-        message:
-          type: string
-          enum:
-          - Request validation failed
-    AccessTokenMissingError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - ACCESS_TOKEN_MISSING
-        message:
-          type: string
-          enum:
-          - Access token is required
-    AccessTokenInvalidError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - ACCESS_TOKEN_INVALID
-        message:
-          type: string
-          enum:
-          - Access token is invalid
-    AccessTokenExpiredError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - ACCESS_TOKEN_EXPIRED
-        message:
-          type: string
-          enum:
-          - Access token has expired
-    AccessUnauthorizedError:
-      oneOf:
-      - $ref: '#/components/schemas/AccessTokenMissingError'
-      - $ref: '#/components/schemas/AccessTokenInvalidError'
-      - $ref: '#/components/schemas/AccessTokenExpiredError'
-    InternalErrorError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - INTERNAL_ERROR
-        message:
-          type: string
-          enum:
-          - Internal server error
-    ScenarioModeSupport:
-      type: string
-      enum:
-      - training
-      - arena
-      - live
-      description: Поддерживаемые Scenario режимы.
-    ScenarioContext:
-      type: object
-      required:
-      - situation_type
-      - conflict_type
-      - description
-      properties:
-        situation_type:
-          type: string
-          minLength: 1
-          description: Тип ситуации, например «продление контракта».
-        conflict_type:
-          type: array
-          items:
-            type: string
-            minLength: 1
-          description: 'Предметы конфликта: цена, срок и т.п.'
-        description:
-          type: string
-          minLength: 1
-          description: Краткое описание исходной ситуации.
-    ScenarioParty:
-      type: string
-      enum:
-      - learner
-      - partner
     ScenarioRole:
       type: object
       required:
-      - id
-      - label
-      properties:
-        id:
-          $ref: '#/components/schemas/ScenarioParty'
-        label:
-          type: string
-          minLength: 1
-          description: Человекочитаемое название переговорной роли.
-    ScenarioGoals:
-      type: object
-      description: Цели сторон переговоров.
-      required:
-      - learner
-      - partner
-      properties:
-        learner:
-          type: string
-          minLength: 1
-        partner:
-          type: string
-          minLength: 1
-    ScenarioInterests:
-      type: object
-      description: Интересы сторон за их позициями.
-      required:
-      - learner
-      - partner
-      properties:
-        learner:
-          type: array
-          items:
-            type: string
-            minLength: 1
-        partner:
-          type: array
-          items:
-            type: string
-            minLength: 1
-    LearnerConstraints:
-      type: object
-      description: Ограничения learner для MVP.
-      properties:
-        max_discount:
-          type: number
-          minimum: 0
-          maximum: 1
-          description: Максимальная скидка долей, например 0.07.
-        notes:
-          type: array
-          items:
-            type: string
-    PartnerConstraints:
-      type: object
-      description: Ограничения partner для MVP.
-      properties:
-        min_discount:
-          type: number
-          minimum: 0
-          maximum: 1
-        alternative_supplier:
-          type: boolean
-        notes:
-          type: array
-          items:
-            type: string
-    ScenarioConstraints:
-      type: object
-      required:
-      - learner
-      - partner
-      properties:
-        learner:
-          $ref: '#/components/schemas/LearnerConstraints'
-        partner:
-          $ref: '#/components/schemas/PartnerConstraints'
-    ScenarioParameterValue:
-      oneOf:
-      - type: string
-      - type: number
-      - type: integer
-      - type: boolean
-      description: Начальное значение параметра сделки.
-    ScenarioParameter:
-      type: object
-      description: 'Параметр сделки: цена, срок, SLA и т.п.'
-      required:
-      - key
-      - initial
-      properties:
-        key:
-          type: string
-          minLength: 1
-        initial:
-          $ref: '#/components/schemas/ScenarioParameterValue'
-        unit:
-          type: string
-    LearnerPrivateInformation:
-      type: object
-      description: Закрытая информация learner.
-      properties:
-        can_offer:
-          type: array
-          items:
-            type: string
-        notes:
-          type: array
-          items:
-            type: string
-    PartnerPrivateInformation:
-      type: object
-      description: Закрытая информация partner.
-      properties:
-        has_alternative_supplier:
-          type: boolean
-        reveals_if:
-          type: string
-        notes:
-          type: array
-          items:
-            type: string
-    ScenarioPrivateInformation:
-      type: object
-      required:
-      - learner
-      - partner
-      properties:
-        learner:
-          $ref: '#/components/schemas/LearnerPrivateInformation'
-        partner:
-          $ref: '#/components/schemas/PartnerPrivateInformation'
-    CompetencyCluster:
-      type: string
-      enum:
-      - Цели и границы
-      - Диагностика
-      - Создание ценности
-      - Аргументация
-      - Торг и обмен
-      - Конфликт и регуляция
-      description: Шесть кластеров компетенций; адаптивность — поперечная характеристика.
-    SemanticAction:
-      type: string
-      enum:
-      - ASK_QUESTION
-      - MAKE_PROPOSAL
-      - MAKE_CONCESSION
-      - REQUEST_RECIPROCITY
-      - HOLD_BOUNDARY
-      - CHANGE_TOPIC
-      - PAUSE
-      - SUMMARIZE
-      - CLOSE_NEGOTIATION
-      description: Фиксированный словарь семантических действий.
-    ObservationRule:
-      type: object
-      required:
-      - semantic_action
-      - cluster
-      - indicator
-      - trigger_condition
-      properties:
-        semantic_action:
-          $ref: '#/components/schemas/SemanticAction'
-        cluster:
-          $ref: '#/components/schemas/CompetencyCluster'
-        indicator:
-          type: string
-          minLength: 1
-        trigger_condition:
-          type: string
-          minLength: 1
-          description: Условие засчитывания проявления индикатора.
-    CompletionCondition:
-      type: object
-      required:
-      - type
-      - condition
-      properties:
-        type:
-          type: string
-          enum:
-          - agreement
-          - no_deal
-        condition:
-          type: string
-          minLength: 1
-          description: Детерминированное условие завершения.
-    ScenarioNodeType:
-      type: string
-      enum:
-      - opening
-      - escalation
-      - resolution
-    IndicatorTag:
-      type: object
-      required:
-      - cluster
-      - indicator
-      properties:
-        cluster:
-          $ref: '#/components/schemas/CompetencyCluster'
-        indicator:
-          type: string
-          minLength: 1
-        flag:
-          type: string
-    ScenarioAction:
-      type: object
-      required:
-      - id
-      - label
-      - semantic_action
-      - next_node_id
-      properties:
-        id:
-          type: string
-          minLength: 1
-        label:
-          type: string
-          minLength: 1
-          description: Формулировка действия, видимая обучающемуся.
-        semantic_action:
-          $ref: '#/components/schemas/SemanticAction'
-        next_node_id:
-          oneOf:
-          - type: string
-            minLength: 1
-          - type: 'null'
-          description: Следующий узел; null для завершающего действия.
-        indicator_tags:
-          type: array
-          items:
-            $ref: '#/components/schemas/IndicatorTag'
-    ScenarioOutcome:
-      type: object
-      description: Фактический исход переговоров; заполняются релевантные Scenario поля.
-      properties:
-        contract_extended:
-          type: boolean
-        price_change:
-          type: number
-        sla_change:
-          type: string
-        contract_term_months:
-          type: integer
-        summary:
-          type: string
-    ScenarioNode:
-      type: object
-      required:
-      - id
-      - type
-      - speaker
-      - text
-      - actions
-      - is_end
-      properties:
-        id:
-          type: string
-          minLength: 1
-        type:
-          $ref: '#/components/schemas/ScenarioNodeType'
-        speaker:
-          $ref: '#/components/schemas/ScenarioParty'
-        text:
-          type: string
-          minLength: 1
-        emotion:
-          type: string
-        actions:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioAction'
-        is_end:
-          type: boolean
-          default: false
-          description: Завершающий узел.
-        outcome:
-          oneOf:
-          - $ref: '#/components/schemas/ScenarioOutcome'
-          - type: 'null'
-    CreateScenarioRequest:
-      type: object
-      required:
-      - version
-      - title
-      - mode_support
-      - context
-      - roles
-      - goals
-      - interests
-      - constraints
-      - parameters
-      - private_information
-      - difficulty
-      - competencies
-      - observation_rules
-      - completion_conditions
-      - channels
-      - nodes
-      properties:
-        version:
-          type: string
-          minLength: 1
-          maxLength: 32
-          description: Версия, фиксируемая snapshot при публикации.
-        title:
-          type: string
-          minLength: 1
-          maxLength: 200
-        mode_support:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioModeSupport'
-          uniqueItems: true
-        context:
-          $ref: '#/components/schemas/ScenarioContext'
-        roles:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioRole'
-          minItems: 2
-        goals:
-          $ref: '#/components/schemas/ScenarioGoals'
-        interests:
-          $ref: '#/components/schemas/ScenarioInterests'
-        constraints:
-          $ref: '#/components/schemas/ScenarioConstraints'
-        parameters:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioParameter'
-        private_information:
-          $ref: '#/components/schemas/ScenarioPrivateInformation'
-        difficulty:
-          $ref: '#/components/schemas/ScenarioDifficulty'
-        competencies:
-          type: array
-          items:
-            $ref: '#/components/schemas/CompetencyCluster'
-          uniqueItems: true
-        observation_rules:
-          type: array
-          items:
-            $ref: '#/components/schemas/ObservationRule'
-        completion_conditions:
-          type: array
-          items:
-            $ref: '#/components/schemas/CompletionCondition'
-        channels:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioChannel'
-          uniqueItems: true
-        nodes:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioNode'
-    ScenarioCreatedResponse:
-      type: object
-      required:
-      - id
+        - id
+        - name
+        - description
+        - goal
+        - interests
+        - constraints
+        - private_information
       properties:
         id:
           type: string
           format: uuid
-    MethodistRoleRequiredError:
+          description: |
+            Стабильный идентификатор роли внутри сценария. Может генерироваться редактором frontend,
+            так как блоки и реплики ссылаются на роль до сохранения на backend.
+        name:
+          type: string
+          maxLength: 200
+          description: Название переговорной роли, например Закупщик или Менеджер поставщика.
+        description:
+          type: string
+          maxLength: 5000
+          description: Краткое описание того, кто эта сторона и какое место занимает в ситуации.
+        goal:
+          type: string
+          maxLength: 5000
+          description: Общая цель роли на переговорах.
+        interests:
+          type: string
+          maxLength: 10000
+          description: |
+            Свободный текст из одного input/textarea методиста. Не массив: методист сам описывает
+            интересы стороны в удобной форме.
+        constraints:
+          type: string
+          maxLength: 10000
+          description: |
+            Свободный текст с ограничениями стороны. Не массив и не структурированная модель сделки
+            на текущем этапе MVP.
+        private_information:
+          type: string
+          maxLength: 10000
+          description: |
+            Свободный текст с закрытой информацией, известной только этой стороне переговоров.
+            Может использоваться для генерации поведения партнёра и показа вводной соответствующему участнику.
+
+    ScenarioBlockType:
+      type: string
+      enum: [start, regular, end]
+      description: |
+        Тип состояния графа. `start` — единственная точка входа; `regular` — обычное состояние;
+        `end` — конечное состояние. Системные start/end блоки могут не иметь содержимого обычного блока.
+
+    ScenarioBlock:
       type: object
       required:
-      - code
-      - message
+        - id
+        - type
+        - name
+        - description
+        - role_goals
+        - action_rules
+        - constraints
+        - transitions
       properties:
-        code:
+        id:
           type: string
-          enum:
-          - METHODIST_ROLE_REQUIRED
+          format: uuid
+          description: |
+            Стабильный идентификатор блока. Может генерироваться frontend, чтобы переходы могли
+            ссылаться на новый блок до отправки всего draft на backend.
+        type:
+          $ref: '#/components/schemas/ScenarioBlockType'
+        name:
+          type: string
+          maxLength: 200
+          description: Название состояния переговоров, например Обсуждение цены.
+        description:
+          type: string
+          maxLength: 10000
+          description: Исходное краткое описание состояния, введённое методистом.
+        expanded_context:
+          type: string
+          maxLength: 30000
+          description: |
+            Развёрнутый контекст конкретного блока. Поле предусмотрено под будущую AI-генерацию
+            и может редактироваться методистом.
+        lead_role_id:
+          type: string
+          format: uuid
+          description: |
+            Роль, которая преимущественно ведёт разговор в этом состоянии. Для regular-блока
+            отсутствие значения приводит к warning при validate.
+        lead_probability:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 50
+          description: |
+            Вероятность/интенсивность ведущей роли в процентах. Используется runtime-логикой
+            как настройка поведения, а не как гарантированная математическая вероятность.
+        role_goals:
+          type: array
+          maxItems: 2
+          description: Локальные цели каждой роли именно в данном состоянии переговоров.
+          items:
+            $ref: '#/components/schemas/BlockRoleGoal'
+        behavior:
+          type: string
+          maxLength: 10000
+          description: |
+            Инструкция о характере поведения в блоке. В virtual_partner может использоваться
+            при формировании поведения AI-партнёра.
+        action_rules:
+          type: array
+          description: |
+            Правила реакции блока на семантические действия. Наличие правила означает,
+            что действие релевантно данному состоянию и может быть показано frontend как доступная кнопка.
+          items:
+            $ref: '#/components/schemas/SemanticActionRule'
+        constraints:
+          type: array
+          description: |
+            Ограничения поведения внутри блока. В отличие от `ScenarioRole.constraints`, это список
+            отдельных правил конкретного состояния, как в текущем прототипе конструктора.
+          items:
+            type: string
+            maxLength: 5000
+        deterministic_dialogue:
+          $ref: '#/components/schemas/DeterministicDialogue'
+        transitions:
+          type: array
+          description: |
+            Возможные выходы из этого состояния в другие блоки сценария. Эти переходы не описывают
+            отдельные реплики внутри блока; для этого используется `deterministic_dialogue`.
+          items:
+            $ref: '#/components/schemas/ScenarioTransition'
+
+    BlockRoleGoal:
+      type: object
+      required: [role_id, goal]
+      properties:
+        role_id:
+          type: string
+          format: uuid
+          description: Идентификатор одной из двух ролей сценария.
+        goal:
+          type: string
+          maxLength: 5000
+          description: Что эта роль стремится сделать или получить именно в текущем блоке.
+
+    SemanticActionRule:
+      type: object
+      required: [semantic_action_code, reaction]
+      properties:
+        semantic_action_code:
+          type: string
+          description: Код действия из справочника `GET /semantic-actions`.
+        reaction:
+          type: string
+          maxLength: 10000
+          description: |
+            Что должно произойти в ответ на это действие пользователя в текущем блоке.
+            В virtual_partner поле служит инструкцией для реакции партнёра.
+
+    ScenarioTransition:
+      type: object
+      required: [id, target_block_id, condition, weight, forbidden]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Стабильный идентификатор межблочного перехода.
+        target_block_id:
+          type: string
+          format: uuid
+          description: Блок, в который переходит сценарий при срабатывании этого перехода.
+        condition:
+          type: string
+          maxLength: 10000
+          description: Человекочитаемое условие перехода между состояниями переговоров.
+        note:
+          type: string
+          maxLength: 5000
+          description: Методическая мотивация перехода; не обязана участвовать в runtime.
+        weight:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 50
+          description: |
+            Относительный вес перехода, когда подходит несколько вариантов. Не обязан суммироваться
+            до 100 с весами соседних переходов.
+        forbidden:
+          type: boolean
+          default: false
+          description: |
+            Если true, переход сохраняется и отображается в конструкторе как запрещённый,
+            но runtime не должен использовать его для фактического выхода из блока.
+
+    DeterministicDialogue:
+      type: object
+      required: [start_node_id, nodes]
+      description: |
+        Внутриблочное дерево deterministic-диалога. Оно позволяет провести несколько обменов репликами
+        внутри одного состояния: входящая реплика -> выбор ответа -> следующая входящая реплика -> новый выбор.
+        Выход из блока происходит, когда выбранный reply option ссылается на `transition_id`.
+      properties:
+        start_node_id:
+          type: string
+          format: uuid
+          description: Идентификатор первого узла диалога внутри блока.
+        nodes:
+          type: array
+          description: Узлы многоходового дерева реплик внутри блока.
+          items:
+            $ref: '#/components/schemas/DeterministicDialogueNode'
+
+    DeterministicDialogueNode:
+      type: object
+      required: [id, reply_options]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор узла внутри deterministic-дерева блока.
+        incoming_message:
+          $ref: '#/components/schemas/DeterministicMessage'
+        reply_options:
+          type: array
+          description: |
+            Готовые варианты следующей реплики пользователя. После выбора одного варианта runtime
+            либо переходит к следующему узлу внутри того же блока, либо выполняет межблочный переход.
+          items:
+            $ref: '#/components/schemas/DeterministicReplyOption'
+
+    DeterministicMessage:
+      type: object
+      required: [role_id, text, semantic_action_code]
+      description: |
+        Входящая заранее заданная реплика в deterministic-узле. Поле `incoming_message` узла может
+        отсутствовать, если в этом месте пользователь должен начать разговор первым.
+      properties:
+        role_id:
+          type: string
+          format: uuid
+          description: Роль, которая произносит входящую реплику.
+        text:
+          type: string
+          maxLength: 10000
+          description: Текст заранее подготовленной реплики.
+        semantic_action_code:
+          type: string
+          description: Правильная семантическая разметка реплики из справочника действий.
+
+    DeterministicReplyOption:
+      type: object
+      required: [id, role_id, text, semantic_action_code]
+      description: |
+        Один готовый вариант ответа пользователя. Ровно одно из полей `next_node_id` и `transition_id`
+        должно быть заполнено: первое продолжает разговор внутри блока, второе выводит из блока.
+        Это правило проверяется `POST /scenarios/{scenario_id}/validate`.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Идентификатор варианта ответа.
+        role_id:
+          type: string
+          format: uuid
+          description: Роль, от имени которой произносится этот вариант ответа.
+        text:
+          type: string
+          maxLength: 10000
+          description: Текст готовой реплики, выбираемой пользователем.
+        semantic_action_code:
+          type: string
+          description: Правильная семантическая разметка выбранной реплики.
+        next_node_id:
+          type: string
+          format: uuid
+          description: Следующий узел deterministic-дерева в этом же блоке.
+        transition_id:
+          type: string
+          format: uuid
+          description: Межблочный переход текущего блока, который выполняется после этой реплики.
+
+    ValidationSeverity:
+      type: string
+      enum: [error, warning]
+      description: Ошибка блокирует publish; предупреждение показывает потенциальную проблему, но publish не блокирует.
+
+    ValidationEntityType:
+      type: string
+      enum:
+        - scenario
+        - role
+        - block
+        - transition
+        - action_rule
+        - dialogue
+        - dialogue_node
+        - reply_option
+      description: Тип сущности конструктора, к которой относится проблема.
+
+    ScenarioValidationIssueCode:
+      type: string
+      enum:
+        - SCENARIO_TITLE_MISSING
+        - SCENARIO_DESCRIPTION_MISSING
+        - SCENARIO_RUNTIME_MISSING
+        - SCENARIO_CHANNEL_MISSING
+        - ROLE_COUNT_INVALID
+        - ROLE_NAME_MISSING
+        - ROLE_ID_DUPLICATED
+        - CLUSTER_NOT_FOUND
+        - START_BLOCK_COUNT_INVALID
+        - END_BLOCK_MISSING
+        - BLOCK_ID_DUPLICATED
+        - BLOCK_UNREACHABLE
+        - BLOCK_NO_PATH_TO_END
+        - BLOCK_NO_OUTGOING_TRANSITIONS
+        - BLOCK_ALL_TRANSITIONS_FORBIDDEN
+        - BLOCK_LEAD_ROLE_MISSING
+        - BLOCK_LEAD_ROLE_INVALID
+        - BLOCK_EXPANDED_CONTEXT_MISSING
+        - ROLE_GOAL_ROLE_INVALID
+        - ROLE_GOAL_DUPLICATED
+        - ACTION_RULE_UNKNOWN_SEMANTIC_ACTION
+        - ACTION_RULE_DUPLICATED
+        - TRANSITION_TARGET_NOT_FOUND
+        - TRANSITION_CONDITION_EMPTY
+        - TRANSITION_CONDITIONS_SIMILAR
+        - DETERMINISTIC_DIALOGUE_MISSING
+        - DIALOGUE_START_NODE_NOT_FOUND
+        - DIALOGUE_NODE_ID_DUPLICATED
+        - DIALOGUE_NODE_UNREACHABLE
+        - DIALOGUE_MESSAGE_ROLE_INVALID
+        - DIALOGUE_MESSAGE_ACTION_UNKNOWN
+        - REPLY_OPTION_ROLE_INVALID
+        - REPLY_OPTION_ACTION_UNKNOWN
+        - REPLY_OPTION_DESTINATION_INVALID
+        - REPLY_OPTION_NEXT_NODE_NOT_FOUND
+        - REPLY_OPTION_TRANSITION_NOT_FOUND
+      description: Машиночитаемый код ошибки или предупреждения конструктора.
+
+    ScenarioValidationIssue:
+      type: object
+      required: [severity, code, message, entity_type]
+      properties:
+        severity:
+          $ref: '#/components/schemas/ValidationSeverity'
+        code:
+          $ref: '#/components/schemas/ScenarioValidationIssueCode'
         message:
           type: string
-          enum:
-          - Active role must be methodist
-    OrganizationRequiredError:
+          description: |
+            Готовый человекочитаемый текст для интерфейса, например «Блок1» недостижим от Начала
+            или Состояние «Обсуждение цены» — не указано, кто ведущий.
+        entity_type:
+          $ref: '#/components/schemas/ValidationEntityType'
+        entity_id:
+          type: string
+          description: Идентификатор проблемной сущности, если проблема относится к конкретному объекту.
+
+    ScenarioValidationResponse:
       type: object
-      required:
-      - code
-      - message
+      required: [valid, errors_count, warnings_count, issues]
       properties:
-        code:
-          type: string
-          enum:
-          - ORGANIZATION_REQUIRED
-        message:
-          type: string
-          enum:
-          - User must belong to an organization
-    GenerateScenarioRequest:
+        valid:
+          type: boolean
+          description: true, если в `issues` нет ни одного элемента с `severity=error`.
+        errors_count:
+          type: integer
+          minimum: 0
+          description: Число ошибок, блокирующих публикацию.
+        warnings_count:
+          type: integer
+          minimum: 0
+          description: Число предупреждений, не блокирующих публикацию.
+        issues:
+          type: array
+          description: Полный список найденных ошибок и предупреждений.
+          items:
+            $ref: '#/components/schemas/ScenarioValidationIssue'
+
+    PublishScenarioResponse:
       type: object
-      required:
-      - prompt
-      properties:
-        prompt:
-          type: string
-          minLength: 20
-          maxLength: 20000
-          example: 'Создай тренировку про продление контракта: клиент требует скидку 15%...'
-    Scenario:
-      type: object
-      description: Scenario описывает переговорный мир; один Scenario порождает множество Session.
-      required:
-      - scenario_id
-      - version
-      - title
-      - mode_support
-      - context
-      - roles
-      - goals
-      - interests
-      - constraints
-      - parameters
-      - private_information
-      - difficulty
-      - competencies
-      - observation_rules
-      - completion_conditions
-      - channels
-      - nodes
+      required: [scenario_id, status, published_at, warnings]
       properties:
         scenario_id:
           type: string
           format: uuid
-          description: Идентификатор переговорного мира.
-        version:
+          description: Идентификатор опубликованного сценария.
+        status:
           type: string
-          minLength: 1
-          maxLength: 32
-          description: Версия, фиксируемая snapshot при публикации.
-        title:
+          const: published
+          description: Новый статус сценария.
+        published_at:
           type: string
-          minLength: 1
-          maxLength: 200
-        mode_support:
+          format: date-time
+          description: Время публикации.
+        warnings:
           type: array
+          description: Warnings актуальной валидации, которые не помешали публикации.
           items:
-            $ref: '#/components/schemas/ScenarioModeSupport'
-          uniqueItems: true
-        context:
-          $ref: '#/components/schemas/ScenarioContext'
-        roles:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioRole'
-          minItems: 2
-        goals:
-          $ref: '#/components/schemas/ScenarioGoals'
-        interests:
-          $ref: '#/components/schemas/ScenarioInterests'
-        constraints:
-          $ref: '#/components/schemas/ScenarioConstraints'
-        parameters:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioParameter'
-        private_information:
-          $ref: '#/components/schemas/ScenarioPrivateInformation'
-        difficulty:
-          $ref: '#/components/schemas/ScenarioDifficulty'
-        competencies:
-          type: array
-          items:
-            $ref: '#/components/schemas/CompetencyCluster'
-          uniqueItems: true
-        observation_rules:
-          type: array
-          items:
-            $ref: '#/components/schemas/ObservationRule'
-        completion_conditions:
-          type: array
-          items:
-            $ref: '#/components/schemas/CompletionCondition'
-        channels:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioChannel'
-          uniqueItems: true
-        nodes:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioNode'
-    AIProvider:
-      type: string
-      enum:
-      - mock
-      - cloud
-      - ollama
-    GenerateScenarioResponse:
+            $ref: '#/components/schemas/ScenarioValidationIssue'
+
+    InvalidRequestError:
       type: object
-      description: AI draft в этой версии сразу сохраняется, поэтому содержит scenario_id.
-      required:
-      - scenario_draft
-      - ai_generation_id
-      - provider
-      properties:
-        scenario_draft:
-          $ref: '#/components/schemas/Scenario'
-        ai_generation_id:
-          type: string
-          format: uuid
-        provider:
-          $ref: '#/components/schemas/AIProvider'
-    ScenarioGenerationRateLimitedError:
-      type: object
-      required:
-      - code
-      - message
+      required: [code, message]
       properties:
         code:
           type: string
-          enum:
-          - SCENARIO_GENERATION_RATE_LIMITED
+          const: INVALID_REQUEST
+          description: Машиночитаемый код ошибки.
         message:
           type: string
-          enum:
-          - Scenario generation rate limit exceeded
-    ScenarioGenerationFailedError:
+          const: Request validation failed
+          description: Сообщение о некорректном формате HTTP-запроса.
+
+    AccessTokenMissingError:
       type: object
-      required:
-      - code
-      - message
+      required: [code, message]
       properties:
         code:
           type: string
-          enum:
-          - SCENARIO_GENERATION_FAILED
+          const: ACCESS_TOKEN_MISSING
+          description: Машиночитаемый код ошибки.
         message:
           type: string
-          enum:
-          - Failed to generate a scenario
+          const: Access token is required
+          description: Access token не передан.
+
+    AccessTokenInvalidError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          const: ACCESS_TOKEN_INVALID
+          description: Машиночитаемый код ошибки.
+        message:
+          type: string
+          const: Access token is invalid
+          description: Access token имеет некорректный формат или подпись.
+
+    AccessTokenExpiredError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          const: ACCESS_TOKEN_EXPIRED
+          description: Машиночитаемый код ошибки.
+        message:
+          type: string
+          const: Access token has expired
+          description: Срок действия access token истёк.
+
+    AccessUnauthorizedError:
+      oneOf:
+        - $ref: '#/components/schemas/AccessTokenMissingError'
+        - $ref: '#/components/schemas/AccessTokenInvalidError'
+        - $ref: '#/components/schemas/AccessTokenExpiredError'
+
+    MethodistRoleRequiredError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          const: METHODIST_ROLE_REQUIRED
+          description: Машиночитаемый код ошибки.
+        message:
+          type: string
+          const: Active role must be methodist
+          description: Операция доступна только при активной роли methodist.
+
+    OrganizationRequiredError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          const: ORGANIZATION_REQUIRED
+          description: Машиночитаемый код ошибки.
+        message:
+          type: string
+          const: User must belong to an organization
+          description: Пользователь должен указать организацию до работы со сценариями.
+
     ScenarioNotFoundError:
       type: object
-      required:
-      - code
-      - message
+      required: [code, message]
       properties:
         code:
           type: string
-          enum:
-          - SCENARIO_NOT_FOUND
+          const: SCENARIO_NOT_FOUND
+          description: Машиночитаемый код ошибки.
         message:
           type: string
-          enum:
-          - Scenario not found
-    UpdateScenarioRequest:
+          const: Scenario not found
+          description: Сценарий не существует или недоступен в текущей организации.
+
+    ScenarioImmutableError:
       type: object
-      description: Частичное обновление Scenario; изменение инвалидирует предыдущий validate.
-      properties:
-        version:
-          type: string
-          minLength: 1
-          maxLength: 32
-          description: Версия, фиксируемая snapshot при публикации.
-        title:
-          type: string
-          minLength: 1
-          maxLength: 200
-        mode_support:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioModeSupport'
-          uniqueItems: true
-        context:
-          $ref: '#/components/schemas/ScenarioContext'
-        roles:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioRole'
-          minItems: 2
-        goals:
-          $ref: '#/components/schemas/ScenarioGoals'
-        interests:
-          $ref: '#/components/schemas/ScenarioInterests'
-        constraints:
-          $ref: '#/components/schemas/ScenarioConstraints'
-        parameters:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioParameter'
-        private_information:
-          $ref: '#/components/schemas/ScenarioPrivateInformation'
-        difficulty:
-          $ref: '#/components/schemas/ScenarioDifficulty'
-        competencies:
-          type: array
-          items:
-            $ref: '#/components/schemas/CompetencyCluster'
-          uniqueItems: true
-        observation_rules:
-          type: array
-          items:
-            $ref: '#/components/schemas/ObservationRule'
-        completion_conditions:
-          type: array
-          items:
-            $ref: '#/components/schemas/CompletionCondition'
-        channels:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioChannel'
-          uniqueItems: true
-        nodes:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioNode'
-      minProperties: 1
-    ScenarioNotOwnedError:
-      type: object
-      required:
-      - code
-      - message
+      required: [code, message]
       properties:
         code:
           type: string
-          enum:
-          - SCENARIO_NOT_OWNED
+          const: SCENARIO_IMMUTABLE
+          description: Машиночитаемый код ошибки.
         message:
           type: string
-          enum:
-          - Scenario is owned by another user
-    ScenarioWriteForbiddenError:
-      oneOf:
-      - $ref: '#/components/schemas/MethodistRoleRequiredError'
-      - $ref: '#/components/schemas/ScenarioNotOwnedError'
+          const: Published or archived scenario cannot be modified
+          description: После публикации или архивации содержимое сценария изменить нельзя.
+
     InvalidScenarioStatusError:
       type: object
-      required:
-      - code
-      - message
+      required: [code, message]
       properties:
         code:
           type: string
-          enum:
-          - INVALID_SCENARIO_STATUS
+          const: INVALID_SCENARIO_STATUS
+          description: Машиночитаемый код ошибки.
         message:
           type: string
-          enum:
-          - Scenario status does not allow this operation
-    ValidationStructure:
+          const: Scenario status does not allow this operation
+          description: Текущий жизненный цикл сценария не допускает запрошенную операцию.
+
+    ScenarioPublishValidationError:
       type: object
-      required:
-      - has_goal
-      - has_conflict
-      - has_roles
-      - has_completion_conditions
-      properties:
-        has_goal:
-          type: boolean
-        has_conflict:
-          type: boolean
-        has_roles:
-          type: boolean
-        has_completion_conditions:
-          type: boolean
-    ValidationGraph:
-      type: object
-      required:
-      - dead_ends
-      - unreachable_nodes
-      - cycles
-      properties:
-        dead_ends:
-          type: array
-          items:
-            type: string
-        unreachable_nodes:
-          type: array
-          items:
-            type: string
-        cycles:
-          type: array
-          items:
-            type: array
-            items:
-              type: string
-    UnderCoveredIndicator:
-      type: object
-      required:
-      - indicator
-      - contexts_found
-      - required
-      properties:
-        indicator:
-          type: string
-        contexts_found:
-          type: integer
-          minimum: 0
-        required:
-          type: integer
-          minimum: 1
-    ValidationCoverage:
-      type: object
-      required:
-      - under_covered_indicators
-      properties:
-        under_covered_indicators:
-          type: array
-          items:
-            $ref: '#/components/schemas/UnderCoveredIndicator'
-    ScenarioValidationResponse:
-      type: object
-      required:
-      - valid
-      - structure
-      - graph
-      - coverage
-      properties:
-        valid:
-          type: boolean
-        structure:
-          $ref: '#/components/schemas/ValidationStructure'
-        graph:
-          $ref: '#/components/schemas/ValidationGraph'
-        coverage:
-          $ref: '#/components/schemas/ValidationCoverage'
-    InvalidScenarioJsonError:
-      type: object
-      required:
-      - code
-      - message
+      required: [code, message, validation]
       properties:
         code:
           type: string
-          enum:
-          - INVALID_SCENARIO_JSON
+          const: SCENARIO_VALIDATION_FAILED
+          description: Машиночитаемый код ошибки публикации.
         message:
           type: string
-          enum:
-          - Scenario JSON is invalid
-    PublishScenarioResponse:
+          const: Scenario has validation errors
+          description: Публикация отклонена из-за ошибок структуры сценария.
+        validation:
+          $ref: '#/components/schemas/ScenarioValidationResponse'
+
+    InternalServerErrorBody:
       type: object
-      required:
-      - version
-      - published_at
-      properties:
-        version:
-          type: string
-        published_at:
-          type: string
-          format: date-time
-    ScenarioVersionAlreadyExistsError:
-      type: object
-      required:
-      - code
-      - message
+      required: [code, message]
       properties:
         code:
           type: string
-          enum:
-          - SCENARIO_VERSION_ALREADY_EXISTS
+          const: INTERNAL_ERROR
+          description: Машиночитаемый код непредвиденной серверной ошибки.
         message:
           type: string
-          enum:
-          - Scenario version already exists
-    ScenarioNotValidatedError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - SCENARIO_NOT_VALIDATED
-        message:
-          type: string
-          enum:
-          - Scenario must be validated before publication
-    ScenarioValidationFailedError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - SCENARIO_VALIDATION_FAILED
-        message:
-          type: string
-          enum:
-          - Scenario validation failed
-    ScenarioPublishUnprocessableError:
-      oneOf:
-      - $ref: '#/components/schemas/ScenarioNotValidatedError'
-      - $ref: '#/components/schemas/ScenarioValidationFailedError'
-    ScenarioVersionSummary:
-      type: object
-      required:
-      - version
-      - published_at
-      properties:
-        version:
-          type: string
-        published_at:
-          type: string
-          format: date-time
-    ScenarioVersionListResponse:
-      type: object
-      required:
-      - versions
-      properties:
-        versions:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScenarioVersionSummary'
-    ScenarioSnapshot:
-      $ref: '#/components/schemas/Scenario'
-    ScenarioVersionResponse:
-      type: object
-      required:
-      - version
-      - snapshot
-      - published_at
-      properties:
-        version:
-          type: string
-        snapshot:
-          $ref: '#/components/schemas/ScenarioSnapshot'
-        published_at:
-          type: string
-          format: date-time
-    ScenarioVersionNotFoundError:
-      type: object
-      required:
-      - code
-      - message
-      properties:
-        code:
-          type: string
-          enum:
-          - SCENARIO_VERSION_NOT_FOUND
-        message:
-          type: string
-          enum:
-          - Scenario version not found
-    ScenarioOrVersionNotFoundError:
-      oneOf:
-      - $ref: '#/components/schemas/ScenarioNotFoundError'
-      - $ref: '#/components/schemas/ScenarioVersionNotFoundError'
-  parameters:
-    Limit:
-      name: limit
-      in: query
-      required: false
-      description: Размер страницы.
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 100
-        default: 20
-    Offset:
-      name: offset
-      in: query
-      required: false
-      description: Смещение от начала выборки.
-      schema:
-        type: integer
-        minimum: 0
-        default: 0
-    ScenarioId:
-      name: scenario_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    Version:
-      name: version
-      in: path
-      required: true
-      schema:
-        type: string
-        minLength: 1
-        maxLength: 32
+          const: Internal server error
+          description: Непредвиденная ошибка backend.
+
   responses:
+    InvalidRequest:
+      description: HTTP-запрос не соответствует контракту OpenAPI.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InvalidRequestError'
+
     AccessUnauthorized:
       description: Access token отсутствует, невалиден или истёк.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/AccessUnauthorizedError'
+
+    MethodistRoleRequired:
+      description: Активная продуктовая роль должна быть methodist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MethodistRoleRequiredError'
+
+    OrganizationRequired:
+      description: Пользователь ещё не указал организацию.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OrganizationRequiredError'
+
+    ScenarioNotFound:
+      description: Сценарий не найден или недоступен пользователю.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ScenarioNotFoundError'
+
     InternalServerError:
       description: Непредвиденная ошибка сервера.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/InternalErrorError'
-    ScenarioNotFound:
-      description: Сценарий не найден.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ScenarioNotFoundError'
+            $ref: '#/components/schemas/InternalServerErrorBody'
