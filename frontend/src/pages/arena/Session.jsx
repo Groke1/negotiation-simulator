@@ -57,7 +57,8 @@ export default function ArenaSession() {
 
         // 4. WebSocket
         const token = getToken();
-        const wsUrl = `ws://localhost:8080${wsPath}`;
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}${wsPath}`;
         ws = new WebSocket(wsUrl, ['arena-v1', token]);
         wsRef.current = ws;
 

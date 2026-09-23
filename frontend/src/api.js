@@ -1,4 +1,5 @@
-const BASE_URL = 'http://localhost:8080/api/v1';
+const BASE_URL = '/api/v1';
+const INTERNAL_BASE_URL = '/internal/v1';
 
 // ========================================
 // ==== ОБЁРТКА fetch с автоматическим refresh ====
@@ -187,7 +188,7 @@ export async function createOrganization(name) {
 
 // Через internal/v1 (без токена — для демо)
 export async function createOrganizationInternal(name) {
-  const res = await fetch(`http://localhost:8080/internal/v1/organizations`, {
+  const res = await fetch(`${INTERNAL_BASE_URL}/organizations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name })
@@ -207,7 +208,7 @@ export async function createOrganizationInternal(name) {
 // ========================================
 
 export async function grantRole(userId, role) {
-  const res = await fetch(`http://localhost:8080/internal/v1/users/${userId}/roles`, {
+  const res = await fetch(`${INTERNAL_BASE_URL}/users/${userId}/roles`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ role })

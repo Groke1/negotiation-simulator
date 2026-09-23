@@ -1,0 +1,76 @@
+on:
+  push:
+    - workflows: [deploy-production]
+      filter:
+        branches: ["main"]
+
+workflows:
+  deploy-production:
+    tasks:
+      - name: build-and-push
+        cubes:
+          - name: docker-build-push
+            env:
+              REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+              REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+              REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+              IMAGE_PREFIX: ${{ secrets.IMAGE_PREFIX }}
+            script:
+              - |
+                set -eu
+
+                IMAGE_TAG="${SOURCECRAFT_COMMIT_SHORT_SHA:-latest}"
+                ARENA_IMAGE="$IMAGE_PREFIX/arena"
+                FRONTEND_IMAGE="$IMAGE_PREFIX/frontend"
+
+                printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" --username "$REGISTRY_USERNAME" --password-stdin
+
+                docker build -f backend/Dockerfile -t "$ARENA_IMAGE:$IMAGE_TAG" -t "$ARENA_IMAGE:latest" .
+                docker build -f frontend/Dockerfile -t "$FRONTEND_IMAGE:$IMAGE_TAG" -t "$FRONTEND_IMAGE:latest" .
+
+                docker push "$ARENA_IMAGE:$IMAGE_TAG"
+                docker push "$ARENA_IMAGE:latest"
+                docker push "$FRONTEND_IMAGE:$IMAGE_TAG"
+                docker push "$FRONTEND_IMAGE:latest"
+
+      - name: deploy
+        needs: [build-and-push]
+        cubes:
+          - name: docker-compose-up
+            env:
+              REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+              REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+              REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+              IMAGE_PREFIX: ${{ secrets.IMAGE_PREFIX }}
+              PROD_HOST: ${{ secrets.PROD_HOST }}
+              PROD_USER: ${{ secrets.PROD_USER }}
+              PROD_SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+              PROD_SSH_PORT: "22"
+              PROD_PATH: /opt/arena
+            script:
+              - |
+                set -eu
+
+                IMAGE_TAG="${SOURCECRAFT_COMMIT_SHORT_SHA:-latest}"
+                ARENA_IMAGE="$IMAGE_PREFIX/arena:$IMAGE_TAG"
+                FRONTEND_IMAGE="$IMAGE_PREFIX/frontend:$IMAGE_TAG"
+                SSH_PORT="${PROD_SSH_PORT:-22}"
+                DEPLOY_PATH="${PROD_PATH:-/opt/arena}"
+                SSH_DIR="$SOURCECRAFT_TASK_DATA/prod-ssh"
+
+                mkdir -p "$SSH_DIR"
+                chmod 700 "$SSH_DIR"
+                printf '%s\n' "$PROD_SSH_PRIVATE_KEY" > "$SSH_DIR/prod_key"
+                chmod 600 "$SSH_DIR/prod_key"
+                ssh-keyscan -p "$SSH_PORT" "$PROD_HOST" >> "$SSH_DIR/known_hosts"
+
+                SSH_OPTS="-i $SSH_DIR/prod_key -o UserKnownHostsFile=$SSH_DIR/known_hosts -p $SSH_PORT"
+                SCP_OPTS="-i $SSH_DIR/prod_key -o UserKnownHostsFile=$SSH_DIR/known_hosts -P $SSH_PORT"
+
+                ssh $SSH_OPTS "$PROD_USER@$PROD_HOST" "mkdir -p '$DEPLOY_PATH'"
+                scp $SCP_OPTS docker-compose.prod.yml "$PROD_USER@$PROD_HOST:$DEPLOY_PATH/docker-compose.yml"
+                scp $SCP_OPTS .env.prod.example "$PROD_USER@$PROD_HOST:$DEPLOY_PATH/.env.example"
+
+                printf '%s' "$REGISTRY_PASSWORD" | ssh $SSH_OPTS "$PROD_USER@$PROD_HOST" "docker login '$REGISTRY_HOST' --username '$REGISTRY_USERNAME' --password-stdin"
+                ssh $SSH_OPTS "$PROD_USER@$PROD_HOST" "test -f '$DEPLOY_PATH/.env' || (echo 'Create $DEPLOY_PATH/.env from $DEPLOY_PATH/.env.example' >&2; exit 1)"
+                ssh $SSH_OPTS "$PROD_USER@$PROD_HOST" "cd '$DEPLOY_PATH' && ARENA_IMAGE='$ARENA_IMAGE' FRONTEND_IMAGE='$FRONTEND_IMAGE' docker compose pull && ARENA_IMAGE='$ARENA_IMAGE' FRONTEND_IMAGE='$FRONTEND_IMAGE' docker compose up -d"
