@@ -1,0 +1,201 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/**"
+      - "backend/**"
+      - "frontend/**"
+      - "docker-compose.prod.yml"
+      - ".env.prod.example"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+
+    outputs:
+      image_prefix: ${{ steps.meta.outputs.image_prefix }}
+
+    steps:
+      - name: Compute image prefix
+        id: meta
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "image_prefix=ghcr.io/${owner}/negotiation-simulator" >> "$GITHUB_OUTPUT"
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build arena
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_prefix }}/arena:${{ github.sha }}
+            ${{ needs.prepare.outputs.image_prefix }}/arena:latest
+
+      - name: Build frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_prefix }}/frontend:${{ github.sha }}
+            ${{ needs.prepare.outputs.image_prefix }}/frontend:latest
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build-and-push
+    environment: production
+
+    env:
+      IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+      IMAGE_TAG: ${{ github.sha }}
+
+      PROD_HOST: ${{ secrets.PROD_HOST }}
+      PROD_USER: ${{ secrets.PROD_USER }}
+      PROD_SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+
+      PROD_SSH_PORT: "22"
+      PROD_PATH: /opt/arena
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -eu
+
+          SSH_DIR="$RUNNER_TEMP/prod-ssh"
+
+          mkdir -p "$SSH_DIR"
+          chmod 700 "$SSH_DIR"
+
+          printf '%s\n' "$PROD_SSH_PRIVATE_KEY" > "$SSH_DIR/prod_key"
+          chmod 600 "$SSH_DIR/prod_key"
+
+          ssh-keyscan \
+            -p "$PROD_SSH_PORT" \
+            "$PROD_HOST" \
+            > "$SSH_DIR/known_hosts"
+
+      - name: Upload deploy files
+        shell: bash
+        run: |
+          set -eu
+
+          SSH_DIR="$RUNNER_TEMP/prod-ssh"
+
+          SSH_OPTS=(
+            -i "$SSH_DIR/prod_key"
+            -o IdentitiesOnly=yes
+            -o UserKnownHostsFile="$SSH_DIR/known_hosts"
+            -p "$PROD_SSH_PORT"
+          )
+
+          SCP_OPTS=(
+            -i "$SSH_DIR/prod_key"
+            -o IdentitiesOnly=yes
+            -o UserKnownHostsFile="$SSH_DIR/known_hosts"
+            -P "$PROD_SSH_PORT"
+          )
+
+          ssh "${SSH_OPTS[@]}" \
+            "$PROD_USER@$PROD_HOST" \
+            "mkdir -p '$PROD_PATH'"
+
+          scp "${SCP_OPTS[@]}" \
+            docker-compose.prod.yml \
+            "$PROD_USER@$PROD_HOST:$PROD_PATH/docker-compose.yml"
+
+          scp "${SCP_OPTS[@]}" \
+            .env.prod.example \
+            "$PROD_USER@$PROD_HOST:$PROD_PATH/.env.example"
+
+      - name: Deploy
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
+        run: |
+          set -eu
+
+          SSH_DIR="$RUNNER_TEMP/prod-ssh"
+
+          SSH_OPTS=(
+            -i "$SSH_DIR/prod_key"
+            -o IdentitiesOnly=yes
+            -o UserKnownHostsFile="$SSH_DIR/known_hosts"
+            -p "$PROD_SSH_PORT"
+          )
+
+          ARENA_IMAGE="$IMAGE_PREFIX/arena:$IMAGE_TAG"
+          FRONTEND_IMAGE="$IMAGE_PREFIX/frontend:$IMAGE_TAG"
+
+          printf '%s' "$GHCR_TOKEN" | \
+            ssh "${SSH_OPTS[@]}" \
+              "$PROD_USER@$PROD_HOST" \
+              "docker login ghcr.io \
+                --username '$GHCR_USERNAME' \
+                --password-stdin"
+
+          ssh "${SSH_OPTS[@]}" \
+            "$PROD_USER@$PROD_HOST" \
+            "test -f '$PROD_PATH/.env' || (
+              echo 'Create $PROD_PATH/.env from $PROD_PATH/.env.example' >&2
+              exit 1
+            )"
+
+          ssh "${SSH_OPTS[@]}" \
+            "$PROD_USER@$PROD_HOST" \
+            "cd '$PROD_PATH' && \
+             ARENA_IMAGE='$ARENA_IMAGE' \
+             FRONTEND_IMAGE='$FRONTEND_IMAGE' \
+             docker compose pull && \
+             ARENA_IMAGE='$ARENA_IMAGE' \
+             FRONTEND_IMAGE='$FRONTEND_IMAGE' \
+             docker compose up -d --remove-orphans"
+
+      - name: Prune old images
+        shell: bash
+        run: |
+          SSH_DIR="$RUNNER_TEMP/prod-ssh"
+
+          ssh \
+            -i "$SSH_DIR/prod_key" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
+            -p "$PROD_SSH_PORT" \
+            "$PROD_USER@$PROD_HOST" \
+            "docker image prune -f"
