@@ -13,5 +13,6 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /bin/arena /app/arena
+COPY prompts/ /app/prompts/
 
 CMD ["./arena"]

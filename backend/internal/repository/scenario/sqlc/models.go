@@ -101,7 +101,6 @@ type ScenariosScenario struct {
 	ID                   pgtype.UUID                 `json:"id"`
 	OrganizationID       pgtype.UUID                 `json:"organization_id"`
 	CreatedBy            pgtype.UUID                 `json:"created_by"`
-	Version              string                      `json:"version"`
 	Title                string                      `json:"title"`
 	Status               ScenariosScenarioStatus     `json:"status"`
 	ModeSupport          []string                    `json:"mode_support"`
@@ -123,12 +122,5 @@ type ScenariosScenario struct {
 	ValidationResult     []byte                      `json:"validation_result"`
 	CreatedAt            pgtype.Timestamptz          `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz          `json:"updated_at"`
-}
-
-type ScenariosScenarioVersion struct {
-	ID          pgtype.UUID        `json:"id"`
-	ScenarioID  pgtype.UUID        `json:"scenario_id"`
-	Version     string             `json:"version"`
-	Snapshot    []byte             `json:"snapshot"`
-	PublishedAt pgtype.Timestamptz `json:"published_at"`
+	PublishedAt          pgtype.Timestamptz          `json:"published_at"`
 }

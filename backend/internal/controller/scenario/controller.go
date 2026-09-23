@@ -20,14 +20,19 @@ type Service interface {
 	ListSemanticActions(ctx context.Context) ([]entity.SemanticActionDefinition, error)
 	ListScenarios(ctx context.Context, claims entity.AccessClaims, params entity.ListScenarios) ([]entity.Scenario, error)
 	CreateScenario(ctx context.Context, claims entity.AccessClaims, params entity.CreateScenario) (*entity.Scenario, error)
-	GenerateScenario(ctx context.Context, claims entity.AccessClaims, prompt string) (*entity.Scenario, error)
 	GetScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.Scenario, error)
 	UpdateScenario(ctx context.Context, claims entity.AccessClaims, params entity.UpdateScenario) error
 	ValidateScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.ScenarioValidation, error)
-	PublishScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.ScenarioVersion, error)
+	PublishScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.Scenario, *entity.ScenarioValidation, error)
 	ArchiveScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) error
-	ListScenarioVersions(ctx context.Context, claims entity.AccessClaims, scenarioID string, limit, offset int32) ([]entity.ScenarioVersion, error)
-	GetScenarioVersion(ctx context.Context, claims entity.AccessClaims, scenarioID, version string) (*entity.ScenarioVersion, error)
+	CloneScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.Scenario, error)
+	AddFavorite(ctx context.Context, claims entity.AccessClaims, scenarioID string) error
+	RemoveFavorite(ctx context.Context, claims entity.AccessClaims, scenarioID string) error
+	GetPersonalStats(ctx context.Context, userID, scenarioID string) (*entity.ScenarioPersonalStats, error)
+	ExpandContext(ctx context.Context, claims entity.AccessClaims, scenarioID string, options entity.AIGenerationOptions) (string, error)
+	GenerateDraft(ctx context.Context, claims entity.AccessClaims, scenarioID string, options entity.AIGenerationOptions) (*entity.ScenarioDraftProposal, *entity.ScenarioValidation, error)
+	GenerateBlock(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID string, options entity.AIGenerationOptions) (*entity.BlockContentProposal, *entity.ScenarioValidation, error)
+	GenerateDialogue(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID, learnerRoleID string, options entity.AIGenerationOptions) (*entity.DeterministicDialogue, *entity.ScenarioValidation, error)
 }
 
 type Controller struct {
@@ -45,15 +50,19 @@ func (c *Controller) InitRoutes(router chi.Router) {
 	router.Route("/scenarios", func(r chi.Router) {
 		r.Get("/", c.ListScenarios)
 		r.Post("/", c.CreateScenario)
-		r.Post("/generate", c.GenerateScenario)
 		r.Route("/{scenario_id}", func(r chi.Router) {
 			r.Get("/", c.GetScenario)
 			r.Put("/", c.UpdateScenario)
 			r.Post("/validate", c.ValidateScenario)
 			r.Post("/publish", c.PublishScenario)
 			r.Post("/archive", c.ArchiveScenario)
-			r.Get("/versions", c.ListScenarioVersions)
-			r.Get("/versions/{version}", c.GetScenarioVersion)
+			r.Post("/clone", c.CloneScenario)
+			r.Put("/favorite", c.AddFavorite)
+			r.Delete("/favorite", c.RemoveFavorite)
+			r.Post("/ai/expand-context", c.AIExpandContext)
+			r.Post("/ai/generate-draft", c.AIGenerateDraft)
+			r.Post("/blocks/{block_id}/ai/generate", c.AIGenerateBlock)
+			r.Post("/blocks/{block_id}/ai/generate-dialogue", c.AIGenerateDialogue)
 		})
 	})
 }
@@ -93,23 +102,57 @@ func (c *Controller) ListScenarios(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var status *entity.ScenarioStatus
+	params := entity.ListScenarios{UserID: claims.UserID, Limit: limit, Offset: offset}
 	if raw := strings.TrimSpace(r.URL.Query().Get("status")); raw != "" {
 		parsed := entity.ScenarioStatus(raw)
 		if !parsed.Valid() {
 			httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
 			return
 		}
-		status = &parsed
+		params.Status = &parsed
 	}
-	items, err := c.service.ListScenarios(r.Context(), claims, entity.ListScenarios{UserID: claims.UserID, Status: status, Limit: limit, Offset: offset})
+	if raw := strings.TrimSpace(r.URL.Query().Get("difficulty")); raw != "" {
+		parsed := entity.ScenarioDifficulty(raw)
+		if !parsed.Valid() {
+			httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+			return
+		}
+		params.Difficulty = &parsed
+	}
+	params.Tag = optionalQueryString(r, "tag")
+	params.Runtime = optionalQueryString(r, "runtime")
+	params.Channel = optionalQueryString(r, "channel")
+	var okBool bool
+	if params.Favorite, okBool = optionalQueryBool(w, r, "favorite"); !okBool {
+		return
+	}
+	if params.AssignedByCurator, okBool = optionalQueryBool(w, r, "assigned_by_curator"); !okBool {
+		return
+	}
+	if params.Completed, okBool = optionalQueryBool(w, r, "completed"); !okBool {
+		return
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("owned_by_me")); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+			return
+		}
+		params.OwnedByMe = value
+	}
+	items, err := c.service.ListScenarios(r.Context(), claims, params)
 	if err != nil {
 		c.writeError(w, r, err)
 		return
 	}
 	resp := scenarioListResponse{Scenarios: make([]scenarioSummaryResponse, 0, len(items))}
 	for _, item := range items {
-		resp.Scenarios = append(resp.Scenarios, scenarioToSummary(item))
+		stats, err := c.service.GetPersonalStats(r.Context(), claims.UserID, item.ID)
+		if err != nil {
+			c.writeError(w, r, err)
+			return
+		}
+		resp.Scenarios = append(resp.Scenarios, scenarioToSummary(item, claims.UserID, stats))
 	}
 	pkghttpx.WriteJSON(w, http.StatusOK, resp)
 }
@@ -129,25 +172,7 @@ func (c *Controller) CreateScenario(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusCreated, scenarioToResponse(*scenario))
-}
-
-func (c *Controller) GenerateScenario(w http.ResponseWriter, r *http.Request) {
-	claims, ok := claimsFromRequest(w, r)
-	if !ok {
-		return
-	}
-	var req generateScenarioRequest
-	if err := pkghttpx.DecodeJSON(w, r, &req); err != nil || len(strings.TrimSpace(req.Prompt)) < 20 || len(req.Prompt) > 20000 {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
-		return
-	}
-	scenario, err := c.service.GenerateScenario(r.Context(), claims, req.Prompt)
-	if err != nil {
-		c.writeError(w, r, err)
-		return
-	}
-	pkghttpx.WriteJSON(w, http.StatusCreated, generateScenarioResponse{ScenarioDraft: scenarioToResponse(*scenario), Provider: "mock"})
+	pkghttpx.WriteJSON(w, http.StatusCreated, scenarioToResponse(*scenario, claims.UserID))
 }
 
 func (c *Controller) GetScenario(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +185,7 @@ func (c *Controller) GetScenario(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, scenarioToResponse(*scenario))
+	pkghttpx.WriteJSON(w, http.StatusOK, scenarioToResponse(*scenario, claims.UserID))
 }
 
 func (c *Controller) UpdateScenario(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +207,7 @@ func (c *Controller) UpdateScenario(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, scenarioToResponse(*scenario))
+	pkghttpx.WriteJSON(w, http.StatusOK, scenarioToResponse(*scenario, claims.UserID))
 }
 
 func (c *Controller) ValidateScenario(w http.ResponseWriter, r *http.Request) {
@@ -203,12 +228,22 @@ func (c *Controller) PublishScenario(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	version, err := c.service.PublishScenario(r.Context(), claims, scenarioID)
+	published, validation, err := c.service.PublishScenario(r.Context(), claims, scenarioID)
 	if err != nil {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, publishScenarioResponse{ScenarioID: scenarioID, Status: string(entity.ScenarioStatusPublished), PublishedAt: version.PublishedAt, Warnings: []any{}})
+	warnings := make([]entity.ScenarioValidationIssue, 0)
+	for _, issue := range validation.Issues {
+		if issue.Severity == "warning" {
+			warnings = append(warnings, issue)
+		}
+	}
+	publishedAt := published.UpdatedAt
+	if published.PublishedAt != nil {
+		publishedAt = *published.PublishedAt
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, publishScenarioResponse{ScenarioID: scenarioID, Status: string(entity.ScenarioStatusPublished), PublishedAt: publishedAt, Warnings: warnings})
 }
 
 func (c *Controller) ArchiveScenario(w http.ResponseWriter, r *http.Request) {
@@ -223,43 +258,110 @@ func (c *Controller) ArchiveScenario(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (c *Controller) ListScenarioVersions(w http.ResponseWriter, r *http.Request) {
+func (c *Controller) CloneScenario(w http.ResponseWriter, r *http.Request) {
 	claims, scenarioID, ok := claimsAndScenarioID(w, r)
 	if !ok {
 		return
 	}
-	limit, offset, ok := readLimitOffset(w, r)
-	if !ok {
-		return
-	}
-	versions, err := c.service.ListScenarioVersions(r.Context(), claims, scenarioID, limit, offset)
+	scenario, err := c.service.CloneScenario(r.Context(), claims, scenarioID)
 	if err != nil {
 		c.writeError(w, r, err)
 		return
 	}
-	resp := scenarioVersionListResponse{Versions: make([]scenarioVersionSummaryResponse, 0, len(versions))}
-	for _, version := range versions {
-		resp.Versions = append(resp.Versions, scenarioVersionSummaryResponse{Version: version.Version, PublishedAt: version.PublishedAt})
-	}
-	pkghttpx.WriteJSON(w, http.StatusOK, resp)
+	pkghttpx.WriteJSON(w, http.StatusCreated, scenarioToResponse(*scenario, claims.UserID))
 }
 
-func (c *Controller) GetScenarioVersion(w http.ResponseWriter, r *http.Request) {
+func (c *Controller) AddFavorite(w http.ResponseWriter, r *http.Request) {
 	claims, scenarioID, ok := claimsAndScenarioID(w, r)
 	if !ok {
 		return
 	}
-	version := strings.TrimSpace(chi.URLParam(r, "version"))
-	if version == "" || len(version) > 32 {
+	if err := c.service.AddFavorite(r.Context(), claims, scenarioID); err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *Controller) RemoveFavorite(w http.ResponseWriter, r *http.Request) {
+	claims, scenarioID, ok := claimsAndScenarioID(w, r)
+	if !ok {
+		return
+	}
+	if err := c.service.RemoveFavorite(r.Context(), claims, scenarioID); err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *Controller) AIExpandContext(w http.ResponseWriter, r *http.Request) {
+	claims, scenarioID, ok := claimsAndScenarioID(w, r)
+	if !ok {
+		return
+	}
+	options, ok := readAIOptions(w, r)
+	if !ok {
+		return
+	}
+	expanded, err := c.service.ExpandContext(r.Context(), claims, scenarioID, options)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, expandContextResponse{ExpandedContext: expanded})
+}
+
+func (c *Controller) AIGenerateDraft(w http.ResponseWriter, r *http.Request) {
+	claims, scenarioID, ok := claimsAndScenarioID(w, r)
+	if !ok {
+		return
+	}
+	options, ok := readAIOptions(w, r)
+	if !ok {
+		return
+	}
+	proposal, validation, err := c.service.GenerateDraft(r.Context(), claims, scenarioID, options)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, generateScenarioDraftResponse{Proposal: scenarioDraftProposalResponse{ExpandedContext: proposal.ExpandedContext, Blocks: proposal.Blocks}, Validation: validation})
+}
+
+func (c *Controller) AIGenerateBlock(w http.ResponseWriter, r *http.Request) {
+	claims, scenarioID, blockID, ok := claimsScenarioAndBlockID(w, r)
+	if !ok {
+		return
+	}
+	options, ok := readAIOptions(w, r)
+	if !ok {
+		return
+	}
+	proposal, validation, err := c.service.GenerateBlock(r.Context(), claims, scenarioID, blockID, options)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, generateBlockResponse{BlockID: blockID, Proposal: *proposal, Validation: validation})
+}
+
+func (c *Controller) AIGenerateDialogue(w http.ResponseWriter, r *http.Request) {
+	claims, scenarioID, blockID, ok := claimsScenarioAndBlockID(w, r)
+	if !ok {
+		return
+	}
+	var req generateDialogueRequest
+	if err := pkghttpx.DecodeJSON(w, r, &req); err != nil || strings.TrimSpace(req.LearnerRoleID) == "" || len(req.Instructions) > 5000 {
 		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
 		return
 	}
-	scenarioVersion, err := c.service.GetScenarioVersion(r.Context(), claims, scenarioID, version)
+	dialogue, validation, err := c.service.GenerateDialogue(r.Context(), claims, scenarioID, blockID, strings.TrimSpace(req.LearnerRoleID), entity.AIGenerationOptions{Instructions: strings.TrimSpace(req.Instructions)})
 	if err != nil {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, scenarioVersionResponse{Version: scenarioVersion.Version, Snapshot: scenarioVersion.Snapshot, PublishedAt: scenarioVersion.PublishedAt})
+	pkghttpx.WriteJSON(w, http.StatusOK, generateDialogueResponse{BlockID: blockID, LearnerRoleID: strings.TrimSpace(req.LearnerRoleID), Proposal: *dialogue, Validation: validation})
 }
 
 func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err error) {
@@ -272,16 +374,22 @@ func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusUnauthorized
 	case httpx.ErrMethodistRoleRequired, httpx.ErrScenarioNotOwned:
 		status = http.StatusForbidden
-	case httpx.ErrScenarioNotFound, httpx.ErrScenarioVersionNotFound:
+	case httpx.ErrScenarioNotFound:
 		status = http.StatusNotFound
-	case httpx.ErrOrganizationRequired, httpx.ErrScenarioVersionAlreadyExists, httpx.ErrInvalidScenarioStatus:
+	case httpx.ErrBlockNotFound:
+		status = http.StatusNotFound
+	case httpx.ErrOrganizationRequired, httpx.ErrInvalidScenarioStatus, httpx.ErrScenarioNotDraft:
 		status = http.StatusConflict
-	case httpx.ErrScenarioNotValidated, httpx.ErrScenarioValidationFailed:
+	case httpx.ErrScenarioValidationFailed:
 		status = http.StatusUnprocessableEntity
-	case httpx.ErrScenarioGenerationRateLimited:
-		status = http.StatusTooManyRequests
-	case httpx.ErrScenarioGenerationFailed:
+	case httpx.ErrAIGenerationContextIncomplete:
+		status = http.StatusUnprocessableEntity
+	case httpx.ErrAIGenerationFailed, httpx.ErrAIInvalidStructuredOutput:
 		status = http.StatusBadGateway
+	case httpx.ErrAIProviderUnavailable:
+		status = http.StatusServiceUnavailable
+	case httpx.ErrAIGenerationTimeout:
+		status = http.StatusGatewayTimeout
 	}
 	if status == http.StatusInternalServerError {
 		c.logger.Error("scenario request failed", zap.Error(err), zap.String("path", r.URL.Path), zap.String("code", string(code)))
@@ -311,6 +419,31 @@ func claimsAndScenarioID(w http.ResponseWriter, r *http.Request) (entity.AccessC
 	return claims, scenarioID, true
 }
 
+func claimsScenarioAndBlockID(w http.ResponseWriter, r *http.Request) (entity.AccessClaims, string, string, bool) {
+	claims, scenarioID, ok := claimsAndScenarioID(w, r)
+	if !ok {
+		return entity.AccessClaims{}, "", "", false
+	}
+	blockID, err := entity.NormalizeUUID(chi.URLParam(r, "block_id"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return entity.AccessClaims{}, "", "", false
+	}
+	return claims, scenarioID, blockID, true
+}
+
+func readAIOptions(w http.ResponseWriter, r *http.Request) (entity.AIGenerationOptions, bool) {
+	if r.Body == nil || r.ContentLength == 0 {
+		return entity.AIGenerationOptions{}, true
+	}
+	var req aiGenerationOptionsRequest
+	if err := pkghttpx.DecodeJSON(w, r, &req); err != nil || len(req.Instructions) > 5000 {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return entity.AIGenerationOptions{}, false
+	}
+	return entity.AIGenerationOptions{Instructions: strings.TrimSpace(req.Instructions)}, true
+}
+
 func readLimitOffset(w http.ResponseWriter, r *http.Request) (int32, int32, bool) {
 	limit := int32(20)
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
@@ -334,7 +467,7 @@ func readLimitOffset(w http.ResponseWriter, r *http.Request) (int32, int32, bool
 }
 
 func validScenarioRequest(req scenarioRequest) bool {
-	return validString(req.Title, 1, 200) && validString(req.Description, 1, 4000)
+	return validString(req.Title, 1, 200)
 }
 
 func validUpdateScenarioRequest(req updateScenarioRequest) bool {
@@ -363,10 +496,9 @@ func rawObjectOrArray(raw json.RawMessage) bool {
 func createScenarioFromRequest(userID string, req scenarioRequest) entity.CreateScenario {
 	return entity.CreateScenario{
 		UserID:               userID,
-		Version:              "1.0",
 		Title:                strings.TrimSpace(req.Title),
 		ModeSupport:          []string{"deterministic", "virtual_partner"},
-		Context:              entity.ScenarioContextJSON(req.Description, "", nil),
+		Context:              entity.ScenarioContextJSON("", "", nil),
 		Roles:                json.RawMessage("[]"),
 		Goals:                json.RawMessage("{}"),
 		Interests:            json.RawMessage("{}"),
@@ -400,12 +532,55 @@ func updateScenarioFromRequest(scenarioID, userID string, req updateScenarioRequ
 	}
 }
 
-func scenarioToSummary(s entity.Scenario) scenarioSummaryResponse {
-	doc := entity.ScenarioDocumentFromScenario(s)
-	return scenarioSummaryResponse{ScenarioID: s.ID, Title: s.Title, Description: doc.Description, Status: s.Status, Difficulty: string(s.Difficulty), Tags: doc.Tags, SupportedRuntimes: s.ModeSupport, SupportedChannels: s.Channels, UpdatedAt: s.UpdatedAt}
+func optionalQueryString(r *http.Request, key string) *string {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return nil
+	}
+	return &raw
 }
 
-func scenarioToResponse(s entity.Scenario) scenarioResponse {
+func optionalQueryBool(w http.ResponseWriter, r *http.Request, key string) (*bool, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return nil, true
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return nil, false
+	}
+	return &value, true
+}
+
+func scenarioToSummary(s entity.Scenario, userID string, stats *entity.ScenarioPersonalStats) scenarioSummaryResponse {
+	doc := entity.ScenarioDocumentFromScenario(s)
+	resp := scenarioSummaryResponse{
+		ScenarioID:          s.ID,
+		Title:               s.Title,
+		Description:         doc.Description,
+		Status:              s.Status,
+		Difficulty:          string(s.Difficulty),
+		Tags:                doc.Tags,
+		SupportedRuntimes:   s.ModeSupport,
+		SupportedChannels:   s.Channels,
+		CreatedBy:           stringPtrValue(s.CreatedBy),
+		IsOwnedByMe:         s.CreatedBy != nil && *s.CreatedBy == userID,
+		UpdatedAt:           s.UpdatedAt,
+		IsFavorite:          stats != nil && stats.IsFavorite,
+		IsAssignedByCurator: stats != nil && stats.IsAssignedByCurator,
+		IsCompleted:         stats != nil && stats.IsCompleted,
+	}
+	if stats != nil {
+		resp.AttemptsCount = stats.AttemptsCount
+		if stats.BestAttempt != nil {
+			resp.BestAttempt = &bestTrainingAttempt{SessionID: stats.BestAttempt.SessionID, Score: stats.BestAttempt.Score, CompletedAt: stats.BestAttempt.CompletedAt}
+		}
+	}
+	return resp
+}
+
+func scenarioToResponse(s entity.Scenario, userID string) scenarioResponse {
 	doc := entity.ScenarioDocumentFromScenario(s)
 	return scenarioResponse{
 		ScenarioID:        doc.ScenarioID,
@@ -420,8 +595,17 @@ func scenarioToResponse(s entity.Scenario) scenarioResponse {
 		TargetClusterIDs:  doc.TargetClusterIDs,
 		Roles:             doc.Roles,
 		Blocks:            doc.Blocks,
+		CreatedBy:         stringPtrValue(s.CreatedBy),
+		IsOwnedByMe:       s.CreatedBy != nil && *s.CreatedBy == userID,
 		CreatedAt:         doc.CreatedAt,
 		UpdatedAt:         doc.UpdatedAt,
 		PublishedAt:       doc.PublishedAt,
 	}
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

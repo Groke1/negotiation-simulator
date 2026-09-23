@@ -3,14 +3,18 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
+	"sourcecraft.dev/lct-hackaton-2026.arena/internal/ai"
+	"sourcecraft.dev/lct-hackaton-2026.arena/internal/ai/ollama"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/config"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/controller"
 	ctrlmw "sourcecraft.dev/lct-hackaton-2026.arena/internal/controller/middleware"
@@ -28,6 +32,7 @@ import (
 	curatorserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/curator"
 	mediaserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/media"
 	orgserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/organizations"
+	profileserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/profile"
 	scenarioserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/scenario"
 	trainingserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/training"
 	userserv "sourcecraft.dev/lct-hackaton-2026.arena/internal/usecase/user"
@@ -72,6 +77,32 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	curatorRepository := curatorrepo.NewRepository(dbPool)
 	arenaRepository := arenarepo.NewRepository(dbPool)
 
+	var aiProvider ai.Provider
+	switch strings.ToLower(strings.TrimSpace(cfg.AI.Provider)) {
+	case "ollama":
+		aiProvider = ollama.NewProvider(ollama.Config{BaseURL: cfg.AI.BaseURL, Timeout: cfg.AI.Timeout, Think: cfg.AI.Think, Stream: cfg.AI.Stream})
+	default:
+		return fmt.Errorf("unsupported AI_PROVIDER %q", cfg.AI.Provider)
+	}
+	aiService, err := ai.NewService(aiProvider, ai.Config{
+		PromptDir:                cfg.AI.PromptDir,
+		ScenarioArchitectModel:   cfg.AI.ScenarioArchitectModel,
+		BlockDesignerModel:       cfg.AI.BlockDesignerModel,
+		DialogueBuilderModel:     cfg.AI.DialogueBuilderModel,
+		ActionClassifierModel:    cfg.AI.ActionClassifierModel,
+		VirtualPartnerModel:      cfg.AI.VirtualPartnerModel,
+		ScenarioArchitectTemp:    cfg.AI.ScenarioArchitectTemperature,
+		BlockDesignerTemp:        cfg.AI.BlockDesignerTemperature,
+		DialogueBuilderTemp:      cfg.AI.DialogueBuilderTemperature,
+		ActionClassifierTemp:     cfg.AI.ActionClassifierTemperature,
+		VirtualPartnerTemp:       cfg.AI.VirtualPartnerTemperature,
+		MaxStructuredOutputRetry: cfg.AI.MaxStructuredOutputRetry,
+	})
+	if err != nil {
+		logger.Error("can not initialize ai service", zap.Error(err))
+		return err
+	}
+
 	authService := authserv.NewAuthService(userRepository, authRepository, tx, authserv.Config{
 		JWTSecret:       []byte(cfg.Settings.JWTSecret),
 		AccessTokenTTL:  cfg.Settings.AccessTokenTTL,
@@ -79,11 +110,12 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	})
 	organizationService := orgserv.NewOrganizationService(organizationRepository)
 	userService := userserv.NewUserService(userRepository, organizationRepository, authRepository, authService)
-	scenarioService := scenarioserv.NewScenarioService(scenarioRepository, profileRepository, userRepository, tx)
+	profileService := profileserv.NewService(profileRepository)
+	scenarioService := scenarioserv.NewScenarioService(scenarioRepository, profileService, userRepository, tx, aiService)
 	mediaService := mediaserv.NewService(mediaRepository, cfg.Settings.MediaMaxBytes)
-	trainingService := trainingserv.NewService(trainingRepository, scenarioRepository, profileRepository, tx)
+	trainingService := trainingserv.NewService(trainingRepository, scenarioRepository, profileService, tx, aiService)
 	curatorService := curatorserv.NewService(curatorRepository, userRepository, scenarioRepository)
-	arenaService := arenaserv.NewService(arenaRepository, userRepository, scenarioRepository, profileRepository, tx)
+	arenaService := arenaserv.NewService(arenaRepository, userRepository, scenarioRepository, profileService, tx)
 
 	router := chi.NewRouter()
 	router.Use(middleware.StripSlashes, middleware.Logger, middleware.Recoverer)

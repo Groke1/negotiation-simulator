@@ -10,6 +10,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      AI_BASE_URL: ${AI_BASE_URL:?AI_BASE_URL is required}
+      AI_PROMPT_DIR: ${AI_PROMPT_DIR:-prompts}
+      AI_TIMEOUT: ${AI_TIMEOUT:-180s}
+      AI_THINK: ${AI_THINK:-false}
+      AI_STREAM: ${AI_STREAM:-false}
+      AI_MAX_STRUCTURED_OUTPUT_RETRY: ${AI_MAX_STRUCTURED_OUTPUT_RETRY:-1}
+      AI_SCENARIO_ARCHITECT_MODEL: ${AI_SCENARIO_ARCHITECT_MODEL:-negotiation-scenario-architect}
+      AI_BLOCK_DESIGNER_MODEL: ${AI_BLOCK_DESIGNER_MODEL:-negotiation-block-designer}
+      AI_DIALOGUE_BUILDER_MODEL: ${AI_DIALOGUE_BUILDER_MODEL:-negotiation-dialogue-builder}
+      AI_ACTION_CLASSIFIER_MODEL: ${AI_ACTION_CLASSIFIER_MODEL:-negotiation-action-classifier}
+      AI_VIRTUAL_PARTNER_MODEL: ${AI_VIRTUAL_PARTNER_MODEL:-negotiation-virtual-partner}
     depends_on:
       postgres:
         condition: service_healthy

@@ -24,11 +24,6 @@ CREATE TABLE training.sessions (
    scenario_id UUID NOT NULL
    REFERENCES scenarios.scenarios(id),
 
-    -- Для обычной тренировки указывает на published snapshot.
-    -- Для preview методиста может быть NULL.
-                               scenario_version_id UUID NULL
-    REFERENCES scenarios.scenario_versions(id),
-
     -- Копия состояния сценария именно для этой сессии.
     -- Для preview особенно важна.
    scenario_snapshot JSONB NOT NULL,

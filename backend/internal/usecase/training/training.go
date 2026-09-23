@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"sourcecraft.dev/lct-hackaton-2026.arena/internal/ai"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 )
 
@@ -33,15 +34,20 @@ type transactor interface {
 	WithTx(ctx context.Context, f func(ctx context.Context) error) error
 }
 
+type aiService interface {
+	GenerateJSON(ctx context.Context, role ai.Role, input any, output any, validate func() error) error
+}
+
 type Service struct {
 	repository         repository
 	scenarioRepository scenarioRepository
 	profile            profileRecalculator
 	transactor         transactor
+	ai                 aiService
 }
 
-func NewService(repository repository, scenarioRepository scenarioRepository, profile profileRecalculator, transactor transactor) *Service {
-	return &Service{repository: repository, scenarioRepository: scenarioRepository, profile: profile, transactor: transactor}
+func NewService(repository repository, scenarioRepository scenarioRepository, profile profileRecalculator, transactor transactor, ai aiService) *Service {
+	return &Service{repository: repository, scenarioRepository: scenarioRepository, profile: profile, transactor: transactor, ai: ai}
 }
 
 func (s *Service) ListSessions(ctx context.Context, claims entity.AccessClaims, filter entity.TrainingSessionFilter) ([]entity.TrainingSession, error) {
@@ -173,18 +179,58 @@ func (s *Service) SendMessage(ctx context.Context, claims entity.AccessClaims, s
 	if !contentMatchesChannel(content, session.Channel) {
 		return nil, entity.ErrTrainingMessageChannelMismatch
 	}
-	learner, err := s.repository.CreateMessage(ctx, entity.CreateTrainingMessage{ID: messageID, SessionID: session.ID, Author: "learner", Content: content, SemanticActionCode: semanticActionCode, SemanticAnnotations: annotations})
+	doc, state, err := sessionRuntime(session)
 	if err != nil {
 		return nil, err
 	}
-	partnerContent := fixedPartnerContent(session.Channel)
-	expected := "ASK_QUESTION"
-	// TODO(ai): replace fixed virtual partner reply with an approved AI negotiation partner.
-	partner, err := s.repository.CreateMessage(ctx, entity.CreateTrainingMessage{SessionID: session.ID, Author: "virtual_partner", Content: partnerContent, ExpectedActionCode: &expected})
+	history, err := s.repository.ListMessages(ctx, session.ID)
 	if err != nil {
 		return nil, err
 	}
-	return &entity.TrainingMessageExchange{LearnerMessage: *learner, PartnerMessage: *partner, Status: session.Status}, nil
+	learnerText, err := contentText(content, session.Channel)
+	if err != nil {
+		return nil, err
+	}
+	classification, err := s.classifyLearnerMessage(ctx, session, state, learnerText)
+	if err != nil {
+		return nil, err
+	}
+	classificationRaw := classificationJSONFromAI(semanticActionCode, classification)
+	turn, err := s.generateVirtualPartnerTurn(ctx, session, doc, state, history, content, learnerText, classification)
+	if err != nil {
+		return nil, err
+	}
+	partnerContent, err := normalizePartnerContent(turn.Content, session.Channel)
+	if err != nil {
+		return nil, err
+	}
+	nextState, status, err := applyVirtualPartnerTurn(doc, state, turn)
+	if err != nil {
+		return nil, err
+	}
+	var learner *entity.TrainingMessage
+	var partner *entity.TrainingMessage
+	err = s.transactor.WithTx(ctx, func(txCtx context.Context) error {
+		learner, err = s.repository.CreateMessage(txCtx, entity.CreateTrainingMessage{ID: messageID, SessionID: session.ID, Author: "learner", Content: content, SemanticActionCode: semanticActionCode, SemanticAnnotations: annotations, Classification: classificationRaw})
+		if err != nil {
+			return err
+		}
+		expected := turn.PartnerSemanticActionCode
+		partner, err = s.repository.CreateMessage(txCtx, entity.CreateTrainingMessage{SessionID: session.ID, Author: "virtual_partner", Content: partnerContent, ExpectedActionCode: &expected})
+		if err != nil {
+			return err
+		}
+		stateRaw, err := json.Marshal(nextState)
+		if err != nil {
+			return err
+		}
+		_, err = s.repository.UpdateState(txCtx, session.ID, stateRaw, status)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &entity.TrainingMessageExchange{LearnerMessage: *learner, PartnerMessage: *partner, Status: status}, nil
 }
 
 func (s *Service) ClassifyMessage(ctx context.Context, claims entity.AccessClaims, sessionID, messageID, selectedCode string) (*entity.TrainingMessage, error) {
@@ -274,12 +320,25 @@ func (s *Service) createPartnerMessage(ctx context.Context, sessionID, text, exp
 }
 
 type trainingState struct {
-	BlockID       string `json:"block_id"`
-	CurrentNodeID string `json:"current_node_id"`
+	BlockID       string   `json:"block_id"`
+	CurrentNodeID string   `json:"current_node_id"`
+	TurnNumber    int      `json:"turn_number"`
+	ShortSummary  string   `json:"short_summary"`
+	RevealedFacts []string `json:"revealed_facts"`
 }
 
 func initialState(doc entity.ScenarioDocument, mode entity.TrainingMode) trainingState {
-	if mode != entity.TrainingModeDeterministic || len(doc.Blocks) == 0 {
+	if len(doc.Blocks) == 0 {
+		return trainingState{}
+	}
+	if mode == entity.TrainingModeVirtualPartner {
+		for _, block := range doc.Blocks {
+			if block.Type == "regular" {
+				return trainingState{BlockID: block.ID}
+			}
+		}
+	}
+	if mode != entity.TrainingModeDeterministic {
 		return trainingState{}
 	}
 	for _, block := range doc.Blocks {
@@ -350,19 +409,6 @@ func chatContent(text string) json.RawMessage {
 	return raw
 }
 
-func fixedPartnerContent(channel entity.TrainingChannel) json.RawMessage {
-	switch channel {
-	case entity.TrainingChannelEmail:
-		raw, _ := json.Marshal(map[string]string{"type": "email", "subject": "Re: negotiation", "body": "Спасибо за позицию. Предлагаю уточнить условия и найти взаимовыгодный вариант."})
-		return raw
-	case entity.TrainingChannelVoiceMessage:
-		raw, _ := json.Marshal(map[string]any{"type": "voice_message", "media_id": "", "transcript": "Спасибо, давайте уточним условия и возможный обмен."})
-		return raw
-	default:
-		return chatContent("Спасибо за позицию. Давайте уточним интересы сторон и найдем взаимовыгодный вариант.")
-	}
-}
-
 func contentMatchesChannel(raw json.RawMessage, channel entity.TrainingChannel) bool {
 	var payload struct {
 		Type string `json:"type"`
@@ -371,6 +417,232 @@ func contentMatchesChannel(raw json.RawMessage, channel entity.TrainingChannel) 
 		return false
 	}
 	return payload.Type == string(channel)
+}
+
+func (s *Service) classifyLearnerMessage(ctx context.Context, session *entity.TrainingSession, state trainingState, text string) (entity.SemanticClassification, error) {
+	var output entity.SemanticClassification
+	input := map[string]any{
+		"task":             "classify_message",
+		"semantic_actions": entity.DefaultSemanticActions(),
+		"text":             text,
+		"context": map[string]any{
+			"channel":               session.Channel,
+			"current_block_summary": state.ShortSummary,
+		},
+	}
+	err := s.ai.GenerateJSON(ctx, ai.RoleActionClassifier, input, &output, func() error {
+		if !semanticActionAllowed(output.SemanticActionCode) {
+			return entity.ErrAIInvalidStructuredOutput
+		}
+		if output.Confidence < 0 || output.Confidence > 1 {
+			return entity.ErrAIInvalidStructuredOutput
+		}
+		return nil
+	})
+	return output, err
+}
+
+func (s *Service) generateVirtualPartnerTurn(ctx context.Context, session *entity.TrainingSession, doc entity.ScenarioDocument, state trainingState, history []entity.TrainingMessage, learnerContent json.RawMessage, learnerText string, classification entity.SemanticClassification) (entity.VirtualPartnerTurn, error) {
+	var output entity.VirtualPartnerTurn
+	current, _ := blockByID(doc.Blocks, state.BlockID)
+	learnerRole, _ := roleByID(doc.Roles, session.ScenarioRoleID)
+	partnerRole := entity.ScenarioRole{}
+	for _, role := range doc.Roles {
+		if role.ID != session.ScenarioRoleID {
+			partnerRole = role
+			break
+		}
+	}
+	input := map[string]any{
+		"channel":                  session.Channel,
+		"difficulty":               doc.Difficulty,
+		"scenario":                 map[string]any{"expanded_context": doc.ExpandedContext},
+		"current_block":            current,
+		"partner_role":             partnerRole,
+		"learner_role_public":      publicRole(learnerRole),
+		"detected_learner_actions": []string{classification.SemanticActionCode},
+		"runtime_state":            state,
+		"history":                  history,
+		"learner_message":          map[string]any{"content": learnerContent, "text": learnerText},
+		"semantic_actions":         entity.DefaultSemanticActions(),
+		"allowed_transitions":      allowedTransitions(current),
+	}
+	err := s.ai.GenerateJSON(ctx, ai.RoleVirtualPartner, input, &output, func() error {
+		if !semanticActionAllowed(output.PartnerSemanticActionCode) {
+			return entity.ErrAIInvalidStructuredOutput
+		}
+		if _, err := normalizePartnerContent(output.Content, session.Channel); err != nil {
+			return err
+		}
+		if output.Transition.TransitionID != nil && !transitionAllowed(current, *output.Transition.TransitionID) {
+			return entity.ErrAIInvalidStructuredOutput
+		}
+		return nil
+	})
+	return output, err
+}
+
+func contentText(raw json.RawMessage, channel entity.TrainingChannel) (string, error) {
+	switch channel {
+	case entity.TrainingChannelChat:
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(raw, &payload) != nil || strings.TrimSpace(payload.Text) == "" {
+			return "", entity.ErrInvalidRequest
+		}
+		return strings.TrimSpace(payload.Text), nil
+	case entity.TrainingChannelEmail:
+		var payload struct {
+			Subject string `json:"subject"`
+			Body    string `json:"body"`
+		}
+		if json.Unmarshal(raw, &payload) != nil || strings.TrimSpace(payload.Body) == "" {
+			return "", entity.ErrInvalidRequest
+		}
+		return strings.TrimSpace(payload.Subject + "\n" + payload.Body), nil
+	case entity.TrainingChannelVoiceMessage:
+		var payload struct {
+			Transcript string `json:"transcript"`
+			SpokenText string `json:"spoken_text"`
+		}
+		if json.Unmarshal(raw, &payload) != nil {
+			return "", entity.ErrInvalidRequest
+		}
+		text := strings.TrimSpace(payload.Transcript)
+		if text == "" {
+			text = strings.TrimSpace(payload.SpokenText)
+		}
+		if text == "" {
+			return "", entity.ErrInvalidRequest
+		}
+		return text, nil
+	default:
+		return "", entity.ErrInvalidRequest
+	}
+}
+
+func normalizePartnerContent(content map[string]any, channel entity.TrainingChannel) (json.RawMessage, error) {
+	if content == nil {
+		return nil, entity.ErrAIInvalidStructuredOutput
+	}
+	content["type"] = string(channel)
+	switch channel {
+	case entity.TrainingChannelChat:
+		if strings.TrimSpace(stringFromAny(content["text"])) == "" {
+			return nil, entity.ErrAIInvalidStructuredOutput
+		}
+	case entity.TrainingChannelEmail:
+		if strings.TrimSpace(stringFromAny(content["subject"])) == "" || strings.TrimSpace(stringFromAny(content["body"])) == "" {
+			return nil, entity.ErrAIInvalidStructuredOutput
+		}
+	case entity.TrainingChannelVoiceMessage:
+		if strings.TrimSpace(stringFromAny(content["spoken_text"])) == "" {
+			return nil, entity.ErrAIInvalidStructuredOutput
+		}
+	default:
+		return nil, entity.ErrAIInvalidStructuredOutput
+	}
+	raw, err := json.Marshal(content)
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func applyVirtualPartnerTurn(doc entity.ScenarioDocument, state trainingState, turn entity.VirtualPartnerTurn) (trainingState, entity.TrainingStatus, error) {
+	next := state
+	next.TurnNumber++
+	if turn.StateUpdates.ShortSummary != "" {
+		next.ShortSummary = turn.StateUpdates.ShortSummary
+	}
+	next.RevealedFacts = append(next.RevealedFacts, turn.StateUpdates.RevealedFacts...)
+	status := entity.TrainingStatusInProgress
+	if turn.Transition.TransitionID != nil {
+		current, ok := blockByID(doc.Blocks, state.BlockID)
+		if !ok {
+			return next, status, entity.ErrInvalidTrainingState
+		}
+		var targetID string
+		for _, transition := range current.Transitions {
+			if transition.ID == *turn.Transition.TransitionID && !transition.Forbidden {
+				targetID = transition.TargetBlockID
+				break
+			}
+		}
+		if targetID == "" {
+			return next, status, entity.ErrAIInvalidStructuredOutput
+		}
+		next.BlockID = targetID
+		if target, ok := blockByID(doc.Blocks, targetID); ok && target.Type == "end" {
+			status = entity.TrainingStatusReadyToComplete
+		}
+	}
+	if turn.Completion.Completed {
+		status = entity.TrainingStatusReadyToComplete
+	}
+	return next, status, nil
+}
+
+func classificationJSONFromAI(selected *string, detected entity.SemanticClassification) json.RawMessage {
+	expected := detected.SemanticActionCode
+	selectedValue := ""
+	if selected != nil {
+		selectedValue = *selected
+	}
+	raw, _ := json.Marshal(map[string]any{"selected_semantic_action_code": selectedValue, "expected_semantic_action_code": expected, "correct": selectedValue == expected, "confidence": detected.Confidence, "reason": detected.Reason})
+	return raw
+}
+
+func blockByID(blocks []entity.ScenarioBlock, id string) (entity.ScenarioBlock, bool) {
+	for _, block := range blocks {
+		if block.ID == id {
+			return block, true
+		}
+	}
+	return entity.ScenarioBlock{}, false
+}
+
+func allowedTransitions(block entity.ScenarioBlock) []entity.ScenarioTransition {
+	items := []entity.ScenarioTransition{}
+	for _, transition := range block.Transitions {
+		if !transition.Forbidden {
+			items = append(items, transition)
+		}
+	}
+	return items
+}
+
+func transitionAllowed(block entity.ScenarioBlock, id string) bool {
+	for _, transition := range block.Transitions {
+		if transition.ID == id && !transition.Forbidden {
+			return true
+		}
+	}
+	return false
+}
+
+func semanticActionAllowed(code string) bool {
+	for _, action := range entity.DefaultSemanticActions() {
+		if action.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func publicRole(role entity.ScenarioRole) map[string]any {
+	return map[string]any{"id": role.ID, "name": role.Name, "description": role.Description, "goal": role.Goal, "interests": role.Interests, "constraints": role.Constraints}
+}
+
+func stringFromAny(value any) string {
+	if value == nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return ""
 }
 
 func classificationJSON(selected, expected string) json.RawMessage {

@@ -68,15 +68,17 @@ const (
 	ErrMethodistRoleRequired         ErrorCode = "METHODIST_ROLE_REQUIRED"
 	ErrOrganizationRequired          ErrorCode = "ORGANIZATION_REQUIRED"
 	ErrScenarioNotFound              ErrorCode = "SCENARIO_NOT_FOUND"
-	ErrScenarioNotOwned              ErrorCode = "SCENARIO_NOT_OWNED"
+	ErrScenarioNotOwned              ErrorCode = "SCENARIO_OWNERSHIP_REQUIRED"
+	ErrScenarioNotDraft              ErrorCode = "SCENARIO_NOT_DRAFT"
 	ErrInvalidScenarioStatus         ErrorCode = "INVALID_SCENARIO_STATUS"
 	ErrInvalidScenarioJSON           ErrorCode = "INVALID_SCENARIO_JSON"
-	ErrScenarioVersionAlreadyExists  ErrorCode = "SCENARIO_VERSION_ALREADY_EXISTS"
-	ErrScenarioNotValidated          ErrorCode = "SCENARIO_NOT_VALIDATED"
 	ErrScenarioValidationFailed      ErrorCode = "SCENARIO_VALIDATION_FAILED"
-	ErrScenarioVersionNotFound       ErrorCode = "SCENARIO_VERSION_NOT_FOUND"
-	ErrScenarioGenerationRateLimited ErrorCode = "SCENARIO_GENERATION_RATE_LIMITED"
-	ErrScenarioGenerationFailed      ErrorCode = "SCENARIO_GENERATION_FAILED"
+	ErrBlockNotFound                 ErrorCode = "BLOCK_NOT_FOUND"
+	ErrAIGenerationContextIncomplete ErrorCode = "AI_GENERATION_CONTEXT_INCOMPLETE"
+	ErrAIGenerationFailed            ErrorCode = "AI_GENERATION_FAILED"
+	ErrAIInvalidStructuredOutput     ErrorCode = "AI_INVALID_STRUCTURED_OUTPUT"
+	ErrAIProviderUnavailable         ErrorCode = "AI_PROVIDER_UNAVAILABLE"
+	ErrAIGenerationTimeout           ErrorCode = "AI_GENERATION_TIMEOUT"
 )
 
 type ErrorResponse struct {
@@ -183,23 +185,27 @@ func (e ErrorCode) Message() string {
 	case ErrScenarioNotFound:
 		return "Scenario not found"
 	case ErrScenarioNotOwned:
-		return "Scenario is owned by another user"
+		return "Only the scenario owner can modify this scenario"
+	case ErrScenarioNotDraft:
+		return "AI generation is available only for draft scenarios"
 	case ErrInvalidScenarioStatus:
 		return "Scenario status does not allow this operation"
 	case ErrInvalidScenarioJSON:
 		return "Scenario JSON is invalid"
-	case ErrScenarioVersionAlreadyExists:
-		return "Scenario version already exists"
-	case ErrScenarioNotValidated:
-		return "Scenario must be validated before publication"
 	case ErrScenarioValidationFailed:
 		return "Scenario validation failed"
-	case ErrScenarioVersionNotFound:
-		return "Scenario version not found"
-	case ErrScenarioGenerationRateLimited:
-		return "Scenario generation rate limit exceeded"
-	case ErrScenarioGenerationFailed:
-		return "Failed to generate a scenario"
+	case ErrBlockNotFound:
+		return "Block not found"
+	case ErrAIGenerationContextIncomplete:
+		return "Scenario does not contain enough data for this generation"
+	case ErrAIGenerationFailed:
+		return "AI generation failed"
+	case ErrAIInvalidStructuredOutput:
+		return "AI returned invalid structured output"
+	case ErrAIProviderUnavailable:
+		return "AI provider is unavailable"
+	case ErrAIGenerationTimeout:
+		return "AI generation timed out"
 	default:
 		return "Unknown error"
 	}
@@ -305,22 +311,26 @@ func ErrorCodeFromError(err error) ErrorCode {
 		return ErrScenarioNotFound
 	case errors.Is(err, entity.ErrScenarioNotOwned):
 		return ErrScenarioNotOwned
+	case errors.Is(err, entity.ErrScenarioNotDraft):
+		return ErrScenarioNotDraft
 	case errors.Is(err, entity.ErrInvalidScenarioStatus):
 		return ErrInvalidScenarioStatus
 	case errors.Is(err, entity.ErrInvalidScenarioJSON):
 		return ErrInvalidScenarioJSON
-	case errors.Is(err, entity.ErrScenarioVersionAlreadyExists):
-		return ErrScenarioVersionAlreadyExists
-	case errors.Is(err, entity.ErrScenarioNotValidated):
-		return ErrScenarioNotValidated
 	case errors.Is(err, entity.ErrScenarioValidationFailed):
 		return ErrScenarioValidationFailed
-	case errors.Is(err, entity.ErrScenarioVersionNotFound):
-		return ErrScenarioVersionNotFound
-	case errors.Is(err, entity.ErrScenarioGenerationRateLimited):
-		return ErrScenarioGenerationRateLimited
-	case errors.Is(err, entity.ErrScenarioGenerationFailed):
-		return ErrScenarioGenerationFailed
+	case errors.Is(err, entity.ErrBlockNotFound):
+		return ErrBlockNotFound
+	case errors.Is(err, entity.ErrAIGenerationContextIncomplete):
+		return ErrAIGenerationContextIncomplete
+	case errors.Is(err, entity.ErrAIGenerationFailed):
+		return ErrAIGenerationFailed
+	case errors.Is(err, entity.ErrAIInvalidStructuredOutput):
+		return ErrAIInvalidStructuredOutput
+	case errors.Is(err, entity.ErrAIProviderUnavailable):
+		return ErrAIProviderUnavailable
+	case errors.Is(err, entity.ErrAIGenerationTimeout):
+		return ErrAIGenerationTimeout
 	case errors.Is(err, entity.ErrInvalidRequest):
 		return ErrInvalidRequest
 	default:

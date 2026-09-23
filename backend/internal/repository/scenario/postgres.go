@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 	sqlc "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/scenario/sqlc"
@@ -38,7 +37,6 @@ func (r *scenarioRepository) CreateScenario(ctx context.Context, scenario entity
 		ID:                   id,
 		OrganizationID:       organizationID,
 		CreatedBy:            createdBy,
-		Version:              scenario.Version,
 		Title:                scenario.Title,
 		ModeSupport:          scenario.ModeSupport,
 		Context:              []byte(scenario.Context),
@@ -76,20 +74,37 @@ func (r *scenarioRepository) GetScenarioByID(ctx context.Context, id string) (*e
 	return scenarioFromSQL(row), nil
 }
 
-func (r *scenarioRepository) ListScenariosByOrganization(ctx context.Context, organizationID string, status *entity.ScenarioStatus, limit, offset int32) ([]entity.Scenario, error) {
+func (r *scenarioRepository) ListScenariosByOrganization(ctx context.Context, organizationID string, params entity.ListScenarios) ([]entity.Scenario, error) {
 	pgOrganizationID, err := pgxconv.StringToUUID(organizationID)
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}
+	pgUserID, err := pgxconv.StringToUUID(params.UserID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
 	statusValue := ""
-	if status != nil {
-		statusValue = string(*status)
+	if params.Status != nil {
+		statusValue = string(*params.Status)
+	}
+	difficultyValue := ""
+	if params.Difficulty != nil {
+		difficultyValue = string(*params.Difficulty)
 	}
 	rows, err := r.getQueries(ctx).ListScenariosByOrganization(ctx, sqlc.ListScenariosByOrganizationParams{
-		OrganizationID: pgOrganizationID,
-		Status:         statusValue,
-		LimitCount:     limit,
-		OffsetCount:    offset,
+		OrganizationID:    pgOrganizationID,
+		UserID:            pgUserID,
+		Status:            statusValue,
+		Difficulty:        difficultyValue,
+		Tag:               stringValue(params.Tag),
+		Runtime:           stringValue(params.Runtime),
+		Channel:           stringValue(params.Channel),
+		OwnedByMe:         params.OwnedByMe,
+		Favorite:          boolValue(params.Favorite),
+		AssignedByCurator: boolValue(params.AssignedByCurator),
+		Completed:         boolValue(params.Completed),
+		LimitCount:        params.Limit,
+		OffsetCount:       params.Offset,
 	})
 	if err != nil {
 		return nil, err
@@ -108,7 +123,6 @@ func (r *scenarioRepository) UpdateScenario(ctx context.Context, scenario entity
 	}
 	row, err := r.getQueries(ctx).UpdateScenario(ctx, sqlc.UpdateScenarioParams{
 		ID:                   id,
-		Version:              scenario.Version,
 		Title:                scenario.Title,
 		ModeSupport:          scenario.ModeSupport,
 		Context:              []byte(scenario.Context),
@@ -164,59 +178,45 @@ func (r *scenarioRepository) SetScenarioStatus(ctx context.Context, id string, s
 	return scenarioFromSQL(row), nil
 }
 
-func (r *scenarioRepository) CreateScenarioVersion(ctx context.Context, scenarioID, version string, snapshot []byte) (*entity.ScenarioVersion, error) {
-	id, err := entity.NewUUID()
+func (r *scenarioRepository) AddFavorite(ctx context.Context, userID, scenarioID string) error {
+	pgUserID, pgScenarioID, err := userScenarioUUIDs(userID, scenarioID)
+	if err != nil {
+		return err
+	}
+	return r.getQueries(ctx).AddScenarioFavorite(ctx, sqlc.AddScenarioFavoriteParams{UserID: pgUserID, ScenarioID: pgScenarioID})
+}
+
+func (r *scenarioRepository) RemoveFavorite(ctx context.Context, userID, scenarioID string) error {
+	pgUserID, pgScenarioID, err := userScenarioUUIDs(userID, scenarioID)
+	if err != nil {
+		return err
+	}
+	return r.getQueries(ctx).RemoveScenarioFavorite(ctx, sqlc.RemoveScenarioFavoriteParams{UserID: pgUserID, ScenarioID: pgScenarioID})
+}
+
+func (r *scenarioRepository) GetPersonalStats(ctx context.Context, userID, scenarioID string) (*entity.ScenarioPersonalStats, error) {
+	pgUserID, pgScenarioID, err := userScenarioUUIDs(userID, scenarioID)
 	if err != nil {
 		return nil, err
 	}
-	pgID, err := pgxconv.StringToUUID(id)
+	row, err := r.getQueries(ctx).GetScenarioPersonalStats(ctx, sqlc.GetScenarioPersonalStatsParams{UserID: pgUserID, ScenarioID: pgScenarioID})
 	if err != nil {
 		return nil, err
 	}
-	pgScenarioID, err := pgxconv.StringToUUID(scenarioID)
-	if err != nil {
-		return nil, entity.ErrInvalidRequest
+	stats := &entity.ScenarioPersonalStats{
+		IsFavorite:          row.IsFavorite,
+		IsAssignedByCurator: row.IsAssignedByCurator,
+		IsCompleted:         row.IsCompleted,
+		AttemptsCount:       int(row.AttemptsCount),
 	}
-	row, err := r.getQueries(ctx).CreateScenarioVersion(ctx, sqlc.CreateScenarioVersionParams{ID: pgID, ScenarioID: pgScenarioID, Version: version, Snapshot: snapshot})
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.ConstraintName == "scenario_versions_scenario_id_version_key" {
-			return nil, entity.ErrScenarioVersionAlreadyExists
+	if row.BestSessionID.Valid && row.BestCompletedAt.Valid {
+		stats.BestAttempt = &entity.BestTrainingAttempt{
+			SessionID:   pgxconv.UUIDToString(row.BestSessionID),
+			Score:       int(row.BestScore),
+			CompletedAt: row.BestCompletedAt.Time,
 		}
-		return nil, err
 	}
-	return &entity.ScenarioVersion{Version: row.Version, Snapshot: row.Snapshot, PublishedAt: row.PublishedAt.Time}, nil
-}
-
-func (r *scenarioRepository) ListScenarioVersions(ctx context.Context, scenarioID string, limit, offset int32) ([]entity.ScenarioVersion, error) {
-	pgScenarioID, err := pgxconv.StringToUUID(scenarioID)
-	if err != nil {
-		return nil, entity.ErrInvalidRequest
-	}
-	rows, err := r.getQueries(ctx).ListScenarioVersions(ctx, sqlc.ListScenarioVersionsParams{ScenarioID: pgScenarioID, LimitCount: limit, OffsetCount: offset})
-	if err != nil {
-		return nil, err
-	}
-	versions := make([]entity.ScenarioVersion, 0, len(rows))
-	for _, row := range rows {
-		versions = append(versions, entity.ScenarioVersion{Version: row.Version, Snapshot: row.Snapshot, PublishedAt: row.PublishedAt.Time})
-	}
-	return versions, nil
-}
-
-func (r *scenarioRepository) GetScenarioVersion(ctx context.Context, scenarioID, version string) (*entity.ScenarioVersion, error) {
-	pgScenarioID, err := pgxconv.StringToUUID(scenarioID)
-	if err != nil {
-		return nil, entity.ErrInvalidRequest
-	}
-	row, err := r.getQueries(ctx).GetScenarioVersion(ctx, sqlc.GetScenarioVersionParams{ScenarioID: pgScenarioID, Version: version})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, entity.ErrScenarioVersionNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &entity.ScenarioVersion{Version: row.Version, Snapshot: row.Snapshot, PublishedAt: row.PublishedAt.Time}, nil
+	return stats, nil
 }
 
 func (r *scenarioRepository) getQueries(ctx context.Context) *sqlc.Queries {
@@ -231,7 +231,6 @@ func scenarioFromSQL(row sqlc.ScenariosScenario) *entity.Scenario {
 		ID:                   pgxconv.UUIDToString(row.ID),
 		OrganizationID:       pgxconv.PgUUIDtoString(row.OrganizationID),
 		CreatedBy:            pgxconv.PgUUIDtoString(row.CreatedBy),
-		Version:              row.Version,
 		Title:                row.Title,
 		Status:               entity.ScenarioStatus(row.Status),
 		ModeSupport:          row.ModeSupport,
@@ -253,6 +252,7 @@ func scenarioFromSQL(row sqlc.ScenariosScenario) *entity.Scenario {
 		ValidationResult:     row.ValidationResult,
 		CreatedAt:            row.CreatedAt.Time,
 		UpdatedAt:            row.UpdatedAt.Time,
+		PublishedAt:          pgxconv.TimestamptzToTime(row.PublishedAt),
 	}
 }
 
@@ -268,4 +268,30 @@ func valueOfStringPtr(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func boolValue(value *bool) pgtype.Bool {
+	if value == nil {
+		return pgtype.Bool{}
+	}
+	return pgtype.Bool{Bool: *value, Valid: true}
+}
+
+func userScenarioUUIDs(userID, scenarioID string) (pgtype.UUID, pgtype.UUID, error) {
+	pgUserID, err := pgxconv.StringToUUID(userID)
+	if err != nil {
+		return pgtype.UUID{}, pgtype.UUID{}, entity.ErrInvalidRequest
+	}
+	pgScenarioID, err := pgxconv.StringToUUID(scenarioID)
+	if err != nil {
+		return pgtype.UUID{}, pgtype.UUID{}, entity.ErrInvalidRequest
+	}
+	return pgUserID, pgScenarioID, nil
 }

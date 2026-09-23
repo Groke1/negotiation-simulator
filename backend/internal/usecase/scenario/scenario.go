@@ -10,13 +10,13 @@ import (
 type scenarioRepository interface {
 	CreateScenario(ctx context.Context, scenario entity.Scenario) (*entity.Scenario, error)
 	GetScenarioByID(ctx context.Context, id string) (*entity.Scenario, error)
-	ListScenariosByOrganization(ctx context.Context, organizationID string, status *entity.ScenarioStatus, limit, offset int32) ([]entity.Scenario, error)
+	ListScenariosByOrganization(ctx context.Context, organizationID string, params entity.ListScenarios) ([]entity.Scenario, error)
 	UpdateScenario(ctx context.Context, scenario entity.Scenario) (*entity.Scenario, error)
 	SaveScenarioValidation(ctx context.Context, id string, result []byte) (*entity.Scenario, error)
 	SetScenarioStatus(ctx context.Context, id string, status entity.ScenarioStatus) (*entity.Scenario, error)
-	CreateScenarioVersion(ctx context.Context, scenarioID, version string, snapshot []byte) (*entity.ScenarioVersion, error)
-	ListScenarioVersions(ctx context.Context, scenarioID string, limit, offset int32) ([]entity.ScenarioVersion, error)
-	GetScenarioVersion(ctx context.Context, scenarioID, version string) (*entity.ScenarioVersion, error)
+	AddFavorite(ctx context.Context, userID, scenarioID string) error
+	RemoveFavorite(ctx context.Context, userID, scenarioID string) error
+	GetPersonalStats(ctx context.Context, userID, scenarioID string) (*entity.ScenarioPersonalStats, error)
 }
 
 type profileRepository interface {
@@ -36,10 +36,11 @@ type scenarioService struct {
 	profileRepository  profileRepository
 	userRepository     userRepository
 	transactor         transactor
+	ai                 aiGenerator
 }
 
-func NewScenarioService(scenarioRepository scenarioRepository, profileRepository profileRepository, userRepository userRepository, transactor transactor) *scenarioService {
-	return &scenarioService{scenarioRepository: scenarioRepository, profileRepository: profileRepository, userRepository: userRepository, transactor: transactor}
+func NewScenarioService(scenarioRepository scenarioRepository, profileRepository profileRepository, userRepository userRepository, transactor transactor, ai aiGenerator) *scenarioService {
+	return &scenarioService{scenarioRepository: scenarioRepository, profileRepository: profileRepository, userRepository: userRepository, transactor: transactor, ai: ai}
 }
 
 func (s *scenarioService) ListCompetencyClusters(ctx context.Context) ([]entity.CompetencyCluster, error) {
@@ -47,17 +48,7 @@ func (s *scenarioService) ListCompetencyClusters(ctx context.Context) ([]entity.
 }
 
 func (s *scenarioService) ListSemanticActions(context.Context) ([]entity.SemanticActionDefinition, error) {
-	return []entity.SemanticActionDefinition{
-		{Code: "ASK_QUESTION", Name: "Ask question", Description: "Clarifies interests, constraints, or criteria"},
-		{Code: "MAKE_PROPOSAL", Name: "Make proposal", Description: "Offers a concrete negotiation option"},
-		{Code: "MAKE_CONCESSION", Name: "Make concession", Description: "Gives value to move the negotiation forward"},
-		{Code: "REQUEST_RECIPROCITY", Name: "Request reciprocity", Description: "Asks for a reciprocal move"},
-		{Code: "HOLD_BOUNDARY", Name: "Hold boundary", Description: "Protects a limit or non-negotiable condition"},
-		{Code: "CHANGE_TOPIC", Name: "Change topic", Description: "Moves the conversation to another issue"},
-		{Code: "PAUSE", Name: "Pause", Description: "Slows down or defers a decision"},
-		{Code: "SUMMARIZE", Name: "Summarize", Description: "Checks shared understanding"},
-		{Code: "CLOSE_NEGOTIATION", Name: "Close negotiation", Description: "Finalizes agreement or no-deal outcome"},
-	}, nil
+	return entity.DefaultSemanticActions(), nil
 }
 
 func (s *scenarioService) ListScenarios(ctx context.Context, claims entity.AccessClaims, params entity.ListScenarios) ([]entity.Scenario, error) {
@@ -66,9 +57,14 @@ func (s *scenarioService) ListScenarios(ctx context.Context, claims entity.Acces
 		return nil, err
 	}
 	if user.OrganizationID == nil {
-		return []entity.Scenario{}, nil
+		return nil, entity.ErrOrganizationRequired
 	}
-	return s.scenarioRepository.ListScenariosByOrganization(ctx, *user.OrganizationID, params.Status, params.Limit, params.Offset)
+	params.UserID = claims.UserID
+	if claims.ActiveRole != entity.RoleMethodist {
+		status := entity.ScenarioStatusPublished
+		params.Status = &status
+	}
+	return s.scenarioRepository.ListScenariosByOrganization(ctx, *user.OrganizationID, params)
 }
 
 func (s *scenarioService) CreateScenario(ctx context.Context, claims entity.AccessClaims, params entity.CreateScenario) (*entity.Scenario, error) {
@@ -90,7 +86,6 @@ func (s *scenarioService) CreateScenario(ctx context.Context, claims entity.Acce
 		ID:                   id,
 		OrganizationID:       user.OrganizationID,
 		CreatedBy:            &user.ID,
-		Version:              params.Version,
 		Title:                params.Title,
 		Status:               entity.ScenarioStatusDraft,
 		ModeSupport:          params.ModeSupport,
@@ -108,11 +103,6 @@ func (s *scenarioService) CreateScenario(ctx context.Context, claims entity.Acce
 		Channels:             params.Channels,
 		Nodes:                params.Nodes,
 	})
-}
-
-func (s *scenarioService) GenerateScenario(context.Context, entity.AccessClaims, string) (*entity.Scenario, error) {
-	// TODO(ai): invoke the approved scenario-builder provider.
-	return nil, entity.ErrScenarioGenerationFailed
 }
 
 func (s *scenarioService) GetScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.Scenario, error) {
@@ -170,11 +160,12 @@ func (s *scenarioService) ValidateScenario(ctx context.Context, claims entity.Ac
 	return validation, nil
 }
 
-func (s *scenarioService) PublishScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.ScenarioVersion, error) {
+func (s *scenarioService) PublishScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.Scenario, *entity.ScenarioValidation, error) {
 	if err := requireMethodist(claims); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var version *entity.ScenarioVersion
+	var published *entity.Scenario
+	var validation *entity.ScenarioValidation
 	err := s.transactor.WithTx(ctx, func(txCtx context.Context) error {
 		scenario, err := s.scenarioRepository.GetScenarioByID(txCtx, scenarioID)
 		if err != nil {
@@ -183,27 +174,23 @@ func (s *scenarioService) PublishScenario(ctx context.Context, claims entity.Acc
 		if err := ensureOwnedBy(claims.UserID, scenario); err != nil {
 			return err
 		}
-		if scenario.ValidatedRevision == nil || *scenario.ValidatedRevision != scenario.Revision {
-			return entity.ErrScenarioNotValidated
+		if scenario.Status != entity.ScenarioStatusDraft {
+			return entity.ErrInvalidScenarioStatus
 		}
-		if !validationResultIsValid(scenario.ValidationResult) {
+		validation, err = validateScenario(scenario)
+		if err != nil {
+			return err
+		}
+		if !validation.Valid {
 			return entity.ErrScenarioValidationFailed
 		}
-		snapshot, err := marshalScenarioSnapshot(scenario)
-		if err != nil {
-			return err
-		}
-		version, err = s.scenarioRepository.CreateScenarioVersion(txCtx, scenario.ID, scenario.Version, snapshot)
-		if err != nil {
-			return err
-		}
-		_, err = s.scenarioRepository.SetScenarioStatus(txCtx, scenario.ID, entity.ScenarioStatusPublished)
+		published, err = s.scenarioRepository.SetScenarioStatus(txCtx, scenario.ID, entity.ScenarioStatusPublished)
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return version, nil
+	return published, validation, nil
 }
 
 func (s *scenarioService) ArchiveScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) error {
@@ -224,20 +211,60 @@ func (s *scenarioService) ArchiveScenario(ctx context.Context, claims entity.Acc
 	return err
 }
 
-func (s *scenarioService) ListScenarioVersions(ctx context.Context, claims entity.AccessClaims, scenarioID string, limit, offset int32) ([]entity.ScenarioVersion, error) {
-	scenario, err := s.GetScenario(ctx, claims, scenarioID)
+func (s *scenarioService) CloneScenario(ctx context.Context, claims entity.AccessClaims, scenarioID string) (*entity.Scenario, error) {
+	if err := requireMethodist(claims); err != nil {
+		return nil, err
+	}
+	user, err := s.userRepository.GetUserByID(ctx, claims.UserID)
 	if err != nil {
 		return nil, err
 	}
-	return s.scenarioRepository.ListScenarioVersions(ctx, scenario.ID, limit, offset)
+	if user.OrganizationID == nil {
+		return nil, entity.ErrOrganizationRequired
+	}
+	source, err := s.scenarioRepository.GetScenarioByID(ctx, scenarioID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureReadable(ctx, claims, source); err != nil {
+		return nil, err
+	}
+	id, err := entity.NewUUID()
+	if err != nil {
+		return nil, err
+	}
+	copy := *source
+	copy.ID = id
+	copy.OrganizationID = user.OrganizationID
+	copy.CreatedBy = &user.ID
+	copy.Status = entity.ScenarioStatusDraft
+	copy.ValidatedRevision = nil
+	copy.ValidationResult = nil
+	copy.PublishedAt = nil
+	return s.scenarioRepository.CreateScenario(ctx, copy)
 }
 
-func (s *scenarioService) GetScenarioVersion(ctx context.Context, claims entity.AccessClaims, scenarioID, version string) (*entity.ScenarioVersion, error) {
+func (s *scenarioService) AddFavorite(ctx context.Context, claims entity.AccessClaims, scenarioID string) error {
 	scenario, err := s.GetScenario(ctx, claims, scenarioID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return s.scenarioRepository.GetScenarioVersion(ctx, scenario.ID, version)
+	if scenario.Status != entity.ScenarioStatusPublished {
+		return entity.ErrInvalidScenarioStatus
+	}
+	return s.scenarioRepository.AddFavorite(ctx, claims.UserID, scenario.ID)
+}
+
+func (s *scenarioService) RemoveFavorite(ctx context.Context, claims entity.AccessClaims, scenarioID string) error {
+	scenario, err := s.GetScenario(ctx, claims, scenarioID)
+	if err != nil {
+		return err
+	}
+	return s.scenarioRepository.RemoveFavorite(ctx, claims.UserID, scenario.ID)
+}
+
+func (s *scenarioService) GetPersonalStats(ctx context.Context, userID, scenarioID string) (*entity.ScenarioPersonalStats, error) {
+	return s.scenarioRepository.GetPersonalStats(ctx, userID, scenarioID)
 }
 
 func requireMethodist(claims entity.AccessClaims) error {
@@ -269,9 +296,6 @@ func (s *scenarioService) ensureReadable(ctx context.Context, claims entity.Acce
 }
 
 func applyUpdate(scenario *entity.Scenario, update entity.UpdateScenario) {
-	if update.Version != nil {
-		scenario.Version = *update.Version
-	}
 	if update.Title != nil {
 		scenario.Title = *update.Title
 	}
@@ -317,60 +341,6 @@ func applyUpdate(scenario *entity.Scenario, update entity.UpdateScenario) {
 	if update.Nodes != nil {
 		scenario.Nodes = *update.Nodes
 	}
-}
-
-func validationResultIsValid(raw []byte) bool {
-	var validation entity.ScenarioValidation
-	return len(raw) > 0 && json.Unmarshal(raw, &validation) == nil && validation.Valid
-}
-
-func marshalScenarioSnapshot(s *entity.Scenario) ([]byte, error) {
-	return json.Marshal(scenarioPayload{
-		ScenarioID:           s.ID,
-		Version:              s.Version,
-		Title:                s.Title,
-		ModeSupport:          s.ModeSupport,
-		Context:              rawJSON(s.Context),
-		Roles:                rawJSON(s.Roles),
-		Goals:                rawJSON(s.Goals),
-		Interests:            rawJSON(s.Interests),
-		Constraints:          rawJSON(s.Constraints),
-		Parameters:           rawJSON(s.Parameters),
-		PrivateInformation:   rawJSON(s.PrivateInformation),
-		Difficulty:           s.Difficulty,
-		Competencies:         s.Competencies,
-		ObservationRules:     rawJSON(s.ObservationRules),
-		CompletionConditions: rawJSON(s.CompletionConditions),
-		Channels:             s.Channels,
-		Nodes:                rawJSON(s.Nodes),
-	})
-}
-
-type scenarioPayload struct {
-	ScenarioID           string                    `json:"scenario_id"`
-	Version              string                    `json:"version"`
-	Title                string                    `json:"title"`
-	ModeSupport          []string                  `json:"mode_support"`
-	Context              json.RawMessage           `json:"context"`
-	Roles                json.RawMessage           `json:"roles"`
-	Goals                json.RawMessage           `json:"goals"`
-	Interests            json.RawMessage           `json:"interests"`
-	Constraints          json.RawMessage           `json:"constraints"`
-	Parameters           json.RawMessage           `json:"parameters"`
-	PrivateInformation   json.RawMessage           `json:"private_information"`
-	Difficulty           entity.ScenarioDifficulty `json:"difficulty"`
-	Competencies         []string                  `json:"competencies"`
-	ObservationRules     json.RawMessage           `json:"observation_rules"`
-	CompletionConditions json.RawMessage           `json:"completion_conditions"`
-	Channels             []string                  `json:"channels"`
-	Nodes                json.RawMessage           `json:"nodes"`
-}
-
-func rawJSON(value json.RawMessage) json.RawMessage {
-	if len(value) == 0 {
-		return json.RawMessage("null")
-	}
-	return value
 }
 
 func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {

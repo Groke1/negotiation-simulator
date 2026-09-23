@@ -130,6 +130,7 @@ func ScenarioDocumentFromScenario(s Scenario) ScenarioDocument {
 		Blocks:            blocks,
 		CreatedAt:         s.CreatedAt,
 		UpdatedAt:         s.UpdatedAt,
+		PublishedAt:       s.PublishedAt,
 	}
 }
 

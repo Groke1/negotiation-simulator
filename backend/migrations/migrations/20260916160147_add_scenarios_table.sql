@@ -1,9 +1,3 @@
--- Scenario = описание переговорного мира.
--- ScenarioVersion = immutable snapshot конкретной опубликованной версии.
---
--- Вложенные части Scenario хранятся в JSONB/массивах, а часто используемые
--- метаданные остаются отдельными колонками.
-
 -- +goose Up
 -- +goose StatementBegin
 
@@ -11,26 +5,7 @@ CREATE SCHEMA IF NOT EXISTS scenarios;
 
 CREATE TYPE scenarios.scenario_status AS ENUM ('draft', 'published', 'archived');
 
-CREATE TYPE scenarios.scenario_mode AS ENUM ('training', 'arena', 'live');
-
-CREATE TYPE scenarios.scenario_channel AS ENUM ('chat', 'voice', 'meeting');
-
 CREATE TYPE scenarios.scenario_difficulty AS ENUM ('easy', 'medium', 'hard');
-
-CREATE TYPE scenarios.ai_provider AS ENUM ('mock', 'cloud', 'ollama');
-
--- Общий словарь действий нужен и Constructor, и Event Log.
-CREATE TYPE scenarios.semantic_action AS ENUM (
-    'ASK_QUESTION',
-    'MAKE_PROPOSAL',
-    'MAKE_CONCESSION',
-    'REQUEST_RECIPROCITY',
-    'HOLD_BOUNDARY',
-    'CHANGE_TOPIC',
-    'PAUSE',
-    'SUMMARIZE',
-    'CLOSE_NEGOTIATION'
-);
 
 CREATE TABLE scenarios.scenarios (
      id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -39,10 +14,6 @@ CREATE TABLE scenarios.scenarios (
         ON DELETE SET NULL,
 
      created_by UUID REFERENCES users.users(id) ON DELETE SET NULL,
-
-    -- Текущая версия редактируемого состояния.
-    -- При publish эта строка становится version snapshot.
-     version                 VARCHAR(32) NOT NULL DEFAULT '1.0',
 
      title                   VARCHAR(200) NOT NULL,
 
@@ -101,6 +72,7 @@ CREATE TABLE scenarios.scenarios (
 
      created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
      updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     published_at            TIMESTAMPTZ NULL,
 
      CONSTRAINT chk_scenario_validated_revision
          CHECK (
@@ -124,41 +96,23 @@ CREATE INDEX idx_scenarios_created_by_status
 CREATE INDEX idx_scenarios_organization_status
     ON scenarios.scenarios(organization_id, status);
 
-
--- Immutable snapshots.
-CREATE TABLE scenarios.scenario_versions (
-     id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-     scenario_id UUID NOT NULL REFERENCES scenarios.scenarios(id)
-        ON DELETE RESTRICT,
-     version         VARCHAR(32) NOT NULL,
-
-    -- Полная копия Scenario на момент publish.
-     snapshot        JSONB NOT NULL,
-
-     published_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-     UNIQUE (scenario_id, version),
-
-    -- Нужен для composite FK из training.sessions и assignments:
-    -- version_id должен действительно принадлежать указанному scenario_id.
-     UNIQUE (id, scenario_id)
+CREATE TABLE scenarios.scenario_favorites (
+     user_id UUID NOT NULL REFERENCES users.users(id) ON DELETE CASCADE,
+     scenario_id UUID NOT NULL REFERENCES scenarios.scenarios(id) ON DELETE CASCADE,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     PRIMARY KEY (user_id, scenario_id)
 );
 
-CREATE INDEX idx_scenario_versions_scenario_id
-    ON scenarios.scenario_versions(scenario_id);
-
-CREATE INDEX idx_scenario_versions_published_at
-    ON scenarios.scenario_versions(scenario_id, published_at DESC);
+CREATE INDEX idx_scenario_favorites_scenario_id
+    ON scenarios.scenario_favorites(scenario_id);
 
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
-DROP INDEX IF EXISTS scenarios.idx_scenario_versions_published_at;
-DROP INDEX IF EXISTS scenarios.idx_scenario_versions_scenario_id;
-DROP TABLE IF EXISTS scenarios.scenario_versions;
+DROP INDEX IF EXISTS scenarios.idx_scenario_favorites_scenario_id;
+DROP TABLE IF EXISTS scenarios.scenario_favorites;
 
 DROP INDEX IF EXISTS scenarios.idx_scenarios_organization_status;
 DROP INDEX IF EXISTS scenarios.idx_scenarios_created_by_status;
@@ -166,11 +120,7 @@ DROP INDEX IF EXISTS scenarios.idx_scenarios_organization_id;
 DROP INDEX IF EXISTS scenarios.idx_scenarios_created_by;
 DROP TABLE IF EXISTS scenarios.scenarios;
 
-DROP TYPE IF EXISTS scenarios.semantic_action;
-DROP TYPE IF EXISTS scenarios.ai_provider;
 DROP TYPE IF EXISTS scenarios.scenario_difficulty;
-DROP TYPE IF EXISTS scenarios.scenario_channel;
-DROP TYPE IF EXISTS scenarios.scenario_mode;
 DROP TYPE IF EXISTS scenarios.scenario_status;
 
 DROP SCHEMA IF EXISTS scenarios;

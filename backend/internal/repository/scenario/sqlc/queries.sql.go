@@ -11,12 +11,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addScenarioFavorite = `-- name: AddScenarioFavorite :exec
+INSERT INTO scenarios.scenario_favorites (user_id, scenario_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type AddScenarioFavoriteParams struct {
+	UserID     pgtype.UUID `json:"user_id"`
+	ScenarioID pgtype.UUID `json:"scenario_id"`
+}
+
+func (q *Queries) AddScenarioFavorite(ctx context.Context, arg AddScenarioFavoriteParams) error {
+	_, err := q.db.Exec(ctx, addScenarioFavorite, arg.UserID, arg.ScenarioID)
+	return err
+}
+
 const createScenario = `-- name: CreateScenario :one
 INSERT INTO scenarios.scenarios (
     id,
     organization_id,
     created_by,
-    version,
     title,
     mode_support,
     context,
@@ -51,17 +66,15 @@ VALUES (
     $15,
     $16,
     $17,
-    $18,
-    $19
+    $18
 )
-RETURNING id, organization_id, created_by, version, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at
+RETURNING id, organization_id, created_by, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at, published_at
 `
 
 type CreateScenarioParams struct {
 	ID                   pgtype.UUID                 `json:"id"`
 	OrganizationID       pgtype.UUID                 `json:"organization_id"`
 	CreatedBy            pgtype.UUID                 `json:"created_by"`
-	Version              string                      `json:"version"`
 	Title                string                      `json:"title"`
 	ModeSupport          []string                    `json:"mode_support"`
 	Context              []byte                      `json:"context"`
@@ -84,7 +97,6 @@ func (q *Queries) CreateScenario(ctx context.Context, arg CreateScenarioParams) 
 		arg.ID,
 		arg.OrganizationID,
 		arg.CreatedBy,
-		arg.Version,
 		arg.Title,
 		arg.ModeSupport,
 		arg.Context,
@@ -106,7 +118,6 @@ func (q *Queries) CreateScenario(ctx context.Context, arg CreateScenarioParams) 
 		&i.ID,
 		&i.OrganizationID,
 		&i.CreatedBy,
-		&i.Version,
 		&i.Title,
 		&i.Status,
 		&i.ModeSupport,
@@ -128,43 +139,13 @@ func (q *Queries) CreateScenario(ctx context.Context, arg CreateScenarioParams) 
 		&i.ValidationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const createScenarioVersion = `-- name: CreateScenarioVersion :one
-INSERT INTO scenarios.scenario_versions (id, scenario_id, version, snapshot)
-VALUES ($1, $2, $3, $4)
-RETURNING id, scenario_id, version, snapshot, published_at
-`
-
-type CreateScenarioVersionParams struct {
-	ID         pgtype.UUID `json:"id"`
-	ScenarioID pgtype.UUID `json:"scenario_id"`
-	Version    string      `json:"version"`
-	Snapshot   []byte      `json:"snapshot"`
-}
-
-func (q *Queries) CreateScenarioVersion(ctx context.Context, arg CreateScenarioVersionParams) (ScenariosScenarioVersion, error) {
-	row := q.db.QueryRow(ctx, createScenarioVersion,
-		arg.ID,
-		arg.ScenarioID,
-		arg.Version,
-		arg.Snapshot,
-	)
-	var i ScenariosScenarioVersion
-	err := row.Scan(
-		&i.ID,
-		&i.ScenarioID,
-		&i.Version,
-		&i.Snapshot,
 		&i.PublishedAt,
 	)
 	return i, err
 }
 
 const getScenarioByID = `-- name: GetScenarioByID :one
-SELECT id, organization_id, created_by, version, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at
+SELECT id, organization_id, created_by, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at, published_at
 FROM scenarios.scenarios
 WHERE id = $1
 `
@@ -176,7 +157,6 @@ func (q *Queries) GetScenarioByID(ctx context.Context, id pgtype.UUID) (Scenario
 		&i.ID,
 		&i.OrganizationID,
 		&i.CreatedBy,
-		&i.Version,
 		&i.Title,
 		&i.Status,
 		&i.ModeSupport,
@@ -198,95 +178,149 @@ func (q *Queries) GetScenarioByID(ctx context.Context, id pgtype.UUID) (Scenario
 		&i.ValidationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PublishedAt,
 	)
 	return i, err
 }
 
-const getScenarioVersion = `-- name: GetScenarioVersion :one
-SELECT version, snapshot, published_at
-FROM scenarios.scenario_versions
-WHERE scenario_id = $1
-  AND version = $2
+const getScenarioPersonalStats = `-- name: GetScenarioPersonalStats :one
+WITH attempts AS (
+    SELECT
+        COUNT(*)::integer AS attempts_count,
+        COUNT(*) FILTER (WHERE status = 'completed')::integer AS completed_count
+    FROM learning.training_sessions
+    WHERE user_id = $1
+      AND scenario_id = $2
+),
+best AS (
+    SELECT id, score::integer AS score, completed_at
+    FROM learning.training_sessions
+    WHERE user_id = $1
+      AND scenario_id = $2
+      AND status = 'completed'
+      AND score IS NOT NULL
+      AND completed_at IS NOT NULL
+    ORDER BY score DESC, completed_at DESC
+    LIMIT 1
+)
+SELECT
+    EXISTS (
+        SELECT 1 FROM scenarios.scenario_favorites sf
+        WHERE sf.user_id = $1
+          AND sf.scenario_id = $2
+    ) AS is_favorite,
+    EXISTS (
+        SELECT 1 FROM learning.assignments a
+        WHERE a.learner_id = $1
+          AND a.scenario_id = $2
+          AND a.status = 'pending'
+    ) AS is_assigned_by_curator,
+    COALESCE((SELECT completed_count > 0 FROM attempts), false)::boolean AS is_completed,
+    COALESCE((SELECT attempts_count FROM attempts), 0)::integer AS attempts_count,
+    (SELECT id FROM best) AS best_session_id,
+    COALESCE((SELECT score FROM best), 0)::integer AS best_score,
+    (SELECT completed_at FROM best) AS best_completed_at
 `
 
-type GetScenarioVersionParams struct {
+type GetScenarioPersonalStatsParams struct {
+	UserID     pgtype.UUID `json:"user_id"`
 	ScenarioID pgtype.UUID `json:"scenario_id"`
-	Version    string      `json:"version"`
 }
 
-type GetScenarioVersionRow struct {
-	Version     string             `json:"version"`
-	Snapshot    []byte             `json:"snapshot"`
-	PublishedAt pgtype.Timestamptz `json:"published_at"`
+type GetScenarioPersonalStatsRow struct {
+	IsFavorite          bool               `json:"is_favorite"`
+	IsAssignedByCurator bool               `json:"is_assigned_by_curator"`
+	IsCompleted         bool               `json:"is_completed"`
+	AttemptsCount       int32              `json:"attempts_count"`
+	BestSessionID       pgtype.UUID        `json:"best_session_id"`
+	BestScore           int32              `json:"best_score"`
+	BestCompletedAt     pgtype.Timestamptz `json:"best_completed_at"`
 }
 
-func (q *Queries) GetScenarioVersion(ctx context.Context, arg GetScenarioVersionParams) (GetScenarioVersionRow, error) {
-	row := q.db.QueryRow(ctx, getScenarioVersion, arg.ScenarioID, arg.Version)
-	var i GetScenarioVersionRow
-	err := row.Scan(&i.Version, &i.Snapshot, &i.PublishedAt)
+func (q *Queries) GetScenarioPersonalStats(ctx context.Context, arg GetScenarioPersonalStatsParams) (GetScenarioPersonalStatsRow, error) {
+	row := q.db.QueryRow(ctx, getScenarioPersonalStats, arg.UserID, arg.ScenarioID)
+	var i GetScenarioPersonalStatsRow
+	err := row.Scan(
+		&i.IsFavorite,
+		&i.IsAssignedByCurator,
+		&i.IsCompleted,
+		&i.AttemptsCount,
+		&i.BestSessionID,
+		&i.BestScore,
+		&i.BestCompletedAt,
+	)
 	return i, err
 }
 
-const listScenarioVersions = `-- name: ListScenarioVersions :many
-SELECT version, snapshot, published_at
-FROM scenarios.scenario_versions
-WHERE scenario_id = $1
-ORDER BY published_at DESC, version DESC
-LIMIT $3 OFFSET $2
-`
-
-type ListScenarioVersionsParams struct {
-	ScenarioID  pgtype.UUID `json:"scenario_id"`
-	OffsetCount int32       `json:"offset_count"`
-	LimitCount  int32       `json:"limit_count"`
-}
-
-type ListScenarioVersionsRow struct {
-	Version     string             `json:"version"`
-	Snapshot    []byte             `json:"snapshot"`
-	PublishedAt pgtype.Timestamptz `json:"published_at"`
-}
-
-func (q *Queries) ListScenarioVersions(ctx context.Context, arg ListScenarioVersionsParams) ([]ListScenarioVersionsRow, error) {
-	rows, err := q.db.Query(ctx, listScenarioVersions, arg.ScenarioID, arg.OffsetCount, arg.LimitCount)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListScenarioVersionsRow
-	for rows.Next() {
-		var i ListScenarioVersionsRow
-		if err := rows.Scan(&i.Version, &i.Snapshot, &i.PublishedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listScenariosByOrganization = `-- name: ListScenariosByOrganization :many
-SELECT id, organization_id, created_by, version, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at
+SELECT id, organization_id, created_by, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at, published_at
 FROM scenarios.scenarios
 WHERE organization_id = $1
   AND ($2::text = '' OR status = $2::scenarios.scenario_status)
+  AND ($3::text = '' OR difficulty = $3::scenarios.scenario_difficulty)
+  AND ($4::text = '' OR context->'tags' ? $4::text)
+  AND ($5::text = '' OR $5::text = ANY(mode_support))
+  AND ($6::text = '' OR $6::text = ANY(channels))
+  AND (NOT $7::boolean OR created_by = $8)
+  AND (
+      $9::boolean IS NULL
+      OR EXISTS (
+          SELECT 1 FROM scenarios.scenario_favorites sf
+          WHERE sf.scenario_id = scenarios.scenarios.id
+            AND sf.user_id = $8
+      ) = $9::boolean
+  )
+  AND (
+      $10::boolean IS NULL
+      OR EXISTS (
+          SELECT 1 FROM learning.assignments a
+          WHERE a.scenario_id = scenarios.scenarios.id
+            AND a.learner_id = $8
+            AND a.status = 'pending'
+      ) = $10::boolean
+  )
+  AND (
+      $11::boolean IS NULL
+      OR EXISTS (
+          SELECT 1 FROM learning.training_sessions ts
+          WHERE ts.scenario_id = scenarios.scenarios.id
+            AND ts.user_id = $8
+            AND ts.status = 'completed'
+      ) = $11::boolean
+  )
 ORDER BY updated_at DESC, id DESC
-LIMIT $4 OFFSET $3
+LIMIT $13 OFFSET $12
 `
 
 type ListScenariosByOrganizationParams struct {
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	Status         string      `json:"status"`
-	OffsetCount    int32       `json:"offset_count"`
-	LimitCount     int32       `json:"limit_count"`
+	OrganizationID    pgtype.UUID `json:"organization_id"`
+	Status            string      `json:"status"`
+	Difficulty        string      `json:"difficulty"`
+	Tag               string      `json:"tag"`
+	Runtime           string      `json:"runtime"`
+	Channel           string      `json:"channel"`
+	OwnedByMe         bool        `json:"owned_by_me"`
+	UserID            pgtype.UUID `json:"user_id"`
+	Favorite          pgtype.Bool `json:"favorite"`
+	AssignedByCurator pgtype.Bool `json:"assigned_by_curator"`
+	Completed         pgtype.Bool `json:"completed"`
+	OffsetCount       int32       `json:"offset_count"`
+	LimitCount        int32       `json:"limit_count"`
 }
 
 func (q *Queries) ListScenariosByOrganization(ctx context.Context, arg ListScenariosByOrganizationParams) ([]ScenariosScenario, error) {
 	rows, err := q.db.Query(ctx, listScenariosByOrganization,
 		arg.OrganizationID,
 		arg.Status,
+		arg.Difficulty,
+		arg.Tag,
+		arg.Runtime,
+		arg.Channel,
+		arg.OwnedByMe,
+		arg.UserID,
+		arg.Favorite,
+		arg.AssignedByCurator,
+		arg.Completed,
 		arg.OffsetCount,
 		arg.LimitCount,
 	)
@@ -301,7 +335,6 @@ func (q *Queries) ListScenariosByOrganization(ctx context.Context, arg ListScena
 			&i.ID,
 			&i.OrganizationID,
 			&i.CreatedBy,
-			&i.Version,
 			&i.Title,
 			&i.Status,
 			&i.ModeSupport,
@@ -323,6 +356,7 @@ func (q *Queries) ListScenariosByOrganization(ctx context.Context, arg ListScena
 			&i.ValidationResult,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PublishedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -334,13 +368,29 @@ func (q *Queries) ListScenariosByOrganization(ctx context.Context, arg ListScena
 	return items, nil
 }
 
+const removeScenarioFavorite = `-- name: RemoveScenarioFavorite :exec
+DELETE FROM scenarios.scenario_favorites
+WHERE user_id = $1
+  AND scenario_id = $2
+`
+
+type RemoveScenarioFavoriteParams struct {
+	UserID     pgtype.UUID `json:"user_id"`
+	ScenarioID pgtype.UUID `json:"scenario_id"`
+}
+
+func (q *Queries) RemoveScenarioFavorite(ctx context.Context, arg RemoveScenarioFavoriteParams) error {
+	_, err := q.db.Exec(ctx, removeScenarioFavorite, arg.UserID, arg.ScenarioID)
+	return err
+}
+
 const saveScenarioValidation = `-- name: SaveScenarioValidation :one
 UPDATE scenarios.scenarios
 SET validated_revision = revision,
     validation_result = $1,
     updated_at = NOW()
 WHERE id = $2
-RETURNING id, organization_id, created_by, version, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at
+RETURNING id, organization_id, created_by, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at, published_at
 `
 
 type SaveScenarioValidationParams struct {
@@ -355,7 +405,6 @@ func (q *Queries) SaveScenarioValidation(ctx context.Context, arg SaveScenarioVa
 		&i.ID,
 		&i.OrganizationID,
 		&i.CreatedBy,
-		&i.Version,
 		&i.Title,
 		&i.Status,
 		&i.ModeSupport,
@@ -377,6 +426,7 @@ func (q *Queries) SaveScenarioValidation(ctx context.Context, arg SaveScenarioVa
 		&i.ValidationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PublishedAt,
 	)
 	return i, err
 }
@@ -384,9 +434,13 @@ func (q *Queries) SaveScenarioValidation(ctx context.Context, arg SaveScenarioVa
 const setScenarioStatus = `-- name: SetScenarioStatus :one
 UPDATE scenarios.scenarios
 SET status = $1,
+    published_at = CASE
+        WHEN $1 = 'published'::scenarios.scenario_status THEN COALESCE(published_at, NOW())
+        ELSE published_at
+    END,
     updated_at = NOW()
 WHERE id = $2
-RETURNING id, organization_id, created_by, version, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at
+RETURNING id, organization_id, created_by, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at, published_at
 `
 
 type SetScenarioStatusParams struct {
@@ -401,7 +455,6 @@ func (q *Queries) SetScenarioStatus(ctx context.Context, arg SetScenarioStatusPa
 		&i.ID,
 		&i.OrganizationID,
 		&i.CreatedBy,
-		&i.Version,
 		&i.Title,
 		&i.Status,
 		&i.ModeSupport,
@@ -423,38 +476,37 @@ func (q *Queries) SetScenarioStatus(ctx context.Context, arg SetScenarioStatusPa
 		&i.ValidationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PublishedAt,
 	)
 	return i, err
 }
 
 const updateScenario = `-- name: UpdateScenario :one
 UPDATE scenarios.scenarios
-SET version = $1,
-    title = $2,
-    mode_support = $3,
-    context = $4,
-    roles = $5,
-    goals = $6,
-    interests = $7,
-    constraints = $8,
-    parameters = $9,
-    private_information = $10,
-    difficulty = $11,
-    competencies = $12,
-    observation_rules = $13,
-    completion_conditions = $14,
-    channels = $15,
-    nodes = $16,
+SET title = $1,
+    mode_support = $2,
+    context = $3,
+    roles = $4,
+    goals = $5,
+    interests = $6,
+    constraints = $7,
+    parameters = $8,
+    private_information = $9,
+    difficulty = $10,
+    competencies = $11,
+    observation_rules = $12,
+    completion_conditions = $13,
+    channels = $14,
+    nodes = $15,
     revision = revision + 1,
     validated_revision = NULL,
     validation_result = NULL,
     updated_at = NOW()
-WHERE id = $17
-RETURNING id, organization_id, created_by, version, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at
+WHERE id = $16
+RETURNING id, organization_id, created_by, title, status, mode_support, context, roles, goals, interests, constraints, parameters, private_information, difficulty, competencies, observation_rules, completion_conditions, channels, nodes, revision, validated_revision, validation_result, created_at, updated_at, published_at
 `
 
 type UpdateScenarioParams struct {
-	Version              string                      `json:"version"`
 	Title                string                      `json:"title"`
 	ModeSupport          []string                    `json:"mode_support"`
 	Context              []byte                      `json:"context"`
@@ -475,7 +527,6 @@ type UpdateScenarioParams struct {
 
 func (q *Queries) UpdateScenario(ctx context.Context, arg UpdateScenarioParams) (ScenariosScenario, error) {
 	row := q.db.QueryRow(ctx, updateScenario,
-		arg.Version,
 		arg.Title,
 		arg.ModeSupport,
 		arg.Context,
@@ -498,7 +549,6 @@ func (q *Queries) UpdateScenario(ctx context.Context, arg UpdateScenarioParams) 
 		&i.ID,
 		&i.OrganizationID,
 		&i.CreatedBy,
-		&i.Version,
 		&i.Title,
 		&i.Status,
 		&i.ModeSupport,
@@ -520,6 +570,7 @@ func (q *Queries) UpdateScenario(ctx context.Context, arg UpdateScenarioParams) 
 		&i.ValidationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PublishedAt,
 	)
 	return i, err
 }

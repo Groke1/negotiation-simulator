@@ -1,0 +1,617 @@
+openapi: 3.1.0
+info:
+  title: Negotiation Trainer - AI Generation API
+  version: 1.0.0
+  description: |
+    Frontend-facing API AI-помощника методиста для генерации draft-данных Scenario.
+
+    Ключевые принципы:
+    - frontend передаёт только идентификаторы сущностей и, при необходимости, короткие instructions;
+    - backend самостоятельно загружает актуальное состояние Scenario, Block, ролей, кластеров и semantic actions;
+    - AI proposal НИКОГДА не сохраняется в БД автоматически;
+    - ответ API является временным предложением для preview;
+    - если методист принимает предложение, frontend объединяет proposal с текущим draft и сохраняет его обычным `PUT /scenarios/{scenario_id}`;
+    - генерация разрешена только для Scenario в статусе `draft`;
+    - Virtual Partner не получает отдельного public `/ai/...` endpoint: frontend продолжает использовать `POST /training/sessions/{session_id}/messages`, а backend сам вызывает AI runtime.
+servers:
+  - url: http://localhost:8080/api/v1
+tags:
+  - name: Scenario AI
+    description: AI-помощник методиста. Результаты генерации не сохраняются автоматически.
+paths:
+  /scenarios/{scenario_id}/ai/expand-context:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+    post:
+      tags: [Scenario AI]
+      summary: Сгенерировать expanded_context сценария
+      description: |
+        Backend загружает текущий draft Scenario и обе его роли и передаёт их Scenario Architect.
+        AI возвращает только общий развёрнутый контекст. Private information ролей может использоваться
+        для внутреннего понимания ситуации, но не должна утекать в общий expanded_context.
+
+        Полученный текст не записывается в Scenario. Для сохранения frontend должен явно применить
+        предложение через обычное обновление draft Scenario.
+      operationId: aiExpandScenarioContext
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIGenerationOptions'
+      responses:
+        '200':
+          description: Сгенерированный expanded_context, не сохранённый в БД.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpandContextResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/MethodistRequired'
+        '404':
+          $ref: '#/components/responses/ScenarioNotFound'
+        '409':
+          $ref: '#/components/responses/ScenarioNotDraft'
+        '422':
+          $ref: '#/components/responses/GenerationContextIncomplete'
+        '502':
+          $ref: '#/components/responses/AIGenerationFailed'
+        '503':
+          $ref: '#/components/responses/AIProviderUnavailable'
+        '504':
+          $ref: '#/components/responses/AIGenerationTimeout'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /scenarios/{scenario_id}/ai/generate-draft:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+    post:
+      tags: [Scenario AI]
+      summary: Сгенерировать первоначальную структуру сценария
+      description: |
+        Генерирует proposal полноценного графа Scenario на основе уже сохранённых исходных данных методиста:
+        description, difficulty, двух ролей, target clusters и настроек runtime/channel.
+
+        Proposal содержит expanded_context и blocks с transitions. Deterministic dialogue намеренно
+        не генерируется этим endpoint и создаётся отдельно для конкретного блока.
+
+        Backend нормализует локальные keys, созданные LLM, в UUID и выполняет in-memory validation proposal.
+        Ни proposal, ни validation result автоматически не сохраняются в БД.
+      operationId: aiGenerateScenarioDraft
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIGenerationOptions'
+      responses:
+        '200':
+          description: Сгенерированный draft proposal и его in-memory validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateScenarioDraftResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/MethodistRequired'
+        '404':
+          $ref: '#/components/responses/ScenarioNotFound'
+        '409':
+          $ref: '#/components/responses/ScenarioNotDraft'
+        '422':
+          $ref: '#/components/responses/GenerationContextIncomplete'
+        '502':
+          $ref: '#/components/responses/AIGenerationFailed'
+        '503':
+          $ref: '#/components/responses/AIProviderUnavailable'
+        '504':
+          $ref: '#/components/responses/AIGenerationTimeout'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /scenarios/{scenario_id}/blocks/{block_id}/ai/generate:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+      - $ref: '#/components/parameters/BlockId'
+    post:
+      tags: [Scenario AI]
+      summary: Сгенерировать содержимое одного блока
+      description: |
+        Backend загружает Scenario, выбранный Block, обе роли, semantic actions и соседние блоки/переходы.
+        AI предлагает содержимое блока, но не меняет его id, type, transitions или deterministic_dialogue.
+
+        Response является временным proposal. Backend не применяет patch к Scenario автоматически.
+        Для preview validation backend временно накладывает proposal на текущий draft в памяти.
+      operationId: aiGenerateScenarioBlock
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIGenerationOptions'
+      responses:
+        '200':
+          description: Предложение содержимого блока и результат in-memory validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateBlockResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/MethodistRequired'
+        '404':
+          $ref: '#/components/responses/BlockOrScenarioNotFound'
+        '409':
+          $ref: '#/components/responses/ScenarioNotDraft'
+        '422':
+          $ref: '#/components/responses/GenerationContextIncomplete'
+        '502':
+          $ref: '#/components/responses/AIGenerationFailed'
+        '503':
+          $ref: '#/components/responses/AIProviderUnavailable'
+        '504':
+          $ref: '#/components/responses/AIGenerationTimeout'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /scenarios/{scenario_id}/blocks/{block_id}/ai/generate-dialogue:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+      - $ref: '#/components/parameters/BlockId'
+    post:
+      tags: [Scenario AI]
+      summary: Сгенерировать deterministic dialogue выбранного блока
+      description: |
+        Генерирует многоходовое deterministic-дерево реплик внутри существующего Block.
+        Межблочные transitions не создаются и не изменяются: AI может завершать ветки только через
+        уже существующие разрешённые transition_id текущего блока.
+
+        `learner_role_id` нужен, потому что deterministic dialogue строится с позиции конкретной роли learner:
+        reply options принадлежат этой роли, incoming messages — второй роли.
+
+        Результат не сохраняется автоматически. Backend нормализует локальные node/reply keys в UUID,
+        временно подставляет dialogue в Scenario и возвращает in-memory validation.
+      operationId: aiGenerateDeterministicDialogue
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateDialogueRequest'
+      responses:
+        '200':
+          description: Предложение deterministic_dialogue и результат in-memory validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateDialogueResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/MethodistRequired'
+        '404':
+          $ref: '#/components/responses/BlockOrScenarioNotFound'
+        '409':
+          $ref: '#/components/responses/ScenarioNotDraft'
+        '422':
+          $ref: '#/components/responses/GenerationContextIncomplete'
+        '502':
+          $ref: '#/components/responses/AIGenerationFailed'
+        '503':
+          $ref: '#/components/responses/AIProviderUnavailable'
+        '504':
+          $ref: '#/components/responses/AIGenerationTimeout'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ScenarioId:
+      name: scenario_id
+      in: path
+      required: true
+      description: UUID draft-сценария текущей организации.
+      schema:
+        type: string
+        format: uuid
+    BlockId:
+      name: block_id
+      in: path
+      required: true
+      description: UUID блока внутри указанного draft-сценария.
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    AIGenerationOptions:
+      type: object
+      properties:
+        instructions:
+          type: string
+          maxLength: 5000
+          description: |
+            Необязательное короткое пожелание методиста к конкретной генерации, например
+            «сделай сценарий более конфликтным» или «партнёр должен сильнее удерживать цену».
+            Это не замена данным Scenario: backend всё равно передаёт модели актуальный Scenario из БД.
+
+    GenerateDialogueRequest:
+      type: object
+      required:
+        - learner_role_id
+      properties:
+        learner_role_id:
+          type: string
+          format: uuid
+          description: Роль Scenario, за которую AI строит готовые reply options пользователя.
+        instructions:
+          type: string
+          maxLength: 5000
+          description: Необязательные пожелания к форме или глубине локального дерева.
+
+    ExpandContextResponse:
+      type: object
+      required:
+        - expanded_context
+      properties:
+        expanded_context:
+          type: string
+          maxLength: 50000
+          description: AI proposal общего развёрнутого контекста. В БД не сохранён.
+
+    ScenarioDraftProposal:
+      type: object
+      required:
+        - expanded_context
+        - blocks
+      properties:
+        expanded_context:
+          type: string
+          maxLength: 50000
+          description: Предложенный общий публичный контекст сценария.
+        blocks:
+          type: array
+          description: |
+            Предложенный граф блоков. UUID уже назначены backend после нормализации LLM output.
+            `deterministic_dialogue` в этом endpoint обычно отсутствует.
+          items:
+            $ref: './scenarios.yaml#/components/schemas/ScenarioBlock'
+
+    GenerateScenarioDraftResponse:
+      type: object
+      required:
+        - proposal
+        - validation
+      properties:
+        proposal:
+          $ref: '#/components/schemas/ScenarioDraftProposal'
+        validation:
+          $ref: './scenarios.yaml#/components/schemas/ScenarioValidationResponse'
+
+    BlockContentProposal:
+      type: object
+      required:
+        - name
+        - description
+        - role_goals
+        - action_rules
+        - constraints
+      description: |
+        AI proposal только содержательных полей существующего блока. Поля id/type/transitions/
+        deterministic_dialogue намеренно отсутствуют, чтобы локальная перегенерация не меняла граф.
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          description: Предложенное название состояния.
+        description:
+          type: string
+          maxLength: 10000
+          description: Предложенное краткое описание состояния.
+        expanded_context:
+          type: string
+          maxLength: 30000
+          description: Предложенный развёрнутый публичный контекст блока.
+        lead_role_id:
+          type: string
+          format: uuid
+          description: Одна из двух существующих ролей Scenario.
+        lead_probability:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Предложенная интенсивность ведущей роли.
+        role_goals:
+          type: array
+          maxItems: 2
+          items:
+            $ref: './scenarios.yaml#/components/schemas/BlockRoleGoal'
+        behavior:
+          type: string
+          maxLength: 10000
+          description: Инструкция по поведению virtual partner в этом состоянии.
+        action_rules:
+          type: array
+          items:
+            $ref: './scenarios.yaml#/components/schemas/SemanticActionRule'
+        constraints:
+          type: array
+          items:
+            type: string
+            maxLength: 5000
+
+    GenerateBlockResponse:
+      type: object
+      required:
+        - block_id
+        - proposal
+        - validation
+      properties:
+        block_id:
+          type: string
+          format: uuid
+          description: Блок, для которого создан proposal.
+        proposal:
+          $ref: '#/components/schemas/BlockContentProposal'
+        validation:
+          $ref: './scenarios.yaml#/components/schemas/ScenarioValidationResponse'
+
+    GenerateDialogueResponse:
+      type: object
+      required:
+        - block_id
+        - learner_role_id
+        - proposal
+        - validation
+      properties:
+        block_id:
+          type: string
+          format: uuid
+        learner_role_id:
+          type: string
+          format: uuid
+        proposal:
+          $ref: './scenarios.yaml#/components/schemas/DeterministicDialogue'
+        validation:
+          $ref: './scenarios.yaml#/components/schemas/ScenarioValidationResponse'
+
+    ErrorBase:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Машиночитаемый код ошибки.
+        message:
+          type: string
+          description: Человекочитаемое описание ошибки.
+
+    InvalidRequestError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              const: INVALID_REQUEST
+            message:
+              type: string
+              const: Request validation failed
+
+    UnauthorizedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              enum: [ACCESS_TOKEN_MISSING, ACCESS_TOKEN_INVALID, ACCESS_TOKEN_EXPIRED]
+            message:
+              type: string
+
+    MethodistRequiredError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              const: METHODIST_ROLE_REQUIRED
+            message:
+              type: string
+              const: Active role must be methodist
+
+    ScenarioNotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              const: SCENARIO_NOT_FOUND
+            message:
+              type: string
+              const: Scenario not found
+
+    BlockOrScenarioNotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              enum: [SCENARIO_NOT_FOUND, BLOCK_NOT_FOUND]
+            message:
+              type: string
+
+    ScenarioNotDraftError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              const: SCENARIO_NOT_DRAFT
+            message:
+              type: string
+              const: AI generation is available only for draft scenarios
+
+    GenerationContextIncompleteError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          required: [missing_fields]
+          properties:
+            code:
+              type: string
+              const: AI_GENERATION_CONTEXT_INCOMPLETE
+            message:
+              type: string
+              const: Scenario does not contain enough data for this generation
+            missing_fields:
+              type: array
+              description: Поля/условия, которых не хватает для выбранной генерации.
+              items:
+                type: string
+
+    AIGenerationFailedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              enum: [AI_GENERATION_FAILED, AI_INVALID_STRUCTURED_OUTPUT]
+            message:
+              type: string
+
+    AIProviderUnavailableError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              const: AI_PROVIDER_UNAVAILABLE
+            message:
+              type: string
+              const: AI provider is unavailable
+
+    AIGenerationTimeoutError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              const: AI_GENERATION_TIMEOUT
+            message:
+              type: string
+              const: AI generation timed out
+
+    InternalServerError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              const: INTERNAL_SERVER_ERROR
+            message:
+              type: string
+              const: Internal server error
+
+  responses:
+    InvalidRequest:
+      description: Некорректное тело или параметры запроса.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InvalidRequestError'
+    Unauthorized:
+      description: Access token отсутствует, некорректен или истёк.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UnauthorizedError'
+    MethodistRequired:
+      description: Генерация конструктора доступна только активной роли methodist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MethodistRequiredError'
+    ScenarioNotFound:
+      description: Scenario не найден в текущей организации.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ScenarioNotFoundError'
+    BlockOrScenarioNotFound:
+      description: Scenario либо Block не существует/недоступен.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BlockOrScenarioNotFoundError'
+    ScenarioNotDraft:
+      description: AI generation нельзя применять к published/archived Scenario.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ScenarioNotDraftError'
+    GenerationContextIncomplete:
+      description: В draft не хватает исходных данных для выбранной генерации.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GenerationContextIncompleteError'
+    AIGenerationFailed:
+      description: AI ответил ошибкой либо вернул JSON, не проходящий ожидаемую structured schema.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AIGenerationFailedError'
+    AIProviderUnavailable:
+      description: Ollama/AI provider недоступен.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AIProviderUnavailableError'
+    AIGenerationTimeout:
+      description: AI provider не успел завершить генерацию за установленный timeout.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AIGenerationTimeoutError'
+    InternalServerError:
+      description: Неожиданная ошибка backend.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalServerError'

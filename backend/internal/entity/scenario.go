@@ -43,7 +43,6 @@ type Scenario struct {
 	ID                   string
 	OrganizationID       *string
 	CreatedBy            *string
-	Version              string
 	Title                string
 	Status               ScenarioStatus
 	ModeSupport          []string
@@ -65,11 +64,11 @@ type Scenario struct {
 	ValidationResult     json.RawMessage
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	PublishedAt          *time.Time
 }
 
 type CreateScenario struct {
 	UserID               string
-	Version              string
 	Title                string
 	ModeSupport          []string
 	Context              json.RawMessage
@@ -90,7 +89,6 @@ type CreateScenario struct {
 type UpdateScenario struct {
 	ScenarioID           string
 	UserID               string
-	Version              *string
 	Title                *string
 	ModeSupport          *[]string
 	Context              *json.RawMessage
@@ -109,10 +107,18 @@ type UpdateScenario struct {
 }
 
 type ListScenarios struct {
-	UserID string
-	Status *ScenarioStatus
-	Limit  int32
-	Offset int32
+	UserID            string
+	Status            *ScenarioStatus
+	Difficulty        *ScenarioDifficulty
+	Tag               *string
+	Runtime           *string
+	Channel           *string
+	Favorite          *bool
+	AssignedByCurator *bool
+	Completed         *bool
+	OwnedByMe         bool
+	Limit             int32
+	Offset            int32
 }
 
 type ScenarioValidation struct {
@@ -128,16 +134,39 @@ type ScenarioValidationIssue struct {
 	Message    string  `json:"message"`
 	EntityType string  `json:"entity_type"`
 	EntityID   *string `json:"entity_id,omitempty"`
-}
-
-type ScenarioVersion struct {
-	Version     string
-	Snapshot    json.RawMessage
-	PublishedAt time.Time
+	Field      *string `json:"field,omitempty"`
 }
 
 type SemanticActionDefinition struct {
 	Code        string
 	Name        string
 	Description string
+}
+
+func DefaultSemanticActions() []SemanticActionDefinition {
+	return []SemanticActionDefinition{
+		{Code: "ASK_QUESTION", Name: "Ask question", Description: "Clarifies interests, constraints, or criteria"},
+		{Code: "MAKE_PROPOSAL", Name: "Make proposal", Description: "Offers a concrete negotiation option"},
+		{Code: "MAKE_CONCESSION", Name: "Make concession", Description: "Gives value to move the negotiation forward"},
+		{Code: "REQUEST_RECIPROCITY", Name: "Request reciprocity", Description: "Asks for a reciprocal move"},
+		{Code: "HOLD_BOUNDARY", Name: "Hold boundary", Description: "Protects a limit or non-negotiable condition"},
+		{Code: "CHANGE_TOPIC", Name: "Change topic", Description: "Moves the conversation to another issue"},
+		{Code: "PAUSE", Name: "Pause", Description: "Slows down or defers a decision"},
+		{Code: "SUMMARIZE", Name: "Summarize", Description: "Checks shared understanding"},
+		{Code: "CLOSE_NEGOTIATION", Name: "Close negotiation", Description: "Finalizes agreement or no-deal outcome"},
+	}
+}
+
+type ScenarioPersonalStats struct {
+	IsFavorite          bool
+	IsAssignedByCurator bool
+	IsCompleted         bool
+	AttemptsCount       int
+	BestAttempt         *BestTrainingAttempt
+}
+
+type BestTrainingAttempt struct {
+	SessionID   string
+	Score       int
+	CompletedAt time.Time
 }

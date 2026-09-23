@@ -36,6 +36,28 @@ type (
 			HTTPClientTimeout       time.Duration `env:"HTTP_CLIENT_TIMEOUT" envDefault:"5s"`
 			MediaMaxBytes           int64         `env:"MEDIA_MAX_BYTES" envDefault:"10485760"`
 		}
+
+		AI struct {
+			Provider                 string        `env:"AI_PROVIDER" envDefault:"ollama"`
+			BaseURL                  string        `env:"AI_BASE_URL" envDefault:"http://10.8.1.6:11434/api/chat"`
+			PromptDir                string        `env:"AI_PROMPT_DIR" envDefault:"prompts"`
+			Timeout                  time.Duration `env:"AI_TIMEOUT" envDefault:"180s"`
+			Think                    bool          `env:"AI_THINK" envDefault:"false"`
+			Stream                   bool          `env:"AI_STREAM" envDefault:"false"`
+			MaxStructuredOutputRetry int           `env:"AI_MAX_STRUCTURED_OUTPUT_RETRY" envDefault:"1"`
+
+			ScenarioArchitectModel string `env:"AI_SCENARIO_ARCHITECT_MODEL" envDefault:"negotiation-scenario-architect"`
+			BlockDesignerModel     string `env:"AI_BLOCK_DESIGNER_MODEL" envDefault:"negotiation-block-designer"`
+			DialogueBuilderModel   string `env:"AI_DIALOGUE_BUILDER_MODEL" envDefault:"negotiation-dialogue-builder"`
+			ActionClassifierModel  string `env:"AI_ACTION_CLASSIFIER_MODEL" envDefault:"negotiation-action-classifier"`
+			VirtualPartnerModel    string `env:"AI_VIRTUAL_PARTNER_MODEL" envDefault:"negotiation-virtual-partner"`
+
+			ScenarioArchitectTemperature float64 `env:"AI_SCENARIO_ARCHITECT_TEMPERATURE" envDefault:"0.4"`
+			BlockDesignerTemperature     float64 `env:"AI_BLOCK_DESIGNER_TEMPERATURE" envDefault:"0.4"`
+			DialogueBuilderTemperature   float64 `env:"AI_DIALOGUE_BUILDER_TEMPERATURE" envDefault:"0.5"`
+			ActionClassifierTemperature  float64 `env:"AI_ACTION_CLASSIFIER_TEMPERATURE" envDefault:"0.1"`
+			VirtualPartnerTemperature    float64 `env:"AI_VIRTUAL_PARTNER_TEMPERATURE" envDefault:"0.5"`
+		}
 	}
 )
 

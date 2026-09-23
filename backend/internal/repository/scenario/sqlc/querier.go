@@ -11,12 +11,12 @@ import (
 )
 
 type Querier interface {
+	AddScenarioFavorite(ctx context.Context, arg AddScenarioFavoriteParams) error
 	CreateScenario(ctx context.Context, arg CreateScenarioParams) (ScenariosScenario, error)
-	CreateScenarioVersion(ctx context.Context, arg CreateScenarioVersionParams) (ScenariosScenarioVersion, error)
 	GetScenarioByID(ctx context.Context, id pgtype.UUID) (ScenariosScenario, error)
-	GetScenarioVersion(ctx context.Context, arg GetScenarioVersionParams) (GetScenarioVersionRow, error)
-	ListScenarioVersions(ctx context.Context, arg ListScenarioVersionsParams) ([]ListScenarioVersionsRow, error)
+	GetScenarioPersonalStats(ctx context.Context, arg GetScenarioPersonalStatsParams) (GetScenarioPersonalStatsRow, error)
 	ListScenariosByOrganization(ctx context.Context, arg ListScenariosByOrganizationParams) ([]ScenariosScenario, error)
+	RemoveScenarioFavorite(ctx context.Context, arg RemoveScenarioFavoriteParams) error
 	SaveScenarioValidation(ctx context.Context, arg SaveScenarioValidationParams) (ScenariosScenario, error)
 	SetScenarioStatus(ctx context.Context, arg SetScenarioStatusParams) (ScenariosScenario, error)
 	UpdateScenario(ctx context.Context, arg UpdateScenarioParams) (ScenariosScenario, error)

@@ -2,7 +2,6 @@ package profile
 
 import (
 	"context"
-	"encoding/json"
 
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 	sqlc "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/profile/sqlc"
@@ -35,44 +34,8 @@ func (r *Repository) ListCompetencyClusters(ctx context.Context) ([]entity.Compe
 	return clusters, nil
 }
 
-func (r *Repository) RecalculateAfterTraining(ctx context.Context, userID, sourceID string, score int) ([]entity.ProfileClusterChange, error) {
-	return r.recalculate(ctx, userID, sourceID, entity.ProfileChangeSourceTraining, func(current entity.ProfileCluster) int {
-		target := score
-		if target < 0 {
-			target = 0
-		}
-		if target > 100 {
-			target = 100
-		}
-		return clampScore(current.Score + (target-current.Score)/4)
-	})
-}
-
-func (r *Repository) RecalculateAfterArenaFeedback(ctx context.Context, userID, sourceID string, ratings map[string]int) ([]entity.ProfileClusterChange, error) {
-	return r.recalculate(ctx, userID, sourceID, entity.ProfileChangeSourceArenaFeedback, func(current entity.ProfileCluster) int {
-		target, ok := ratings[current.ClusterID]
-		if !ok {
-			target, ok = ratings[current.Code]
-		}
-		if !ok {
-			return current.Score
-		}
-		if target < 0 {
-			target = 0
-		}
-		if target > 100 {
-			target = 100
-		}
-		return clampScore((current.Score*3 + target) / 4)
-	})
-}
-
-func (r *Repository) recalculate(ctx context.Context, userID, sourceID string, source entity.ProfileChangeSource, next func(entity.ProfileCluster) int) ([]entity.ProfileClusterChange, error) {
+func (r *Repository) ListProfileForUpdate(ctx context.Context, userID string) ([]entity.ProfileCluster, error) {
 	pgUserID, err := pgxconv.StringToUUID(userID)
-	if err != nil {
-		return nil, entity.ErrInvalidRequest
-	}
-	pgSourceID, err := pgxconv.StringToUUID(sourceID)
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}
@@ -80,38 +43,43 @@ func (r *Repository) recalculate(ctx context.Context, userID, sourceID string, s
 	if err != nil {
 		return nil, err
 	}
-	changes := make([]entity.ProfileClusterChange, 0, len(rows))
+	profile := make([]entity.ProfileCluster, 0, len(rows))
 	for _, row := range rows {
-		clusterID := pgxconv.UUIDToString(row.ClusterID)
-		before := int(row.Score)
-		after := next(entity.ProfileCluster{ClusterID: clusterID, Code: row.Code, Name: row.Name, Score: before})
-		if after == before {
-			continue
-		}
-		if err := r.getQueries(ctx).UpdateProfileScore(ctx, sqlc.UpdateProfileScoreParams{UserID: pgUserID, ClusterID: row.ClusterID, Score: int16(after)}); err != nil {
-			return nil, err
-		}
-		changes = append(changes, entity.ProfileClusterChange{ClusterID: clusterID, Before: before, After: after, Delta: after - before})
+		profile = append(profile, entity.ProfileCluster{ClusterID: pgxconv.UUIDToString(row.ClusterID), Code: row.Code, Name: row.Name, Score: int(row.Score), UpdatedAt: pgxconv.TimestamptzToTime(row.UpdatedAt)})
 	}
-	if len(changes) == 0 {
-		return changes, nil
+	return profile, nil
+}
+
+func (r *Repository) UpdateProfileScore(ctx context.Context, userID, clusterID string, score int) error {
+	pgUserID, err := pgxconv.StringToUUID(userID)
+	if err != nil {
+		return entity.ErrInvalidRequest
 	}
+	pgClusterID, err := pgxconv.StringToUUID(clusterID)
+	if err != nil {
+		return entity.ErrInvalidRequest
+	}
+	return r.getQueries(ctx).UpdateProfileScore(ctx, sqlc.UpdateProfileScoreParams{UserID: pgUserID, ClusterID: pgClusterID, Score: int16(score)})
+}
+
+func (r *Repository) CreateProfileHistory(ctx context.Context, userID, sourceID string, source entity.ProfileChangeSource, changes []byte) error {
 	id, err := entity.NewUUID()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	pgID, err := pgxconv.StringToUUID(id)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	data, err := json.Marshal(changes)
+	pgUserID, err := pgxconv.StringToUUID(userID)
 	if err != nil {
-		return nil, err
+		return entity.ErrInvalidRequest
 	}
-	if err := r.getQueries(ctx).CreateProfileHistory(ctx, sqlc.CreateProfileHistoryParams{ID: pgID, UserID: pgUserID, Source: string(source), SourceID: pgSourceID, Changes: data}); err != nil {
-		return nil, err
+	pgSourceID, err := pgxconv.StringToUUID(sourceID)
+	if err != nil {
+		return entity.ErrInvalidRequest
 	}
-	return changes, nil
+	return r.getQueries(ctx).CreateProfileHistory(ctx, sqlc.CreateProfileHistoryParams{ID: pgID, UserID: pgUserID, Source: string(source), SourceID: pgSourceID, Changes: changes})
 }
 
 func (r *Repository) getQueries(ctx context.Context) *sqlc.Queries {
@@ -119,14 +87,4 @@ func (r *Repository) getQueries(ctx context.Context) *sqlc.Queries {
 		return r.queries.WithTx(tx)
 	}
 	return r.queries
-}
-
-func clampScore(value int) int {
-	if value < 0 {
-		return 0
-	}
-	if value > 100 {
-		return 100
-	}
-	return value
 }

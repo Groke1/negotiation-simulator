@@ -3,7 +3,6 @@ INSERT INTO scenarios.scenarios (
     id,
     organization_id,
     created_by,
-    version,
     title,
     mode_support,
     context,
@@ -24,7 +23,6 @@ VALUES (
     sqlc.arg(id),
     sqlc.arg(organization_id),
     sqlc.arg(created_by),
-    sqlc.arg(version),
     sqlc.arg(title),
     sqlc.arg(mode_support),
     sqlc.arg(context),
@@ -53,13 +51,43 @@ SELECT *
 FROM scenarios.scenarios
 WHERE organization_id = sqlc.arg(organization_id)
   AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::scenarios.scenario_status)
+  AND (sqlc.arg(difficulty)::text = '' OR difficulty = sqlc.arg(difficulty)::scenarios.scenario_difficulty)
+  AND (sqlc.arg(tag)::text = '' OR context->'tags' ? sqlc.arg(tag)::text)
+  AND (sqlc.arg(runtime)::text = '' OR sqlc.arg(runtime)::text = ANY(mode_support))
+  AND (sqlc.arg(channel)::text = '' OR sqlc.arg(channel)::text = ANY(channels))
+  AND (NOT sqlc.arg(owned_by_me)::boolean OR created_by = sqlc.arg(user_id))
+  AND (
+      sqlc.narg(favorite)::boolean IS NULL
+      OR EXISTS (
+          SELECT 1 FROM scenarios.scenario_favorites sf
+          WHERE sf.scenario_id = scenarios.scenarios.id
+            AND sf.user_id = sqlc.arg(user_id)
+      ) = sqlc.narg(favorite)::boolean
+  )
+  AND (
+      sqlc.narg(assigned_by_curator)::boolean IS NULL
+      OR EXISTS (
+          SELECT 1 FROM learning.assignments a
+          WHERE a.scenario_id = scenarios.scenarios.id
+            AND a.learner_id = sqlc.arg(user_id)
+            AND a.status = 'pending'
+      ) = sqlc.narg(assigned_by_curator)::boolean
+  )
+  AND (
+      sqlc.narg(completed)::boolean IS NULL
+      OR EXISTS (
+          SELECT 1 FROM learning.training_sessions ts
+          WHERE ts.scenario_id = scenarios.scenarios.id
+            AND ts.user_id = sqlc.arg(user_id)
+            AND ts.status = 'completed'
+      ) = sqlc.narg(completed)::boolean
+  )
 ORDER BY updated_at DESC, id DESC
 LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: UpdateScenario :one
 UPDATE scenarios.scenarios
-SET version = sqlc.arg(version),
-    title = sqlc.arg(title),
+SET title = sqlc.arg(title),
     mode_support = sqlc.arg(mode_support),
     context = sqlc.arg(context),
     roles = sqlc.arg(roles),
@@ -92,24 +120,58 @@ RETURNING *;
 -- name: SetScenarioStatus :one
 UPDATE scenarios.scenarios
 SET status = sqlc.arg(status),
+    published_at = CASE
+        WHEN sqlc.arg(status) = 'published'::scenarios.scenario_status THEN COALESCE(published_at, NOW())
+        ELSE published_at
+    END,
     updated_at = NOW()
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
--- name: CreateScenarioVersion :one
-INSERT INTO scenarios.scenario_versions (id, scenario_id, version, snapshot)
-VALUES (sqlc.arg(id), sqlc.arg(scenario_id), sqlc.arg(version), sqlc.arg(snapshot))
-RETURNING id, scenario_id, version, snapshot, published_at;
+-- name: AddScenarioFavorite :exec
+INSERT INTO scenarios.scenario_favorites (user_id, scenario_id)
+VALUES (sqlc.arg(user_id), sqlc.arg(scenario_id))
+ON CONFLICT DO NOTHING;
 
--- name: ListScenarioVersions :many
-SELECT version, snapshot, published_at
-FROM scenarios.scenario_versions
-WHERE scenario_id = sqlc.arg(scenario_id)
-ORDER BY published_at DESC, version DESC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+-- name: RemoveScenarioFavorite :exec
+DELETE FROM scenarios.scenario_favorites
+WHERE user_id = sqlc.arg(user_id)
+  AND scenario_id = sqlc.arg(scenario_id);
 
--- name: GetScenarioVersion :one
-SELECT version, snapshot, published_at
-FROM scenarios.scenario_versions
-WHERE scenario_id = sqlc.arg(scenario_id)
-  AND version = sqlc.arg(version);
+-- name: GetScenarioPersonalStats :one
+WITH attempts AS (
+    SELECT
+        COUNT(*)::integer AS attempts_count,
+        COUNT(*) FILTER (WHERE status = 'completed')::integer AS completed_count
+    FROM learning.training_sessions
+    WHERE user_id = sqlc.arg(user_id)
+      AND scenario_id = sqlc.arg(scenario_id)
+),
+best AS (
+    SELECT id, score::integer AS score, completed_at
+    FROM learning.training_sessions
+    WHERE user_id = sqlc.arg(user_id)
+      AND scenario_id = sqlc.arg(scenario_id)
+      AND status = 'completed'
+      AND score IS NOT NULL
+      AND completed_at IS NOT NULL
+    ORDER BY score DESC, completed_at DESC
+    LIMIT 1
+)
+SELECT
+    EXISTS (
+        SELECT 1 FROM scenarios.scenario_favorites sf
+        WHERE sf.user_id = sqlc.arg(user_id)
+          AND sf.scenario_id = sqlc.arg(scenario_id)
+    ) AS is_favorite,
+    EXISTS (
+        SELECT 1 FROM learning.assignments a
+        WHERE a.learner_id = sqlc.arg(user_id)
+          AND a.scenario_id = sqlc.arg(scenario_id)
+          AND a.status = 'pending'
+    ) AS is_assigned_by_curator,
+    COALESCE((SELECT completed_count > 0 FROM attempts), false)::boolean AS is_completed,
+    COALESCE((SELECT attempts_count FROM attempts), 0)::integer AS attempts_count,
+    (SELECT id FROM best) AS best_session_id,
+    COALESCE((SELECT score FROM best), 0)::integer AS best_score,
+    (SELECT completed_at FROM best) AS best_completed_at;
