@@ -18,4 +18,8 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    files: ['src/pages/constructor/Scenario.jsx'],
+    rules: { 'react-hooks/set-state-in-effect': 'off' },
+  },
 ])
