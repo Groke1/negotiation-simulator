@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getAssignments, getCuratorTeamSessions } from '../../api';
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from '../../components/UI';
 
 export default function CuratorHistory({ assignments = false }) {
+  const navigate = useNavigate();
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
   const filters = assignments ? { status: status || undefined, limit: 100 } : { type: type || undefined, limit: 100 };
@@ -16,6 +18,11 @@ export default function CuratorHistory({ assignments = false }) {
   if (source.error) return <ErrorState error={source.error} retry={source.refetch} />;
 
   const items = source.data || [];
+  const openItem = (item) => {
+    if (assignments) return;
+    if (item.type === 'arena') navigate(`/curator/arenas/${item.session_id}`);
+    else if (item.user_ids?.[0]) navigate(`/curator/team/${item.user_ids[0]}`);
+  };
   return (
     <div className="page">
       <header className="page-header">
@@ -45,13 +52,13 @@ export default function CuratorHistory({ assignments = false }) {
       {items.length ? (
         <div className="card-grid">
           {items.map((item) => (
-            <article className="card" key={item.assignment_id || item.session_id}>
+            <article className={`card ${!assignments ? 'scenario-link-card' : ''}`} key={item.assignment_id || item.session_id} role={!assignments ? 'link' : undefined} tabIndex={!assignments ? 0 : undefined} onClick={() => openItem(item)} onKeyDown={(event) => { if (!assignments && (event.key === 'Enter' || event.key === ' ')) openItem(item); }}>
               <StatusBadge value={item.status} />
               <h2 style={{ marginTop: 12 }}>{item.scenario_title}</h2>
               {assignments ? (
                 <p>{item.status === 'pending' ? 'Ожидает прохождения' : 'Завершено'} · {item.created_at ? new Date(item.created_at).toLocaleDateString('ru-RU') : '—'}</p>
               ) : (
-                <p>{item.type === 'arena' ? 'Arena' : 'Тренировка'} · {item.score ?? 'без score'}</p>
+                <><p>{item.type === 'arena' ? 'Arena' : 'Тренировка'} · {Number(item.score) >= 0 ? item.score : 'без оценки'}</p><p className="card-link-hint">{item.type === 'arena' ? 'Открыть диалог и feedback' : 'Открыть профиль ученика'}</p></>
               )}
             </article>
           ))}

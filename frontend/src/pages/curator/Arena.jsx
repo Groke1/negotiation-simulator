@@ -189,11 +189,11 @@ export default function CuratorArena() {
         {arenas.data.length ? (
           <div className="card-grid">
             {arenas.data.map((arena) => (
-              <article className="panel" key={arena.arena_assignment_id}>
+              <article className="panel scenario-link-card" key={arena.arena_assignment_id} role={arena.arena_session_id ? 'link' : undefined} tabIndex={arena.arena_session_id ? 0 : undefined} onClick={() => arena.arena_session_id && navigate(`/curator/arenas/${arena.arena_session_id}`)} onKeyDown={(event) => { if (arena.arena_session_id && (event.key === 'Enter' || event.key === ' ')) navigate(`/curator/arenas/${arena.arena_session_id}`); }}>
                 <StatusBadge value={arena.status} />
                 <h2 style={{ marginTop: 12 }}>{arena.scenario_title}</h2>
                 <p>{new Date(arena.scheduled_at).toLocaleString('ru-RU')}</p>
-                {arena.arena_session_id && arena.status === 'completed' && <button type="button" onClick={() => navigate(`/curator/arenas/${arena.arena_session_id}`)}>Фидбек</button>}
+                {arena.arena_session_id && <button type="button" className="secondary" onClick={(event) => { event.stopPropagation(); navigate(`/curator/arenas/${arena.arena_session_id}`); }}>{arena.status === 'completed' ? 'Открыть feedback' : 'Открыть детали'}</button>}
               </article>
             ))}
           </div>
