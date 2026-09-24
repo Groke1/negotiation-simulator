@@ -1,70 +1,44 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  getArenaSession,
-  getArenaMessages,
+  createArenaFeedback,
   getArenaFeedback,
-  createArenaFeedback
+  getArenaMessages,
+  getArenaSession
 } from '../../api';
+import { EmptyState, ErrorState, LoadingState, StatusBadge } from '../../components/UI';
 
 export default function ArenaFeedback() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
-
-  const [session, setSession] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [feedback, setFeedback] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
+  const client = useQueryClient();
   const [selectedParticipant, setSelectedParticipant] = useState('');
   const [comment, setComment] = useState('');
+  const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const sessionData = await getArenaSession(sessionId);
-        setSession(sessionData);
+  const session = useQuery({ queryKey: ['arena-session', sessionId], queryFn: ({ signal }) => getArenaSession(sessionId, signal) });
+  const messages = useQuery({ queryKey: ['arena-messages', sessionId], queryFn: ({ signal }) => getArenaMessages(sessionId, signal) });
+  const feedback = useQuery({ queryKey: ['arena-feedback', sessionId], queryFn: ({ signal }) => getArenaFeedback(sessionId, signal) });
 
-        try {
-          const messagesData = await getArenaMessages(sessionId);
-          setMessages(messagesData);
-        } catch {}
+  const participants = session.data?.participants || [];
+  const activeParticipant = selectedParticipant || participants[0]?.user_id || '';
+  const feedbackByParticipant = useMemo(() => new Map((feedback.data || []).map((item) => [item.participant_id, item])), [feedback.data]);
+  const currentFeedback = feedbackByParticipant.get(activeParticipant);
 
-        try {
-          const feedbackData = await getArenaFeedback(sessionId);
-          setFeedback(feedbackData);
-        } catch {}
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, [sessionId]);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function submit(event) {
+    event.preventDefault();
     setError('');
-    setSuccess('');
-
-    if (!selectedParticipant || !comment.trim()) {
-      setError('Выберите участника и напишите комментарий');
+    if (!activeParticipant || !comment.trim()) {
+      setError('Выберите участника и напишите комментарий.');
       return;
     }
-
     setSaving(true);
     try {
-      await createArenaFeedback(sessionId, selectedParticipant, comment.trim());
-      setSuccess('Фидбек сохранён');
+      await createArenaFeedback(sessionId, activeParticipant, comment.trim());
       setComment('');
-
-      // Обновляем список фидбеков
-      const feedbackData = await getArenaFeedback(sessionId);
-      setFeedback(feedbackData);
+      await client.invalidateQueries({ queryKey: ['arena-feedback', sessionId] });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -72,95 +46,69 @@ export default function ArenaFeedback() {
     }
   }
 
-  function formatTime(iso) {
-    return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  }
-
-  if (loading) return <div className="page">Загрузка...</div>;
-  if (error && !session) return <div className="page"><p className="error">{error}</p></div>;
+  if (session.isLoading || messages.isLoading || feedback.isLoading) return <LoadingState />;
+  if (session.error || messages.error || feedback.error) return <ErrorState error={session.error || messages.error || feedback.error} retry={() => { session.refetch(); messages.refetch(); feedback.refetch(); }} />;
 
   return (
     <div className="page">
-      <header>
-        <h1>Фидбек по арене</h1>
-        <p>{session?.scenario_title}</p>
+      <header className="page-header">
+        <div>
+          <span className="eyebrow">Куратор · Arena</span>
+          <h1>{session.data?.scenario_title || 'Фидбек по Arena'}</h1>
+          <p>Transcript и разбор доступны после завершения Arena. Feedback оставляется отдельно каждому участнику.</p>
+        </div>
+        <div>
+          <button className="secondary" type="button" onClick={() => navigate('/curator/arenas')}>К Arena</button>
+        </div>
       </header>
 
-      <section className="nav" style={{ marginBottom: 16 }}>
-        <button onClick={() => navigate('/curator')}>Назад к команде</button>
-        <button onClick={() => navigate('/curator/arena')}>Назначить арену</button>
-      </section>
-
-      <div className="card">
-        <h2 className="section-title">Диалог</h2>
-
-        {messages.length === 0 && (
-          <p className="muted">Сообщений нет.</p>
-        )}
-
-        {messages.map(m => (
-          <div key={m.message_id} className="competency-item" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-              <strong style={{ fontSize: 13 }}>Участник</strong>
-              <span className="muted" style={{ fontSize: 12 }}>{formatTime(m.created_at)}</span>
-            </div>
-            <p style={{ margin: '6px 0 0', fontSize: 14 }}>{m.text}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <h2 className="section-title">Оставить фидбек</h2>
-
-        <form onSubmit={handleSubmit}>
-          <label className="field">
-            <span>Кому</span>
-            <select value={selectedParticipant} onChange={e => setSelectedParticipant(e.target.value)} required>
-              <option value="">— выберите участника —</option>
-              {session?.participants?.map(p => (
-                <option key={p.user_id} value={p.user_id}>
-                  {p.role === 'learner' ? 'Ученик' : 'Партнёр'} — {p.user_id.slice(0, 8)}
-                </option>
+      <div className="split">
+        <section className="card">
+          <h2>Диалог</h2>
+          <StatusBadge value={session.data?.status} />
+          {messages.data.length ? (
+            <div className="chat-stream inline-chat">
+              {messages.data.map((message) => (
+                <div key={message.message_id} className="bubble">
+                  <small>{message.sender_id}</small>
+                  {message.text}
+                </div>
               ))}
-            </select>
-          </label>
-
-          <label className="field">
-            <span>Комментарий</span>
-            <textarea
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              rows={5}
-              placeholder="Что получилось, что можно улучшить..."
-              required
-            />
-          </label>
-
-          {error && <p className="error">{error}</p>}
-          {success && <p style={{ color: '#0a7c2f', fontSize: 14, fontWeight: 600 }}>{success}</p>}
-
-          <button type="submit" disabled={saving}>
-            {saving ? 'Сохранение...' : 'Сохранить фидбек'}
-          </button>
-        </form>
-      </div>
-
-      {feedback.length > 0 && (
-        <div className="card">
-          <h2 className="section-title">Уже оставленные фидбеки</h2>
-          {feedback.map(f => (
-            <div key={f.feedback_id} className="competency-item" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                <strong style={{ fontSize: 13 }}>Участник: {f.participant_id.slice(0, 8)}</strong>
-                <span className="muted" style={{ fontSize: 12 }}>
-                  {new Date(f.created_at).toLocaleDateString('ru-RU')}
-                </span>
-              </div>
-              <p style={{ margin: '6px 0 0', fontSize: 14 }}>{f.comment}</p>
             </div>
-          ))}
-        </div>
-      )}
+          ) : <EmptyState title="Сообщений нет" />}
+        </section>
+
+        <section className="card">
+          <h2>Feedback</h2>
+          {participants.length ? (
+            <div className="tabs">
+              {participants.map((participant, index) => (
+                <button key={participant.user_id} type="button" className={activeParticipant === participant.user_id ? 'active' : ''} onClick={() => setSelectedParticipant(participant.user_id)}>
+                  Участник {index + 1}
+                </button>
+              ))}
+            </div>
+          ) : <EmptyState title="Участники не найдены" />}
+
+          {currentFeedback ? (
+            <article className="panel">
+              <span className="eyebrow">Feedback уже отправлен</span>
+              <p>{currentFeedback.comment || 'Комментарий не указан.'}</p>
+              {currentFeedback.ratings?.length ? currentFeedback.ratings.map((rating) => <p key={rating.cluster_id}>{rating.cluster_id}: {rating.score}</p>) : <p>Оценки по кластерам не добавлялись.</p>}
+              <small>{currentFeedback.created_at ? new Date(currentFeedback.created_at).toLocaleString('ru-RU') : ''}</small>
+            </article>
+          ) : (
+            <form className="form-grid" onSubmit={submit}>
+              <label className="field">
+                Комментарий
+                <textarea rows="6" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Что получилось, что можно улучшить..." />
+              </label>
+              {error && <p className="error">{error}</p>}
+              <button type="submit" disabled={saving || !activeParticipant || !comment.trim()}>{saving ? 'Сохраняем…' : 'Отправить feedback'}</button>
+            </form>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

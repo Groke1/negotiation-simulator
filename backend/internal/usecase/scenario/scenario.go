@@ -131,6 +131,11 @@ func (s *scenarioService) UpdateScenario(ctx context.Context, claims entity.Acce
 		return entity.ErrInvalidScenarioStatus
 	}
 	applyUpdate(scenario, params)
+	if normalizedNodes, err := normalizeScenarioNodes(scenario.Nodes); err != nil {
+		return err
+	} else {
+		scenario.Nodes = normalizedNodes
+	}
 	_, err = s.scenarioRepository.UpdateScenario(ctx, *scenario)
 	return err
 }
@@ -343,6 +348,32 @@ func applyUpdate(scenario *entity.Scenario, update entity.UpdateScenario) {
 	}
 }
 
+func normalizeScenarioNodes(raw json.RawMessage) (json.RawMessage, error) {
+	blocks := []entity.ScenarioBlock{}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil, entity.ErrInvalidScenarioJSON
+	}
+	entity.NormalizeScenarioBlocks(blocks)
+	for i := range blocks {
+		dialogue := blocks[i].DeterministicDialogue
+		if dialogue == nil {
+			continue
+		}
+		if len(dialogue.Nodes) == 0 && dialogue.StartNodeID == "" && dialogue.LearnerRoleID == "" {
+			blocks[i].DeterministicDialogue = nil
+			continue
+		}
+		if dialogue.LearnerRoleID == "" {
+			return nil, entity.ErrInvalidScenarioJSON
+		}
+	}
+	normalized, err := json.Marshal(blocks)
+	if err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
 func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 	doc := entity.ScenarioDocumentFromScenario(*s)
 	issues := []entity.ScenarioValidationIssue{}
@@ -361,10 +392,31 @@ func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 	if len(doc.Blocks) == 0 {
 		issues = append(issues, validationIssue("error", "MISSING_BLOCKS", "At least one block is required", "scenario", nil))
 	}
+	roleIDs := make(map[string]bool, len(doc.Roles))
+	for _, role := range doc.Roles {
+		roleIDs[role.ID] = true
+	}
 	for _, block := range doc.Blocks {
-		if containsString(doc.SupportedRuntimes, "deterministic") && block.Type != "start" && block.Type != "end" && len(block.DeterministicDialogue.Nodes) == 0 {
+		if !containsString(doc.SupportedRuntimes, "deterministic") || block.Type == "start" || block.Type == "end" {
+			continue
+		}
+		if block.DeterministicDialogue == nil || len(block.DeterministicDialogue.Nodes) == 0 {
 			id := block.ID
 			issues = append(issues, validationIssue("error", "MISSING_DIALOGUE_NODES", "Deterministic block must contain dialogue nodes", "block", &id))
+			continue
+		}
+		if block.DeterministicDialogue.LearnerRoleID == "" || !roleIDs[block.DeterministicDialogue.LearnerRoleID] {
+			id := block.ID
+			issues = append(issues, validationIssue("error", "INVALID_DIALOGUE_LEARNER_ROLE", "Deterministic dialogue must reference an existing learner role", "block", &id))
+		}
+		for _, node := range block.DeterministicDialogue.Nodes {
+			for _, option := range node.ReplyOptions {
+				if option.RoleID != block.DeterministicDialogue.LearnerRoleID {
+					id := block.ID
+					issues = append(issues, validationIssue("error", "INVALID_DIALOGUE_REPLY_ROLE", "Deterministic reply option role must match dialogue learner_role_id", "block", &id))
+					break
+				}
+			}
 		}
 	}
 	errorsCount := 0

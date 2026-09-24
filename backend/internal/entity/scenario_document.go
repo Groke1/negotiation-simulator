@@ -41,19 +41,19 @@ type ScenarioRole struct {
 }
 
 type ScenarioBlock struct {
-	ID                    string                `json:"id"`
-	Type                  string                `json:"type"`
-	Name                  string                `json:"name"`
-	Description           string                `json:"description"`
-	ExpandedContext       string                `json:"expanded_context"`
-	LeadRoleID            string                `json:"lead_role_id"`
-	LeadProbability       int                   `json:"lead_probability"`
-	RoleGoals             []BlockRoleGoal       `json:"role_goals"`
-	Behavior              string                `json:"behavior"`
-	ActionRules           []SemanticActionRule  `json:"action_rules"`
-	Constraints           []string              `json:"constraints"`
-	DeterministicDialogue DeterministicDialogue `json:"deterministic_dialogue"`
-	Transitions           []ScenarioTransition  `json:"transitions"`
+	ID                    string                 `json:"id"`
+	Type                  string                 `json:"type"`
+	Name                  string                 `json:"name"`
+	Description           string                 `json:"description"`
+	ExpandedContext       string                 `json:"expanded_context"`
+	LeadRoleID            string                 `json:"lead_role_id"`
+	LeadProbability       int                    `json:"lead_probability"`
+	RoleGoals             []BlockRoleGoal        `json:"role_goals"`
+	Behavior              string                 `json:"behavior"`
+	ActionRules           []SemanticActionRule   `json:"action_rules"`
+	Constraints           []string               `json:"constraints"`
+	DeterministicDialogue *DeterministicDialogue `json:"deterministic_dialogue,omitempty"`
+	Transitions           []ScenarioTransition   `json:"transitions"`
 }
 
 type BlockRoleGoal struct {
@@ -76,8 +76,9 @@ type ScenarioTransition struct {
 }
 
 type DeterministicDialogue struct {
-	StartNodeID string                      `json:"start_node_id"`
-	Nodes       []DeterministicDialogueNode `json:"nodes"`
+	LearnerRoleID string                      `json:"learner_role_id"`
+	StartNodeID   string                      `json:"start_node_id"`
+	Nodes         []DeterministicDialogueNode `json:"nodes"`
 }
 
 type DeterministicDialogueNode struct {
@@ -108,6 +109,7 @@ func ScenarioDocumentFromScenario(s Scenario) ScenarioDocument {
 	_ = json.Unmarshal(s.Roles, &roles)
 	blocks := []ScenarioBlock{}
 	_ = json.Unmarshal(s.Nodes, &blocks)
+	NormalizeScenarioBlocks(blocks)
 	if context.Description == "" {
 		var legacy struct {
 			Description string `json:"description"`
@@ -131,6 +133,39 @@ func ScenarioDocumentFromScenario(s Scenario) ScenarioDocument {
 		CreatedAt:         s.CreatedAt,
 		UpdatedAt:         s.UpdatedAt,
 		PublishedAt:       s.PublishedAt,
+	}
+}
+
+func NormalizeScenarioBlocks(blocks []ScenarioBlock) {
+	for i := range blocks {
+		if blocks[i].RoleGoals == nil {
+			blocks[i].RoleGoals = []BlockRoleGoal{}
+		}
+		if blocks[i].ActionRules == nil {
+			blocks[i].ActionRules = []SemanticActionRule{}
+		}
+		if blocks[i].Constraints == nil {
+			blocks[i].Constraints = []string{}
+		}
+		if blocks[i].Transitions == nil {
+			blocks[i].Transitions = []ScenarioTransition{}
+		}
+		dialogue := blocks[i].DeterministicDialogue
+		if dialogue == nil {
+			continue
+		}
+		if len(dialogue.Nodes) == 0 && dialogue.StartNodeID == "" && dialogue.LearnerRoleID == "" {
+			blocks[i].DeterministicDialogue = nil
+			continue
+		}
+		if dialogue.Nodes == nil {
+			dialogue.Nodes = []DeterministicDialogueNode{}
+		}
+		for j := range dialogue.Nodes {
+			if dialogue.Nodes[j].ReplyOptions == nil {
+				dialogue.Nodes[j].ReplyOptions = []DeterministicReplyOption{}
+			}
+		}
 	}
 }
 

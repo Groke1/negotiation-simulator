@@ -3,7 +3,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   MarkerType
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -24,16 +23,16 @@ export default function TreeEditor({
     ...e,
     animated: false,
     style: {
-      stroke: e.data?.transition?.forbidden ? '#A6392E' : '#1A1D1B',
+      stroke: e.data?.transition?.forbidden ? '#ef7c86' : '#a78bfa',
       strokeWidth: 2
     },
-    labelStyle: { fontSize: 11, fill: '#565C58', fontWeight: 600 },
-    labelBgStyle: { fill: '#FAFAF7', fillOpacity: 0.95 },
+    labelStyle: { fontSize: 11, fill: '#aaa3b8', fontWeight: 600 },
+    labelBgStyle: { fill: '#191722', fillOpacity: 0.95 },
     labelBgPadding: [4, 2],
     labelBgBorderRadius: 4,
     markerEnd: {
       type: MarkerType.ArrowClosed,
-      color: e.data?.transition?.forbidden ? '#A6392E' : '#1A1D1B'
+      color: e.data?.transition?.forbidden ? '#ef7c86' : '#a78bfa'
     }
   })), [edges]);
 
@@ -67,37 +66,14 @@ export default function TreeEditor({
         onNodeDragStop={handleNodeDragStop}
         fitView
       >
-        <Background color="#DCDAD1" gap={20} />
-        <Controls />
-        <MiniMap
-          nodeColor={n => {
-            const t = n.data?.type;
-            if (t === 'start') return '#2F6F5E';
-            if (t === 'end') return '#A6392E';
-            return '#453B78';
-          }}
-        />
+        <Background color="#343044" gap={20} />
+        <Controls className="scenario-flow-controls" />
       </ReactFlow>
 
       {onAddBlock && (
         <button
           onClick={onAddBlock}
-          style={{
-            position: 'absolute',
-            top: 16,
-            left: 16,
-            zIndex: 10,
-            padding: '10px 16px',
-            background: '#453B78',
-            color: '#FAFAF7',
-            border: 'none',
-            borderRadius: 10,
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-          }}
+          className="canvas-add-button"
         >
           + Добавить блок
         </button>

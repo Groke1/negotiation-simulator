@@ -40,7 +40,6 @@ type (
 		AI struct {
 			Provider                 string        `env:"AI_PROVIDER" envDefault:"ollama"`
 			BaseURL                  string        `env:"AI_BASE_URL" envDefault:"http://10.8.1.6:11434/api/chat"`
-			PromptDir                string        `env:"AI_PROMPT_DIR" envDefault:"prompts"`
 			Timeout                  time.Duration `env:"AI_TIMEOUT" envDefault:"180s"`
 			Think                    bool          `env:"AI_THINK" envDefault:"false"`
 			Stream                   bool          `env:"AI_STREAM" envDefault:"false"`

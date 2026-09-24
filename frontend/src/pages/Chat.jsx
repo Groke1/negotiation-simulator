@@ -1,164 +1,21 @@
-import { useState, useRef, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { mockScenario } from '../data/mockScenario';
+import { useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { classifyPartnerMessage, completeTrainingSession, getSemanticActions, getTrainingSession, sendTrainingAction, sendTrainingMessage } from '../api';
+import { ErrorState, LoadingState, SemanticActionPicker } from '../components/UI';
+import { runtimeLabel, semanticActionLabel } from '../app/presentation';
 
+const contentText = (message) => message?.content?.text || message?.content?.body || '';
 export default function Chat() {
-  const { scenarioId } = useParams();
-  const navigate = useNavigate();
-
-  const [scenario, setScenario] = useState(null);
-  const [currentBlockId, setCurrentBlockId] = useState(null);
-  const [currentNodeId, setCurrentNodeId] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [isTyping, setIsTyping] = useState(false);
-  const scrollRef = useRef(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [history]);
-
-  useEffect(() => {
-    // Берём сценарий из localStorage или из мока
-    const saved = localStorage.getItem('scenario_' + scenarioId);
-    let s;
-
-    if (saved) {
-      s = JSON.parse(saved);
-    } else {
-      s = { ...mockScenario, scenario_id: scenarioId };
-    }
-
-    setScenario(s);
-
-    // Находим start-блок
-    const startBlock = s.blocks?.find(b => b.type === 'start') || s.blocks?.[0];
-    if (!startBlock) return;
-
-    // Идём по переходу из старта
-    const firstTransition = startBlock.transitions?.[0];
-    if (!firstTransition) return;
-
-    const firstBlock = s.blocks.find(b => b.id === firstTransition.target_block_id);
-    if (!firstBlock) return;
-
-    setCurrentBlockId(firstBlock.id);
-
-    // Находим первый узел диалога
-    const firstNodeId = firstBlock.deterministic_dialogue?.start_node_id
-      || firstBlock.deterministic_dialogue?.nodes?.[0]?.id;
-    setCurrentNodeId(firstNodeId);
-  }, [scenarioId]);
-
-  if (!scenario) return <div className="page">Загрузка...</div>;
-
-  const currentBlock = scenario.blocks?.find(b => b.id === currentBlockId);
-  const currentNode = currentBlock?.deterministic_dialogue?.nodes?.find(n => n.id === currentNodeId);
-
-  function chooseReply(reply) {
-    // Добавляем в историю
-    const newHistory = [
-      ...history,
-      { partner: currentNode.incoming_message?.text || '', user: reply.text }
-    ];
-    setHistory(newHistory);
-
-    setIsTyping(true);
-    setTimeout(() => {
-      // Если у варианта есть переход — идём в другой блок
-      if (reply.transition_id) {
-        const transition = currentBlock.transitions.find(t => t.id === reply.transition_id);
-        if (transition) {
-          const nextBlock = scenario.blocks.find(b => b.id === transition.target_block_id);
-          if (nextBlock) {
-            // Если следующий блок финальный — показываем финал
-            if (nextBlock.type === 'end') {
-              navigate(`/debrief/${scenario.scenario_id}/${nextBlock.id}`);
-              return;
-            }
-            // Иначе идём в блок
-            setCurrentBlockId(nextBlock.id);
-            const firstNodeId = nextBlock.deterministic_dialogue?.start_node_id
-              || nextBlock.deterministic_dialogue?.nodes?.[0]?.id;
-            setCurrentNodeId(firstNodeId);
-          }
-        }
-      } else if (reply.next_node_id) {
-        // Идём к следующему узлу в этом же блоке
-        setCurrentNodeId(reply.next_node_id);
-      }
-      setIsTyping(false);
-    }, 800);
-  }
-
-  if (!currentNode) {
-    return (
-      <div className="page">
-        <h1>Нет диалога в блоке</h1>
-        <button onClick={() => navigate('/home')}>На главную</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="chat-page">
-      <header className="chat-header">
-        <button className="back-btn" onClick={() => navigate('/home')}>←</button>
-        <div className="chat-header-info">
-          <h2>{scenario.title}</h2>
-          <p>{scenario.roles?.[1]?.name || 'Партнёр'} · {scenario.difficulty}</p>
-        </div>
-      </header>
-
-      <div className="chat-stream" ref={scrollRef}>
-        {history.map((h, i) => (
-          <div key={i} className="msg-group">
-            {h.partner && (
-              <div className="msg msg-partner">
-                <span className="msg-sender">Партнёр</span>
-                <div className="msg-bubble">{h.partner}</div>
-              </div>
-            )}
-            <div className="msg msg-user">
-              <span className="msg-sender">Вы</span>
-              <div className="msg-bubble">{h.user}</div>
-            </div>
-          </div>
-        ))}
-
-        {currentNode.incoming_message && !isTyping && (
-          <div className="msg msg-partner">
-            <span className="msg-sender">Партнёр</span>
-            <div className="msg-bubble">{currentNode.incoming_message.text}</div>
-          </div>
-        )}
-
-        {isTyping && (
-          <div className="msg msg-partner">
-            <span className="msg-sender">Партнёр</span>
-            <div className="msg-bubble typing">
-              <span></span><span></span><span></span>
-              <em>печатает</em>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="chat-input-panel">
-        <div className="patterns-row" style={{ flexDirection: 'column', gap: 8 }}>
-          {(currentNode.reply_options || []).map(opt => (
-            <button
-              key={opt.id}
-              className="pattern-btn"
-              onClick={() => chooseReply(opt)}
-              style={{ textAlign: 'left', padding: '10px 14px' }}
-            >
-              {opt.text}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+  const { sessionId } = useParams(); const navigate = useNavigate(); const client = useQueryClient(); const [text, setText] = useState(''); const [action, setAction] = useState(''); const [partnerAction, setPartnerAction] = useState(''); const [submitting, setSubmitting] = useState(false); const [feedback, setFeedback] = useState(null); const [error, setError] = useState('');
+  const sessionQuery = useQuery({ queryKey: ['training-session', sessionId], queryFn: ({ signal }) => getTrainingSession(sessionId, signal) }); const actionsQuery = useQuery({ queryKey: ['semantic-actions'], queryFn: ({ signal }) => getSemanticActions(signal), staleTime: 60 * 60 * 1000 });
+  const session = sessionQuery.data; const actions = actionsQuery.data ?? []; const actionNames = useMemo(() => new Map((actionsQuery.data ?? []).map((item) => [item.code, semanticActionLabel(item)])), [actionsQuery.data]);
+  const unclassified = session?.messages?.filter((message) => message.author === 'virtual_partner' && !message.classification).at(-1);
+  async function refresh() { await client.invalidateQueries({ queryKey: ['training-session', sessionId] }); }
+  async function submitPartnerClassification() { if (!unclassified || !partnerAction) return; setSubmitting(true); setError(''); try { const result = await classifyPartnerMessage(sessionId, unclassified.message_id, partnerAction); setFeedback({ ...result, expectedName: actionNames.get(result.expected_semantic_action_code) }); await refresh(); setPartnerAction(''); } catch (err) { setError(err.message); } finally { setSubmitting(false); } }
+  async function send() { if (!text.trim() || !action) return; setSubmitting(true); setError(''); try { await sendTrainingMessage(sessionId, { message_id: crypto.randomUUID(), content: { type: 'chat', text: text.trim() }, semantic_action_code: action }); setText(''); setAction(''); await refresh(); } catch (err) { setError(err.message); } finally { setSubmitting(false); } }
+  async function chooseDeterministic(option) { if (!action) return; setSubmitting(true); setError(''); try { const result = await sendTrainingAction(sessionId, { action_id: option.action_id, semantic_action_code: action, client_event_id: crypto.randomUUID() }); setFeedback({ ...result.classification, expectedName: actionNames.get(result.classification?.expected_semantic_action_code) }); setAction(''); await refresh(); if (result.status === 'completed') navigate(`/learner/training/${sessionId}/analysis`); } catch (err) { setError(err.message); } finally { setSubmitting(false); } }
+  async function complete() { setSubmitting(true); try { await completeTrainingSession(sessionId); navigate(`/learner/training/${sessionId}/analysis`); } catch (err) { setError(err.message); } finally { setSubmitting(false); } }
+  if (sessionQuery.isLoading || actionsQuery.isLoading) return <LoadingState />; if (sessionQuery.error) return <ErrorState error={sessionQuery.error} retry={sessionQuery.refetch} />;
+  const deterministic = session.mode === 'deterministic'; return <div className="chat-layout"><header className="chat-top"><div><span className="eyebrow">Тренировка · {runtimeLabel(session.mode)}</span><h2>{session.preparation?.title || session.scenario_title}</h2><p>{session.preparation?.partner_role?.name || 'Собеседник'}</p></div><button className="secondary" onClick={complete} disabled={submitting}>Завершить</button></header><section className="chat-stream">{session.messages?.map((message) => <div key={message.message_id} className={`bubble ${message.author === 'learner' ? 'mine' : ''}`}><small>{message.author === 'learner' ? 'Вы' : 'Собеседник'}</small>{contentText(message)}{message.classification && <p className={message.classification.correct ? 'feedback good' : 'feedback bad'}>{message.classification.correct ? 'Действие распознано верно' : `Правильный ответ: ${actionNames.get(message.classification.expected_semantic_action_code) || message.classification.expected_semantic_action_code}`}</p>}</div>)}{deterministic && session.current_node?.incoming_message && <div className="bubble"><small>Собеседник</small>{session.current_node.incoming_message.text}</div>}{error && <p className="error">{error}</p>}</section><footer className="chat-compose">{unclassified && !deterministic && <div className="panel"><SemanticActionPicker actions={actions} value={partnerAction} onChange={setPartnerAction} disabled={submitting} result={feedback} label="Какое действие совершил собеседник?" /><button onClick={submitPartnerClassification} disabled={!partnerAction || submitting}>Проверить</button></div>}{deterministic ? <><SemanticActionPicker actions={actions} value={action} onChange={setAction} disabled={submitting} result={feedback} label="Какое действие вы совершаете?" /><div className="form-grid" style={{ marginTop: 12 }}>{session.current_node?.available_actions?.map((option) => <button className="secondary" key={option.action_id} disabled={!action || submitting} onClick={() => chooseDeterministic(option)}>{option.text}</button>)}</div></> : !unclassified && <><textarea rows="3" value={text} onChange={(event) => setText(event.target.value)} placeholder="Ваше сообщение…" disabled={submitting} /><footer><SemanticActionPicker actions={actions} value={action} onChange={setAction} disabled={submitting} label="Какое действие вы совершаете?" /><button onClick={send} disabled={!text.trim() || !action || submitting}>{submitting ? 'Отправляем…' : 'Отправить'}</button></footer></>}</footer></div>;
 }

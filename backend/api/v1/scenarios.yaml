@@ -1153,6 +1153,7 @@ components:
     DeterministicDialogue:
       type: object
       required:
+        - learner_role_id
         - start_node_id
         - nodes
       description: 'Внутриблочное дерево deterministic-диалога. Оно позволяет провести несколько обменов репликами
@@ -1163,6 +1164,10 @@ components:
 
         '
       properties:
+        learner_role_id:
+          type: string
+          format: uuid
+          description: Идентификатор роли, предназначенной для learner в deterministic диалоге.
         start_node_id:
           type: string
           format: uuid

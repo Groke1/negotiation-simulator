@@ -85,7 +85,6 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 		return fmt.Errorf("unsupported AI_PROVIDER %q", cfg.AI.Provider)
 	}
 	aiService, err := ai.NewService(aiProvider, ai.Config{
-		PromptDir:                cfg.AI.PromptDir,
 		ScenarioArchitectModel:   cfg.AI.ScenarioArchitectModel,
 		BlockDesignerModel:       cfg.AI.BlockDesignerModel,
 		DialogueBuilderModel:     cfg.AI.DialogueBuilderModel,

@@ -59,8 +59,14 @@ CREATE TABLE scenarios.scenarios (
 
     channels                TEXT[] NOT NULL DEFAULT '{}',
 
-    -- Детерминированный граф обычной тренировки:
-    -- nodes -> actions -> next_node_id.
+    -- Граф блоков ScenarioBlock из OpenAPI.
+    -- Внутри regular-блоков может храниться deterministic_dialogue:
+    -- {
+    --   learner_role_id,
+    --   start_node_id,
+    --   nodes: [{id, incoming_message?, reply_options: [{id, role_id, text, semantic_action_code, next_node_id?, transition_id?}]}]
+    -- }.
+    -- Для start/end блоков deterministic_dialogue отсутствует.
     nodes                   JSONB NOT NULL DEFAULT '[]'::jsonb,
 
     -- revision увеличивается при каждом изменении Scenario.

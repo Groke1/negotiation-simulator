@@ -1,91 +1,32 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { logout, getMe } from '../api';
-import { mockScenario } from '../data/mockScenario';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getMyArenaAssignments, getMyProfile, getScenario, getScenarios, getTrainingSessions, setScenarioFavorite, startTrainingSession } from '../api';
+import { ClusterBars, EmptyState, ErrorState, LoadingState, StatusBadge, TagList } from '../components/UI';
+import { channelLabel, runtimeLabel } from '../app/presentation';
+import { useAuth } from '../app/AuthContext';
 
-export default function Home() {
-  const navigate = useNavigate();
-  const [scenarios, setScenarios] = useState([]);
-  const [me, setMe] = useState(null);
-  const [loading, setLoading] = useState(true);
+function ScenarioCard({ scenario, onOpen, onFavorite }) { return <article className="card scenario-card scenario-link-card" role="button" tabIndex="0" onClick={() => onOpen(scenario)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpen(scenario); }}><header><h3>{scenario.title}</h3><StatusBadge value={scenario.difficulty} /></header><p>{scenario.description || 'Описание сценария пока не заполнено.'}</p><TagList tags={scenario.tags} /><footer><small className="eyebrow">{scenario.is_assigned_by_curator ? 'Назначено куратором' : `${scenario.attempts_count || 0} попыток`}</small><button className="secondary favorite-button" type="button" aria-label="Избранное" onClick={(event) => { event.stopPropagation(); onFavorite(scenario); }}>{scenario.is_favorite ? '♥' : '♡'}</button></footer></article>; }
+function TrainingSetup({ scenario, onClose, onStart, starting }) {
+  const detail = useQuery({ queryKey: ['scenario', scenario?.scenario_id], queryFn: ({ signal }) => getScenario(scenario.scenario_id, signal), enabled: Boolean(scenario) });
+  const [runtime, setRuntime] = useState(scenario.supported_runtimes?.includes('virtual_partner') ? 'virtual_partner' : scenario.supported_runtimes?.[0] || '');
+  const [channel, setChannel] = useState(scenario.supported_channels?.includes('chat') ? 'chat' : scenario.supported_channels?.[0] || '');
+  const deterministicRole = detail.data?.blocks?.map((block) => block.deterministic_dialogue?.learner_role_id).find(Boolean) || '';
+  const [roleId, setRoleId] = useState('');
+  const roles = detail.data?.roles || [];
+  const selectedRole = runtime === 'deterministic' ? deterministicRole : roleId;
+  return <div className="modal-overlay" role="dialog" aria-modal="true"><div className="modal training-setup"><button className="secondary modal-close" type="button" onClick={onClose}>× Закрыть</button><span className="eyebrow">Сценарий тренировки</span><h2>{scenario.title}</h2><p>{detail.data?.expanded_context || scenario.description}</p>{detail.isLoading ? <LoadingState label="Загружаем настройки сценария…" /> : detail.error ? <ErrorState error={detail.error} retry={detail.refetch} /> : <div className="form-grid"><label className="field">Формат тренировки<select value={runtime} onChange={(event) => setRuntime(event.target.value)}>{scenario.supported_runtimes?.filter((item) => item !== 'arena').map((item) => <option key={item} value={item}>{runtimeLabel(item)}</option>)}</select></label><label className="field">Канал<select value={channel} onChange={(event) => setChannel(event.target.value)}>{scenario.supported_channels?.map((item) => <option key={item} value={item}>{channelLabel(item)}</option>)}</select></label>{runtime === 'virtual_partner' && <label className="field">Ваша роль<select value={roleId} onChange={(event) => setRoleId(event.target.value)}><option value="">Выберите роль</option>{roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>}{runtime === 'deterministic' && <p className="muted">Роль ученика задана методистом для подготовленного диалога: {roles.find((role) => role.id === deterministicRole)?.name || 'не указана'}.</p>}<button type="button" onClick={() => onStart({ scenario_id: scenario.scenario_id, mode: runtime, channel, scenario_role_id: selectedRole })} disabled={starting || !runtime || !channel || !selectedRole}>{starting ? 'Создаём…' : 'Начать тренировку'}</button></div>}</div></div>;
+}
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const meData = await getMe();
-        setMe(meData);
-      } catch {}
-
-      // Берём сценарии из localStorage
-      const published = JSON.parse(localStorage.getItem('published_scenarios') || '{}');
-      const list = Object.values(published);
-
-      // Если ничего не опубликовано — показываем мок
-      if (list.length === 0) {
-        setScenarios([{ ...mockScenario, scenario_id: 'sc-mock-001', status: 'published', isMock: true }]);
-      } else {
-        setScenarios(list);
-      }
-
-      setLoading(false);
-    }
-    load();
-  }, []);
-
-  function handleLogout() {
-    logout();
-    navigate('/');
-  }
-
-  if (loading) return <div className="page">Загрузка...</div>;
-
-  return (
-    <div className="page">
-      <header>
-        <h1>Обучение</h1>
-        <p>Добрый день{me?.username ? `, ${me.username}` : ''}!</p>
-      </header>
-
-      <section className="card">
-        <h2>Доступные тренировки</h2>
-
-        {scenarios.length === 0 && (
-          <p className="muted">Нет доступных сценариев. Методист должен опубликовать.</p>
-        )}
-
-        {scenarios.map(s => (
-          <div key={s.scenario_id} style={{
-            padding: '16px 0',
-            borderBottom: '1px solid #f0f0f0'
-          }}>
-            <h3 style={{ margin: '0 0 6px' }}>{s.title}</h3>
-            <p className="muted" style={{ margin: '0 0 6px', fontSize: 13 }}>
-              {s.description}
-            </p>
-            <p className="muted" style={{ margin: '0 0 10px', fontSize: 12 }}>
-              Сложность: {s.difficulty} · Блоков: {s.blocks?.length || 0}
-              {s.isMock && ' · демо'}
-            </p>
-            <button onClick={() => navigate(`/chat/${s.scenario_id}`)}>
-              Начать тренировку
-            </button>
-          </div>
-        ))}
-      </section>
-
-      <section className="arena-cta" onClick={() => navigate('/arena')}>
-        <div>
-          <h2>Арена переговоров</h2>
-          <p>Проверьте навык без подсказок.</p>
-        </div>
-        <span className="arena-arrow">→</span>
-      </section>
-
-      <section className="nav">
-        <button onClick={() => navigate('/profile')}>Профиль</button>
-        <button onClick={() => navigate('/history')}>История</button>
-        <button onClick={handleLogout}>Выйти</button>
-      </section>
-    </div>
-  );
+export default function Home({ catalog = false }) {
+  const { me } = useAuth(); const navigate = useNavigate(); const queryClient = useQueryClient(); const [tab, setTab] = useState('all'); const [difficulty, setDifficulty] = useState(''); const [runtime, setRuntime] = useState(''); const [channel, setChannel] = useState(''); const [selectedScenario, setSelectedScenario] = useState(null); const [starting, setStarting] = useState(false); const [startError, setStartError] = useState('');
+  const catalogFilters = { ...(tab === 'assigned' ? { assigned_by_curator: true } : {}), ...(tab === 'favorite' ? { favorite: true } : {}), ...(tab === 'completed' ? { completed: true } : {}), difficulty: difficulty || undefined, runtime: runtime || undefined, channel: channel || undefined, limit: 100 };
+  const scenarios = useQuery({ queryKey: ['scenarios', 'learner', catalog ? catalogFilters : 'assigned'], queryFn: ({ signal }) => getScenarios(catalog ? catalogFilters : { assigned_by_curator: true, limit: 6 }, signal) });
+  const sessions = useQuery({ queryKey: ['training-sessions'], queryFn: ({ signal }) => getTrainingSessions(signal), enabled: !catalog }); const profile = useQuery({ queryKey: ['my-profile'], queryFn: ({ signal }) => getMyProfile(signal), enabled: !catalog }); const arenas = useQuery({ queryKey: ['my-arena-assignments', me?.id], queryFn: ({ signal }) => getMyArenaAssignments(me.id, signal), enabled: !catalog && Boolean(me?.id) });
+  async function start(payload) { setStarting(true); setStartError(''); try { const session = await startTrainingSession(payload); setSelectedScenario(null); navigate(`/learner/training/${session.session_id}`); } catch (error) { setStartError(error.message); } finally { setStarting(false); } }
+  async function favorite(scenario) { const key = ['scenarios', 'learner', catalog ? catalogFilters : 'assigned']; const previous = queryClient.getQueryData(key); queryClient.setQueryData(key, (list = []) => list.map((item) => item.scenario_id === scenario.scenario_id ? { ...item, is_favorite: !item.is_favorite } : item)); try { await setScenarioFavorite(scenario.scenario_id, !scenario.is_favorite); } catch (error) { queryClient.setQueryData(key, previous); setStartError(error.message); } }
+  if (scenarios.isLoading || sessions.isLoading || profile.isLoading || arenas.isLoading) return <LoadingState />; if (scenarios.error || sessions.error || profile.error || arenas.error) return <ErrorState error={scenarios.error || sessions.error || profile.error || arenas.error} retry={() => { scenarios.refetch(); sessions.refetch(); profile.refetch(); arenas.refetch(); }} />;
+  if (!catalog) { const activeSession = (sessions.data || []).find((session) => session.status === 'in_progress' || session.status === 'ready_to_complete'); const assigned = scenarios.data || []; const nextArena = (arenas.data || []).find((arena) => arena.status !== 'completed' && arena.status !== 'reviewed'); return <div className="page"><header className="page-header"><div><span className="eyebrow">Ученик</span><h1>Здравствуйте, {me?.username || 'участник'}</h1><p>Здесь собраны ближайшие действия: продолжить практику, начать назначенное и посмотреть профиль.</p></div><button type="button" onClick={() => navigate('/learner/training')}>Все тренировки</button></header>{startError && <p className="error">{startError}</p>}<div className="split"><section className="card"><h2>Продолжить тренировку</h2>{activeSession ? <article className="panel"><StatusBadge value={activeSession.status} /><h2>{activeSession.scenario_title}</h2><p>{runtimeLabel(activeSession.mode)} · {channelLabel(activeSession.channel)}</p><button type="button" onClick={() => navigate(`/learner/training/${activeSession.session_id}`)}>Продолжить</button></article> : <EmptyState title="Активных тренировок нет" />}</section><section className="card"><h2>Ближайшая Arena</h2>{nextArena ? <article className="panel"><StatusBadge value={nextArena.status} /><h2>{nextArena.scenario_title}</h2><p>{nextArena.scheduled_at ? new Date(nextArena.scheduled_at).toLocaleString('ru-RU') : 'Время уточняется'}</p><button type="button" onClick={() => navigate(`/learner/arenas/join/${nextArena.arena_assignment_id}`)}>Подробнее</button></article> : <EmptyState title="Ближайших Arena нет" />}</section></div><section className="card" style={{ marginTop: 16 }}><h2>Назначено куратором</h2>{assigned.length ? <div className="scenario-grid">{assigned.map((scenario) => <ScenarioCard key={scenario.scenario_id} scenario={scenario} onOpen={setSelectedScenario} onFavorite={favorite} />)}</div> : <EmptyState title="Новых назначений нет" description="Можно выбрать самостоятельную тренировку из каталога." action={<button type="button" onClick={() => navigate('/learner/training')}>Открыть каталог</button>} />}</section><section className="card" style={{ marginTop: 16 }}><h2>Ваш профиль</h2><ClusterBars clusters={profile.data?.clusters || []} /><button className="secondary" type="button" onClick={() => navigate('/learner/profile')} style={{ marginTop: 14 }}>Открыть профиль</button></section>{selectedScenario && <TrainingSetup scenario={selectedScenario} onClose={() => setSelectedScenario(null)} onStart={start} starting={starting} />}</div>; }
+  const items = scenarios.data || [];
+  return <div className="page"><header className="page-header"><div><span className="eyebrow">Ученик</span><h1>Тренировки</h1><p>Откройте сценарий, выберите доступный формат и роль.</p></div></header><div className="tabs">{[['all', 'Все'], ['assigned', 'Назначенные'], ['favorite', 'Избранные'], ['completed', 'Пройденные']].map(([id, label]) => <button type="button" className={tab === id ? 'active' : ''} onClick={() => setTab(id)} key={id}>{label}</button>)}</div><div className="filters-row"><label className="field">Сложность<select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option value="">Любая</option><option value="easy">Лёгкая</option><option value="medium">Средняя</option><option value="hard">Высокая</option></select></label><label className="field">Режим<select value={runtime} onChange={(event) => setRuntime(event.target.value)}><option value="">Любой</option><option value="virtual_partner">Виртуальный партнёр</option><option value="deterministic">Подготовленный диалог</option></select></label><label className="field">Канал<select value={channel} onChange={(event) => setChannel(event.target.value)}><option value="">Любой</option><option value="chat">Чат</option><option value="email">Почта</option><option value="voice_message">Голосовое сообщение</option></select></label><button className="secondary" type="button" onClick={() => { setDifficulty(''); setRuntime(''); setChannel(''); }}>Сбросить</button></div>{startError && <p className="error">{startError}</p>}{items.length ? <div className="scenario-grid">{items.map((scenario) => <ScenarioCard key={scenario.scenario_id} scenario={scenario} onOpen={setSelectedScenario} onFavorite={favorite} />)}</div> : <EmptyState title="Подходящих тренировок пока нет" description="Измените фильтры или вернитесь позже." />}{selectedScenario && <TrainingSetup scenario={selectedScenario} onClose={() => setSelectedScenario(null)} onStart={start} starting={starting} />}</div>;
 }

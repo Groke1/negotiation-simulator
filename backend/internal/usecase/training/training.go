@@ -71,7 +71,10 @@ func (s *Service) StartSession(ctx context.Context, claims entity.AccessClaims, 
 	if _, ok := roleByID(doc.Roles, params.ScenarioRoleID); !ok {
 		return nil, entity.ErrTrainingConfigurationNotSupported
 	}
-	state := initialState(doc, params.Mode)
+	state := initialState(doc, params.Mode, params.ScenarioRoleID)
+	if params.Mode == entity.TrainingModeDeterministic && (state.BlockID == "" || state.CurrentNodeID == "") {
+		return nil, entity.ErrTrainingConfigurationNotSupported
+	}
 	stateRaw, err := json.Marshal(state)
 	if err != nil {
 		return nil, err
@@ -327,7 +330,7 @@ type trainingState struct {
 	RevealedFacts []string `json:"revealed_facts"`
 }
 
-func initialState(doc entity.ScenarioDocument, mode entity.TrainingMode) trainingState {
+func initialState(doc entity.ScenarioDocument, mode entity.TrainingMode, learnerRoleID string) trainingState {
 	if len(doc.Blocks) == 0 {
 		return trainingState{}
 	}
@@ -342,7 +345,7 @@ func initialState(doc entity.ScenarioDocument, mode entity.TrainingMode) trainin
 		return trainingState{}
 	}
 	for _, block := range doc.Blocks {
-		if block.DeterministicDialogue.StartNodeID != "" && len(block.DeterministicDialogue.Nodes) > 0 {
+		if block.DeterministicDialogue != nil && block.DeterministicDialogue.LearnerRoleID == learnerRoleID && block.DeterministicDialogue.StartNodeID != "" && len(block.DeterministicDialogue.Nodes) > 0 {
 			return trainingState{BlockID: block.ID, CurrentNodeID: block.DeterministicDialogue.StartNodeID}
 		}
 	}
@@ -367,6 +370,9 @@ func currentNode(doc entity.ScenarioDocument, state trainingState) (entity.Deter
 	for _, block := range doc.Blocks {
 		if block.ID != state.BlockID {
 			continue
+		}
+		if block.DeterministicDialogue == nil {
+			return entity.DeterministicDialogueNode{}, false
 		}
 		for _, node := range block.DeterministicDialogue.Nodes {
 			if node.ID == state.CurrentNodeID {

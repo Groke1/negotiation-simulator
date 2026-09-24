@@ -21,7 +21,7 @@ export function dialogueToFlow(block) {
       }
     });
 
-    (node.reply_options || []).forEach((opt, optIdx) => {
+    (node.reply_options || []).forEach((opt) => {
       if (opt.next_node_id) {
         edges.push({
           id: `edge-${node.id}-${opt.id}`,

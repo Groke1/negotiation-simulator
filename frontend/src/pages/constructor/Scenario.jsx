@@ -1,476 +1,67 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { getScenario, validateScenario, publishScenario, updateScenario } from '../../api';
-import { mockScenario } from '../../data/mockScenario';
-import { getScenario as getLocalScenario } from '../../data/scenario';
-import { scenarioToFlow } from './tree/mapper';
-import { dialogueToFlow } from './tree/dialogueMapper';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { archiveScenario, generateDialogue, generateScenarioBlock, generateScenarioContext, generateScenarioDraft, getCompetencyClusters, getScenario, getSemanticActions, publishScenario, updateScenario, validateScenario } from '../../api';
+import { ErrorState, LoadingState, StatusBadge } from '../../components/UI';
 import TreeEditor from './tree/TreeEditor';
-import DialogueTree from './tree/DialogueTree';
-import BlockPanel from './tree/BlockPanel';
-import DialoguePanel from './tree/DialoguePanel';
-import EdgePanel from './tree/EdgePanel';
+import DialogueEditor from './tree/DialogueEditor';
+import { scenarioToFlow } from './tree/mapper';
+import { semanticActionLabel } from '../../app/presentation';
+
+const newId = () => crypto.randomUUID();
+const blankRole = () => ({ id: newId(), name: '', description: '', goal: '', interests: '', constraints: '', private_information: '' });
+const blankBlock = () => ({ id: newId(), type: 'regular', name: 'Новое состояние', description: '', expanded_context: '', lead_role_id: '', lead_probability: 50, role_goals: [], behavior: '', action_rules: [], constraints: [], transitions: [], deterministic_dialogue: { learner_role_id: '', start_node_id: '', nodes: [] } });
+const RUNTIMES = [['virtual_partner', 'Виртуальный партнёр'], ['deterministic', 'Подготовленный диалог'], ['arena', 'Arena']];
+const CHANNELS = [['chat', 'Чат'], ['email', 'Почта'], ['voice_message', 'Голосовое сообщение']];
+const editable = (scenario) => ({ title: scenario.title || '', description: scenario.description || '', expanded_context: scenario.expanded_context || '', difficulty: scenario.difficulty || 'medium', tags: scenario.tags || [], supported_runtimes: scenario.supported_runtimes || [], supported_channels: scenario.supported_channels || [], target_cluster_ids: scenario.target_cluster_ids || [], roles: scenario.roles || [], blocks: scenario.blocks || [] });
+
+function Field({ label, value, onChange, multiline = false, disabled = false, hint, type = 'text', ...props }) { const Input = multiline ? 'textarea' : 'input'; const isTags = label === 'Теги через запятую'; const [raw, setRaw] = useState(value ?? ''); const normalized = isTags ? raw.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean).join(', ') : raw; useEffect(() => { if (!isTags || String(value ?? '') !== normalized) setRaw(value ?? ''); }, [isTags, normalized, value]); return <label className="field"><span>{label}</span><Input type={type} disabled={disabled} rows={multiline ? 4 : undefined} value={isTags ? raw : value ?? ''} onChange={(event) => { if (isTags) { setRaw(event.target.value); onChange(event.target.value.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean).join(', ')); } else onChange(event.target.value); }} {...props} />{hint && <small>{hint}</small>}</label>; }
+function ToggleList({ title, options, value, onChange, disabled, hint }) { return <fieldset className="chip-group-field"><legend>{title}</legend><div className="chip-group">{options.map(([id, label]) => <label className={`chip-option ${value.includes(id) ? 'selected' : ''}`} key={id}><input className="sr-only" type="checkbox" disabled={disabled} checked={value.includes(id)} onChange={() => onChange(value.includes(id) ? value.filter((item) => item !== id) : [...value, id])} /><span>{label}</span></label>)}</div>{hint && <small>{hint}</small>}</fieldset>; }
+function RoleForm({ item, update, readOnly }) { if (item.learnerSetting) return <section className="panel form-grid learner-role-setting"><span className="eyebrow">Подготовленный диалог</span><h2>Роль ученика</h2><p>Эта роль используется во всех deterministic-диалогах сценария. Реплики собеседника будут назначены второй роли.</p><label className="field">Кто отвечает как ученик<select disabled={readOnly} value={item.learnerRoleId} onChange={(event) => item.onSelect(event.target.value)}><option value="">Выберите роль</option>{item.roles.map((role) => <option key={role.id} value={role.id}>{role.name || 'Роль'}</option>)}</select></label></section>; return <section className="panel form-grid"><h2>{item.name || 'Переговорная роль'}</h2>{[['name', 'Название', false], ['description', 'Описание', true], ['goal', 'Цель', true], ['interests', 'Интересы', true], ['constraints', 'Ограничения', true], ['private_information', 'Закрытая информация', true]].map(([key, label, multiline]) => <Field key={key} label={label} value={item[key]} disabled={readOnly} multiline={multiline} hint={key === 'private_information' ? 'Информация видна только соответствующей стороне переговоров.' : undefined} onChange={(value) => update({ ...item, [key]: value })} />)}</section>; }
+function InspectorSection({ title, note, open = false, children }) { return <details className="inspector-section" open={open}><summary><span>{title}</span>{note && <small>{note}</small>}</summary><div className="inspector-section-content">{children}</div></details>; }
+function ActionRules({ actions, rules, onChange, readOnly }) { const enabled = rules.filter((rule) => actions.some((action) => action.code === rule.semantic_action_code)); return <fieldset className="semantic-actions"><legend>Доступные семантические действия</legend><div className="semantic-action-list">{actions.map((action) => { const rule = rules.find((item) => item.semantic_action_code === action.code); return <label className={`semantic-action ${rule ? 'selected' : ''}`} key={action.code} title={action.description}><input className="sr-only" type="checkbox" disabled={readOnly} checked={Boolean(rule)} onChange={() => onChange(rule ? rules.filter((item) => item.semantic_action_code !== action.code) : [...rules, { semantic_action_code: action.code, reaction: '' }])} /><span>{semanticActionLabel(action)}</span></label>; })}</div>{enabled.length > 0 && <div className="action-reactions">{enabled.map((rule) => <Field key={rule.semantic_action_code} label={`${semanticActionLabel(actions.find((item) => item.code === rule.semantic_action_code) || rule.semantic_action_code)} — если → то`} multiline disabled={readOnly} value={rule.reaction} onChange={(reaction) => onChange(rules.map((item) => item.semantic_action_code === rule.semantic_action_code ? { ...item, reaction } : item))} />)}</div>}</fieldset>; }
+
+function BlockInspector({ block, draft, actions, readOnly, onChange, onDelete, onOpenDialogue, onGenerateBlock, onGenerateDialogue, aiBusy, instructions, onInstructionsChange }) {
+  if (!block) return <p className="muted">Выберите блок на схеме, чтобы открыть его настройки.</p>;
+  const update = (patch) => onChange({ ...block, ...patch }); const goals = block.role_goals || []; const anotherStart = draft.blocks.some((item) => item.id !== block.id && item.type === 'start'); const deterministicEnabled = draft.supported_runtimes.includes('deterministic'); const learnerRoleId = draft.blocks.map((item) => item.deterministic_dialogue?.learner_role_id).find(Boolean) || '';
+  const addTransition = () => update({ transitions: [...block.transitions, { id: newId(), target_block_id: draft.blocks.find((item) => item.id !== block.id)?.id || '', condition: '', note: '', weight: 50, forbidden: false }] });
+  return <div className="block-inspector"><header className="block-inspector-heading"><span className="eyebrow">{block.type === 'start' ? 'Начало сценария' : block.type === 'end' ? 'Завершение сценария' : 'Состояние переговоров'}</span><h2>{block.name}</h2></header>
+    <InspectorSection title="Контекст блока" note="Ситуация, ведущий и поведение" open><div className="form-grid"><label className="field">Тип блока<select disabled={readOnly} value={block.type} onChange={(event) => update({ type: event.target.value })}><option value="regular">Обычный блок</option><option value="start" disabled={anotherStart}>Начало сценария</option><option value="end">Завершение сценария</option></select></label><Field label="Название" disabled={readOnly} value={block.name} onChange={(name) => update({ name })} /><Field label="Краткое описание" disabled={readOnly} multiline value={block.description} onChange={(description) => update({ description })} /><Field label="Развёрнутый контекст" disabled={readOnly} multiline value={block.expanded_context} onChange={(expanded_context) => update({ expanded_context })} /><div className="block-role-grid"><label className="field">Кто ведёт<select disabled={readOnly || block.type !== 'regular'} value={block.lead_role_id || ''} onChange={(event) => update({ lead_role_id: event.target.value })}><option value="">Не указана</option>{draft.roles.map((role) => <option key={role.id} value={role.id}>{role.name || 'Роль'}</option>)}</select></label><Field label="Вероятность, %" disabled={readOnly || block.type !== 'regular'} type="number" min="0" max="100" value={block.lead_probability ?? 50} onChange={(value) => update({ lead_probability: Number(value) })} /></div><Field label="Действия и поведение партнёра" disabled={readOnly} multiline value={block.behavior} onChange={(behavior) => update({ behavior })} /></div></InspectorSection>
+    <InspectorSection title="Цели и ограничения" note="Что важно для ролей"><div className="form-grid"><fieldset className="choice-group"><legend>Цели участников</legend>{draft.roles.map((role) => { const item = goals.find((goal) => goal.role_id === role.id); return <Field key={role.id} label={role.name || 'Роль'} multiline disabled={readOnly} value={item?.goal || ''} onChange={(goal) => update({ role_goals: item ? goals.map((current) => current.role_id === role.id ? { ...current, goal } : current) : [...goals, { role_id: role.id, goal }] })} />; })}</fieldset><Field label="Ограничения для ИИ — одно на строку" disabled={readOnly} multiline value={(block.constraints || []).join('\n')} onChange={(value) => update({ constraints: value.split('\n').map((item) => item.trim()).filter(Boolean) })} /></div></InspectorSection>
+    <InspectorSection title="Действия и реакции" note={`${(block.action_rules || []).length} выбрано`}><ActionRules actions={actions} rules={block.action_rules || []} readOnly={readOnly} onChange={(action_rules) => update({ action_rules })} /></InspectorSection>
+    <section className="panel dialogue-summary"><div><h3>Подготовленный диалог</h3><p>{block.deterministic_dialogue?.nodes?.length ? `${block.deterministic_dialogue.nodes.length} реплик в дереве` : deterministicEnabled && !learnerRoleId ? 'Сначала выберите роль ученика на вкладке «Роли».' : 'Диалог ещё не собран.'}</p></div><button type="button" className="secondary" onClick={onOpenDialogue} disabled={deterministicEnabled && !learnerRoleId}>Открыть редактор</button></section>
+    {!readOnly && <div className="ai-block-controls"><Field label="Инструкция для генерации блока" multiline value={instructions} onChange={onInstructionsChange} placeholder="Например: добавь жёсткое возражение по бюджету" /><div className="inspector-ai-actions"><button type="button" className="secondary" onClick={() => onGenerateBlock(instructions)} disabled={aiBusy}>✨ Заполнить блок</button><button type="button" className="secondary" onClick={() => onGenerateDialogue(instructions)} disabled={aiBusy || !learnerRoleId}>✨ Сгенерировать диалог</button></div></div>}
+    <InspectorSection title="Переходы" note={`${block.transitions.length} из этого состояния`} open><section className="transitions"><div className="dialogue-outline-title">{!readOnly && <button type="button" className="secondary" onClick={addTransition}>+ Переход</button>}</div>{block.transitions.map((transition) => <article className="panel transition-form" key={transition.id}><div><strong>→ {draft.blocks.find((item) => item.id === transition.target_block_id)?.name || 'Целевой блок'}</strong>{!readOnly && <button type="button" className="text-button" onClick={() => update({ transitions: block.transitions.filter((item) => item.id !== transition.id) })}>Удалить</button>}</div><label className="field">Цель<select disabled={readOnly} value={transition.target_block_id} onChange={(event) => update({ transitions: block.transitions.map((item) => item.id === transition.id ? { ...item, target_block_id: event.target.value } : item) })}>{draft.blocks.filter((item) => item.id !== block.id).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><Field label="Условие" disabled={readOnly} multiline value={transition.condition} onChange={(condition) => update({ transitions: block.transitions.map((item) => item.id === transition.id ? { ...item, condition } : item) })} /><Field label="Методическая заметка" disabled={readOnly} multiline value={transition.note || ''} onChange={(note) => update({ transitions: block.transitions.map((item) => item.id === transition.id ? { ...item, note } : item) })} /><Field label="Вес" disabled={readOnly} type="number" min="0" max="100" value={transition.weight ?? 50} onChange={(value) => update({ transitions: block.transitions.map((item) => item.id === transition.id ? { ...item, weight: Number(value) } : item) })} /><label className="check-row"><input type="checkbox" disabled={readOnly} checked={Boolean(transition.forbidden)} onChange={(event) => update({ transitions: block.transitions.map((item) => item.id === transition.id ? { ...item, forbidden: event.target.checked } : item) })} /> Запрещённый переход</label></article>)}{!block.transitions.length && <p className="muted">Переходов из этого состояния пока нет.</p>}</section></InspectorSection>
+    {!readOnly && block.type === 'regular' && <button type="button" className="danger" onClick={onDelete}>Удалить блок</button>}
+  </div>;
+}
 
 export default function ScenarioView() {
-  const { scenarioId } = useParams();
-  const navigate = useNavigate();
-
-  const [scenario, setScenario] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [tab, setTab] = useState('map');
-  const [mapMode, setMapMode] = useState('blocks');
-  const [selectedBlockId, setSelectedBlockId] = useState(null);
-  const [selectedDialogueNodeId, setSelectedDialogueNodeId] = useState(null);
-  const [selectedEdge, setSelectedEdge] = useState(null);
-  const [validation, setValidation] = useState(null);
-  const [publishing, setPublishing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState(null);
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const data = await getScenario(scenarioId);
-        setScenario(data);
-      } catch {
-        // 1. localStorage
-        const local = localStorage.getItem('scenario_' + scenarioId);
-        if (local) {
-          setScenario(JSON.parse(local));
-          setLoading(false);
-          return;
-        }
-
-        // 2. Хардкодные сценарии из scenario.js
-        const localScenario = getLocalScenario(scenarioId);
-        if (localScenario) {
-          setScenario({ ...localScenario, isMock: true });
-          setLoading(false);
-          return;
-        }
-
-        // 3. mockScenario
-        setScenario({ ...mockScenario, scenario_id: scenarioId, isMock: true });
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, [scenarioId]);
-
-  useEffect(() => {
-    if (!scenario || loading) return;
-    const timer = setTimeout(() => {
-      localStorage.setItem('scenario_' + scenarioId, JSON.stringify(scenario));
-      setLastSaved(new Date());
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [scenario, scenarioId, loading]);
-
-  const handleCloseEdge = useCallback(() => setSelectedEdge(null), []);
-  const handleCloseDialogueNode = useCallback(() => setSelectedDialogueNodeId(null), []);
-
-  const handleCloseBlock = useCallback(() => {
-    if (selectedBlockId) {
-      setScenario(prev => ({
-        ...prev,
-        blocks: prev.blocks.map(b =>
-          b.id === selectedBlockId ? { ...b, isNew: false } : b
-        )
-      }));
-    }
-    setSelectedBlockId(null);
-  }, [selectedBlockId]);
-
-  const handleBlockChange = useCallback((updatedBlock) => {
-    setScenario(prev => ({
-      ...prev,
-      blocks: prev.blocks.map(b => b.id === updatedBlock.id ? updatedBlock : b)
-    }));
-  }, []);
-
-  const handleNodeDragStop = useCallback((nodeId, position) => {
-    setScenario(prev => ({
-      ...prev,
-      blocks: prev.blocks.map(b =>
-        b.id === nodeId ? { ...b, position } : b
-      )
-    }));
-  }, []);
-
-  const handleDeleteBlock = useCallback((blockId) => {
-    setScenario(prev => ({
-      ...prev,
-      blocks: prev.blocks
-        .filter(b => b.id !== blockId)
-        .map(b => ({
-          ...b,
-          transitions: (b.transitions || []).filter(t => t.target_block_id !== blockId)
-        }))
-    }));
-    setSelectedBlockId(null);
-  }, []);
-
-  function handleAddBlock() {
-    const newId = 'block-' + Date.now();
-    const newBlock = {
-      id: newId,
-      type: 'regular',
-      name: 'Новый блок',
-      description: '',
-      expanded_context: '',
-      lead_role_id: null,
-      lead_probability: 50,
-      role_goals: [],
-      behavior: '',
-      action_rules: [],
-      constraints: [],
-      transitions: [],
-      position: { x: 100 + Math.random() * 400, y: 100 + Math.random() * 300 },
-      isNew: true,
-      deterministic_dialogue: {
-        start_node_id: '',
-        nodes: []
-      }
-    };
-
-    setScenario(prev => ({
-      ...prev,
-      blocks: [...prev.blocks, newBlock]
-    }));
-
-    setSelectedBlockId(newId);
-    setSelectedEdge(null);
-    setSelectedDialogueNodeId(null);
-  }
-
-  function handleAddTransition(sourceBlockId, targetBlockId) {
-    setScenario(prev => {
-      const sourceBlock = prev.blocks.find(b => b.id === sourceBlockId);
-      if (!sourceBlock) return prev;
-
-      const exists = sourceBlock.transitions?.some(t => t.target_block_id === targetBlockId);
-      if (exists) return prev;
-
-      const newTransition = {
-        id: 'tr-' + Date.now(),
-        condition: '',
-        target_block_id: targetBlockId,
-        weight: 50,
-        forbidden: false
-      };
-
-      return {
-        ...prev,
-        blocks: prev.blocks.map(b =>
-          b.id === sourceBlockId
-            ? { ...b, transitions: [...(b.transitions || []), newTransition] }
-            : b
-        )
-      };
-    });
-  }
-
-  async function handleSave() {
-    if (scenario.isMock || scenarioId.startsWith('sc-mock')) {
-      localStorage.setItem('scenario_' + scenarioId, JSON.stringify(scenario));
-      setLastSaved(new Date());
-      return;
-    }
-    setSaving(true);
-    setError('');
-    try {
-      await updateScenario(scenarioId, {
-        title: scenario.title,
-        description: scenario.description,
-        difficulty: scenario.difficulty,
-        tags: scenario.tags || [],
-        supported_runtimes: scenario.supported_runtimes || [],
-        supported_channels: scenario.supported_channels || [],
-        target_cluster_ids: scenario.target_cluster_ids || [],
-        roles: scenario.roles,
-        blocks: scenario.blocks
-      });
-      setLastSaved(new Date());
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleValidate() {
-    try {
-      const result = await validateScenario(scenarioId);
-      setValidation(result);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function handlePublish() {
-    setPublishing(true);
-    try {
-      const published = {
-        ...scenario,
-        status: 'published',
-        publishedAt: new Date().toISOString()
-      };
-      localStorage.setItem('scenario_' + scenarioId, JSON.stringify(published));
-
-      const allPublished = JSON.parse(localStorage.getItem('published_scenarios') || '{}');
-      allPublished[scenarioId] = published;
-      localStorage.setItem('published_scenarios', JSON.stringify(allPublished));
-
-      setScenario(published);
-      alert('✅ Сценарий опубликован! Ученики увидят его в Обучении.');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setPublishing(false);
-    }
-  }
-
-  if (loading) return <div className="page">Загрузка...</div>;
-  if (error && !scenario) return <div className="page"><p className="error">{error}</p></div>;
-  if (!scenario) return <div className="page">Сценарий не найден</div>;
-
-  const blockFlow = scenarioToFlow(scenario);
-
-  const activeBlockId = selectedBlockId || scenario.blocks.find(x => x.type === 'regular')?.id;
-  const selectedBlock = scenario.blocks.find(b => b.id === activeBlockId);
-
-  const dialogueFlow = selectedBlock ? dialogueToFlow(selectedBlock) : { nodes: [], edges: [] };
-
-  const selectedDialogueNode = selectedBlock?.deterministic_dialogue?.nodes?.find(
-    n => n.id === selectedDialogueNodeId
-  );
-
-  const isStartNode = selectedBlock?.deterministic_dialogue?.start_node_id === selectedDialogueNodeId;
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <header className="chat-header">
-        <button className="back-btn" onClick={() => navigate('/constructor')}>←</button>
-        <div className="chat-header-info">
-          <h2>{scenario.title}</h2>
-          <p>
-            {scenario.status} · {scenario.difficulty} · блоков: {scenario.blocks?.length || 0}
-            {lastSaved && ` · сохранено ${lastSaved.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
-          </p>
-        </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button onClick={handleSave} disabled={saving}>
-            {saving ? 'Сохранение...' : 'Сохранить'}
-          </button>
-          <button onClick={handleValidate}>Проверить</button>
-          {scenario.status === 'draft' && (
-            <button onClick={handlePublish} disabled={publishing}>
-              {publishing ? '...' : 'Опубликовать'}
-            </button>
-          )}
-        </div>
-      </header>
-
-      {validation && (
-        <div style={{ padding: '10px 20px', background: 'var(--paper)', borderBottom: '1px solid var(--line)' }}>
-          <strong>Валидация:</strong> {validation.valid ? '✅ OK' : '❌ Есть ошибки'}
-          {validation.errors_count > 0 && ` · ошибок: ${validation.errors_count}`}
-          {validation.warnings_count > 0 && ` · предупреждений: ${validation.warnings_count}`}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 0, padding: '0 20px', borderBottom: '1px solid var(--line)', background: 'var(--paper-raised)' }}>
-        {[
-          { id: 'context', label: 'Контекст' },
-          { id: 'map', label: 'Карта' }
-        ].map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              border: 'none',
-              background: 'transparent',
-              padding: '12px 16px',
-              fontSize: 14,
-              fontWeight: 700,
-              color: tab === t.id ? 'var(--ink)' : 'var(--ink-soft)',
-              borderBottom: tab === t.id ? '2px solid var(--brand)' : '2px solid transparent',
-              cursor: 'pointer',
-              fontFamily: 'inherit'
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {tab === 'context' && (
-          <div style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
-            <div className="card">
-              <h2>Описание</h2>
-              <p>{scenario.description}</p>
-            </div>
-            {scenario.expanded_context && (
-              <div className="card">
-                <h2>Развёрнутый контекст</h2>
-                <p>{scenario.expanded_context}</p>
-              </div>
-            )}
-            <div className="card">
-              <h2>Роли</h2>
-              {scenario.roles?.map(r => (
-                <div key={r.id} className="competency-item">
-                  <span>{r.name}</span>
-                  <span className="muted">{r.goal}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {tab === 'map' && (
-          <div style={{ flex: 1, display: 'flex', minHeight: 0, flexDirection: 'column' }}>
-            <div style={{
-              padding: '10px 20px',
-              background: 'var(--paper)',
-              borderBottom: '1px solid var(--line)',
-              display: 'flex',
-              gap: 8,
-              alignItems: 'center'
-            }}>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginRight: 8 }}>Режим:</span>
-              <button
-                onClick={() => {
-                  setMapMode('blocks');
-                  setSelectedDialogueNodeId(null);
-                }}
-                style={{
-                  padding: '6px 14px',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  borderRadius: 20,
-                  border: `1.5px solid ${mapMode === 'blocks' ? 'var(--brand)' : 'var(--line)'}`,
-                  background: mapMode === 'blocks' ? 'var(--brand)' : 'transparent',
-                  color: mapMode === 'blocks' ? 'var(--paper-raised)' : 'var(--ink-soft)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit'
-                }}
-              >
-                Блоки
-              </button>
-              <button
-                onClick={() => {
-                  setMapMode('dialogue');
-                  setSelectedBlockId(null);
-                }}
-                style={{
-                  padding: '6px 14px',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  borderRadius: 20,
-                  border: `1.5px solid ${mapMode === 'dialogue' ? 'var(--brand)' : 'var(--line)'}`,
-                  background: mapMode === 'dialogue' ? 'var(--brand)' : 'transparent',
-                  color: mapMode === 'dialogue' ? 'var(--paper-raised)' : 'var(--ink-soft)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit'
-                }}
-              >
-                Диалог внутри блока
-              </button>
-
-              {mapMode === 'dialogue' && (
-                <select
-                  value={activeBlockId || ''}
-                  onChange={e => {
-                    setSelectedBlockId(e.target.value);
-                    setSelectedDialogueNodeId(null);
-                  }}
-                  style={{
-                    marginLeft: 'auto',
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    border: '1px solid var(--line)',
-                    borderRadius: 8,
-                    background: 'var(--paper-raised)',
-                    color: 'var(--ink)',
-                    fontFamily: 'inherit'
-                  }}
-                >
-                  {scenario.blocks.map(b => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.deterministic_dialogue?.nodes?.length || 0} узлов)
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-              <div style={{ flex: 1 }}>
-                {mapMode === 'blocks' ? (
-                  <TreeEditor
-                    nodes={blockFlow.nodes}
-                    edges={blockFlow.edges}
-                    onNodeDragStop={handleNodeDragStop}
-                    onSelectBlock={(block) => {
-                      setSelectedBlockId(block.id);
-                      setSelectedDialogueNodeId(null);
-                      setSelectedEdge(null);
-                    }}
-                    onSelectEdge={(data) => {
-                      setSelectedEdge(data);
-                      setSelectedBlockId(null);
-                    }}
-                    onAddBlock={handleAddBlock}
-                    onAddTransition={handleAddTransition}
-                  />
-                ) : (
-                  <DialogueTree
-                    nodes={dialogueFlow.nodes}
-                    edges={dialogueFlow.edges}
-                    onSelectNode={(node) => setSelectedDialogueNodeId(node.id)}
-                    onSelectReply={() => {}}
-                  />
-                )}
-              </div>
-
-              {mapMode === 'blocks' && selectedBlockId && (
-                <BlockPanel
-                  block={scenario.blocks.find(b => b.id === selectedBlockId) || null}
-                  roles={scenario.roles || []}
-                  allBlocks={scenario.blocks}
-                  onChange={handleBlockChange}
-                  onClose={handleCloseBlock}
-                  onDelete={handleDeleteBlock}
-                />
-              )}
-
-              {mapMode === 'blocks' && selectedEdge && (
-                <EdgePanel
-                  edgeData={selectedEdge}
-                  scenario={scenario}
-                  onChange={handleBlockChange}
-                  onClose={handleCloseEdge}
-                />
-              )}
-
-              {mapMode === 'dialogue' && selectedDialogueNode && selectedBlock && (
-                <DialoguePanel
-                  node={selectedDialogueNode}
-                  selectedBlock={selectedBlock}
-                  block={selectedBlock}
-                  isStart={isStartNode}
-                  onChange={handleBlockChange}
-                  onClose={handleCloseDialogueNode}
-                />
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const { scenarioId } = useParams(); const navigate = useNavigate(); const client = useQueryClient();
+  const source = useQuery({ queryKey: ['scenario', scenarioId], queryFn: ({ signal }) => getScenario(scenarioId, signal) });
+  const dictionary = useQuery({ queryKey: ['competency-clusters'], queryFn: ({ signal }) => getCompetencyClusters(signal), staleTime: 3600000 });
+  const actions = useQuery({ queryKey: ['semantic-actions'], queryFn: ({ signal }) => getSemanticActions(signal), staleTime: 3600000 });
+  const [draft, setDraft] = useState(null); const [section, setSection] = useState('graph'); const [selectedId, setSelectedId] = useState(null); const [inspector, setInspector] = useState(true); const [inspectorWidth, setInspectorWidth] = useState(380); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState(''); const [validation, setValidation] = useState(null); const [aiBusy, setAiBusy] = useState(false); const [instructions, setInstructions] = useState(''); const [dialogueBlock, setDialogueBlock] = useState(null);
+  useEffect(() => { if (source.data) { setDraft(editable(source.data)); setDirty(false); } }, [source.data]);
+  useEffect(() => { const handler = (event) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } }; window.addEventListener('beforeunload', handler); return () => window.removeEventListener('beforeunload', handler); }, [dirty]);
+  const readOnly = Boolean(source.data && (!source.data.is_owned_by_me || source.data.status !== 'draft')); const flow = useMemo(() => scenarioToFlow({ blocks: draft?.blocks || [] }), [draft]); const selected = draft?.blocks.find((block) => block.id === selectedId); const deterministicEnabled = draft?.supported_runtimes?.includes('deterministic'); const learnerRoleId = draft?.blocks?.map((block) => block.deterministic_dialogue?.learner_role_id).find(Boolean) || '';
+  const changeDraft = (next) => { if (!readOnly) { setDraft((current) => typeof next === 'function' ? next(current) : next); setDirty(true); } };
+  const updateBlock = (block) => changeDraft((current) => ({ ...current, blocks: current.blocks.map((item) => item.id === block.id ? block : item) }));
+  const payload = () => ({ ...draft, blocks: draft.blocks.map((block) => { const clean = { ...block }; delete clean.position; return clean; }) });
+  async function save() { setSaving(true); setSaveError(''); try { const saved = await updateScenario(scenarioId, payload()); client.setQueryData(['scenario', scenarioId], saved); setDraft(editable(saved)); setDirty(false); await client.invalidateQueries({ queryKey: ['scenarios'] }); } catch (error) { setSaveError(error.message); } finally { setSaving(false); } }
+  async function validate() { setSaveError(''); try { setValidation(await validateScenario(scenarioId)); } catch (error) { setSaveError(error.message); } }
+  async function publish() { if (!window.confirm('После публикации сценарий станет неизменяемым. Продолжить?')) return; setSaving(true); setSaveError(''); try { const response = await publishScenario(scenarioId); client.setQueryData(['scenario', scenarioId], response.scenario || response); setValidation(null); setDirty(false); await client.invalidateQueries({ queryKey: ['scenarios'] }); } catch (error) { if (error.status === 422) setValidation(error.details?.validation || error.details); else setSaveError(error.message); } finally { setSaving(false); } }
+  async function archive() { if (!window.confirm('Архивировать сценарий?')) return; setSaving(true); try { const result = await archiveScenario(scenarioId); client.setQueryData(['scenario', scenarioId], result.scenario || result); await client.invalidateQueries({ queryKey: ['scenarios'] }); } catch (error) { setSaveError(error.message); } finally { setSaving(false); } }
+  async function runAi(kind, prompt = '') { setAiBusy(true); setSaveError(''); try { let response; if (kind === 'context') response = await generateScenarioContext(scenarioId, prompt); if (kind === 'draft') response = await generateScenarioDraft(scenarioId, prompt); if (kind === 'block' && selected) response = await generateScenarioBlock(scenarioId, selected.id, prompt); if (kind === 'dialogue' && selected) response = await generateDialogue(scenarioId, selected.id, selected.deterministic_dialogue?.learner_role_id || draft.roles[0]?.id, prompt); const value = response?.proposal || response; changeDraft((current) => { if (kind === 'context') return { ...current, expanded_context: value?.expanded_context || current.expanded_context }; if (kind === 'draft') return { ...current, expanded_context: value?.expanded_context || current.expanded_context, blocks: value?.blocks || current.blocks }; if (kind === 'block' && selected) return { ...current, blocks: current.blocks.map((block) => block.id === selected.id ? { ...block, ...value } : block) }; if (kind === 'dialogue' && selected) return { ...current, blocks: current.blocks.map((block) => block.id === selected.id ? { ...block, deterministic_dialogue: value } : block) }; return current; }); setInstructions(''); } catch (error) { setSaveError(error.message); } finally { setAiBusy(false); } }
+  function addBlock() { const block = blankBlock(); changeDraft((current) => ({ ...current, blocks: [...current.blocks, block] })); setSelectedId(block.id); setInspector(true); }
+  function setLearnerRole(roleId) { changeDraft((current) => ({ ...current, blocks: current.blocks.map((block) => ({ ...block, deterministic_dialogue: { ...(block.deterministic_dialogue || {}), learner_role_id: roleId } })) })); }
+  function removeSelected() { if (!selected || !window.confirm(`Удалить блок «${selected.name}» и связанные с ним переходы?`)) return; changeDraft((current) => ({ ...current, blocks: current.blocks.filter((block) => block.id !== selected.id).map((block) => ({ ...block, transitions: block.transitions.filter((transition) => transition.target_block_id !== selected.id) })) })); setSelectedId(null); }
+  if (source.isLoading || dictionary.isLoading || actions.isLoading || !draft) return <LoadingState />;
+  if (source.error || dictionary.error || actions.error) return <ErrorState error={source.error || dictionary.error || actions.error} retry={() => { source.refetch(); dictionary.refetch(); actions.refetch(); }} />;
+  const roleForms = [...draft.roles, ...(!readOnly ? Array.from({ length: Math.max(0, 2 - draft.roles.length) }, blankRole) : []), ...(deterministicEnabled ? [{ id: 'learner-role-setting', learnerSetting: true, learnerRoleId, roles: draft.roles, onSelect: setLearnerRole }] : [])];
+  return <div className="editor"><header className="editor-top"><button className="secondary" type="button" onClick={() => { if (!dirty || window.confirm('Есть несохранённые изменения. Вернуться к списку?')) navigate('/methodist/scenarios'); }}>← Сценарии</button><div className="editor-title"><strong>{draft.title || 'Без названия'}</strong><StatusBadge value={source.data.status} /><small className={saveError ? 'error' : dirty ? 'feedback bad' : 'success'}>{saveError ? 'Ошибка сохранения' : saving ? 'Сохраняем…' : dirty ? 'Есть изменения' : 'Сохранено'}</small></div>{!readOnly ? <div className="editor-actions"><button type="button" className="secondary" onClick={validate} disabled={saving}>Проверить</button><button type="button" onClick={save} disabled={saving || !dirty}>{saving ? 'Сохраняем…' : 'Сохранить'}</button><button type="button" onClick={publish} disabled={saving || dirty}>Опубликовать</button></div> : source.data.is_owned_by_me && source.data.status === 'published' ? <button type="button" className="danger" onClick={archive} disabled={saving}>Архивировать</button> : null}</header>
+    <div className="editor-workspace"><nav className="editor-nav">{[['settings', 'Настройки'], ['roles', 'Роли'], ['graph', 'Схема / блоки']].map(([key, label]) => <button key={key} type="button" className={section === key ? 'active' : 'secondary'} onClick={() => setSection(key)}>{label}</button>)}</nav><main className="editor-canvas">{section === 'graph' ? <TreeEditor nodes={flow.nodes} edges={flow.edges} onSelectBlock={(block) => { setSelectedId(block.id); setInspector(true); }} onSelectEdge={(edge) => { setSelectedId(edge.sourceBlockId); setInspector(true); }} onNodeDragStop={(blockId, position) => changeDraft((current) => ({ ...current, blocks: current.blocks.map((block) => block.id === blockId ? { ...block, position } : block) }))} onAddTransition={!readOnly ? (from, to) => changeDraft((current) => ({ ...current, blocks: current.blocks.map((block) => block.id === from ? { ...block, transitions: [...block.transitions, { id: newId(), target_block_id: to, condition: '', note: '', weight: 50, forbidden: false }] } : block) })) : undefined} onAddBlock={!readOnly ? addBlock : undefined} /> : <div className="editor-form page">{section === 'settings' ? <div className="form-grid"><Field label="Название" value={draft.title} disabled={readOnly} onChange={(title) => changeDraft({ ...draft, title })} /><Field label="Описание" value={draft.description} multiline disabled={readOnly} onChange={(description) => changeDraft({ ...draft, description })} /><div className="field-with-action context-field"><Field label="Развёрнутый контекст" value={draft.expanded_context} multiline disabled={readOnly} onChange={(expanded_context) => changeDraft({ ...draft, expanded_context })} />{!readOnly && <button type="button" className="secondary" onClick={() => runAi('context')} disabled={aiBusy}>✨ Сгенерировать</button>}</div><label className="field">Сложность<select disabled={readOnly} value={draft.difficulty} onChange={(event) => changeDraft({ ...draft, difficulty: event.target.value })}><option value="easy">Лёгкая</option><option value="medium">Средняя</option><option value="hard">Сложная</option></select></label><Field label="Теги через запятую" value={draft.tags.join(', ')} disabled={readOnly} onChange={(value) => changeDraft({ ...draft, tags: value.split(',').map((tag) => tag.trim()).filter(Boolean) })} /><ToggleList title="Поддерживаемые режимы" options={RUNTIMES} value={draft.supported_runtimes} disabled={readOnly} onChange={(supported_runtimes) => changeDraft({ ...draft, supported_runtimes })} /><ToggleList title="Поддерживаемые каналы" options={CHANNELS} value={draft.supported_channels} disabled={readOnly} onChange={(supported_channels) => changeDraft({ ...draft, supported_channels })} /><fieldset className="choice-group"><legend>Кластеры развития</legend>{dictionary.data.map((cluster) => <label key={cluster.id} className="check-row"><input type="checkbox" disabled={readOnly} checked={draft.target_cluster_ids.includes(cluster.id)} onChange={() => changeDraft({ ...draft, target_cluster_ids: draft.target_cluster_ids.includes(cluster.id) ? draft.target_cluster_ids.filter((item) => item !== cluster.id) : [...draft.target_cluster_ids, cluster.id] })} /> {cluster.name}</label>)}</fieldset>{!readOnly && <button type="button" className="secondary" onClick={() => runAi('draft')} disabled={aiBusy}>✨ Предложить граф блоков</button>}</div> : <div className="split">{roleForms.map((role, index) => <RoleForm key={role.id} item={role} readOnly={readOnly} update={(next) => changeDraft((current) => ({ ...current, roles: current.roles[index] ? current.roles.map((item, itemIndex) => itemIndex === index ? next : item) : [...current.roles, next] }))} />)}</div>}</div>}</main>{inspector && section === 'graph' && <aside className="editor-inspector" style={{ '--inspector-width': `${inspectorWidth}px` }}><div className="inspector-toolbar"><button className="secondary" type="button" aria-label="Сузить инспектор" onClick={() => setInspectorWidth((width) => Math.max(320, width - 40))}>−</button><button className="secondary" type="button" aria-label="Расширить инспектор" onClick={() => setInspectorWidth((width) => Math.min(560, width + 40))}>+</button><button className="secondary" type="button" onClick={() => setInspector(false)}>× Закрыть</button></div><BlockInspector block={selected} draft={draft} actions={actions.data} readOnly={readOnly} onChange={updateBlock} onDelete={removeSelected} onOpenDialogue={() => setDialogueBlock(selected.id)} onGenerateBlock={(prompt) => runAi('block', prompt)} onGenerateDialogue={(prompt) => runAi('dialogue', prompt)} aiBusy={aiBusy} instructions={instructions} onInstructionsChange={setInstructions} /></aside>}{section === 'graph' && !inspector && <button className="open-inspector" type="button" onClick={() => setInspector(true)}>Открыть настройки блока</button>}</div>
+    {validation && <aside className="validation-drawer"><button className="secondary" type="button" onClick={() => setValidation(null)}>× Закрыть</button><h2>Проверка сценария</h2><p className={validation.valid ? 'success' : 'error'}>{validation.valid ? 'Ошибок, блокирующих публикацию, нет.' : 'Есть ошибки: публикация пока недоступна.'}</p>{(validation.issues || []).map((issue, index) => <div className="validation-issue" key={`${issue.entity_id || 'issue'}-${index}`}><strong>{issue.severity === 'error' ? 'Ошибка' : 'Предупреждение'}</strong><p>{issue.message}</p>{issue.entity_id && <button className="secondary" type="button" onClick={() => { setSelectedId(issue.entity_id); setSection('graph'); setInspector(true); }}>Перейти к блоку</button>}</div>)}</aside>}
+    {dialogueBlock && <DialogueEditor block={draft.blocks.find((block) => block.id === dialogueBlock)} roles={draft.roles} actions={actions.data} readOnly={readOnly} onChange={updateBlock} onClose={() => setDialogueBlock(null)} deterministicEnabled={draft.supported_runtimes.includes('deterministic')} />}
+  </div>;
 }

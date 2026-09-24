@@ -116,7 +116,6 @@ JOIN users.users u ON u.organization_id = curator.organization_id
 JOIN users.user_roles ur ON ur.user_id = u.id AND ur.role = 'learner'
 LEFT JOIN learning.training_sessions ts ON ts.user_id = u.id AND ts.status = 'completed'
 WHERE curator.id = $1
-  AND u.id <> curator.id
 GROUP BY u.id, u.username, u.email, u.created_at
 ORDER BY u.username
 LIMIT $3 OFFSET $2
@@ -234,7 +233,7 @@ SELECT
     COUNT(DISTINCT ars.id)::integer AS arena_sessions_count,
     COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'pending')::integer AS pending_assignments_count
 FROM users.users curator
-LEFT JOIN users.users u ON u.organization_id = curator.organization_id AND u.id <> curator.id
+LEFT JOIN users.users u ON u.organization_id = curator.organization_id
 LEFT JOIN learning.training_sessions ts ON ts.user_id = u.id
 LEFT JOIN learning.arena_feedback af ON af.participant_id = u.id
 LEFT JOIN learning.arena_sessions ars ON ars.id = af.session_id

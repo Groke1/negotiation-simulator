@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 )
@@ -25,14 +23,14 @@ const (
 	RoleVirtualPartner    Role = "virtual_partner"
 )
 
-type Message struct {
+type message struct {
 	Role    string
 	Content string
 }
 
 type GenerateRequest struct {
 	Model       string
-	Messages    []Message
+	Messages    []message
 	Temperature float64
 }
 
@@ -41,7 +39,6 @@ type Provider interface {
 }
 
 type Config struct {
-	PromptDir                string
 	ScenarioArchitectModel   string
 	BlockDesignerModel       string
 	DialogueBuilderModel     string
@@ -55,24 +52,19 @@ type Config struct {
 	MaxStructuredOutputRetry int
 }
 
-type Service struct {
+type service struct {
 	provider Provider
 	cfg      Config
-	prompts  map[Role]string
 }
 
-func NewService(provider Provider, cfg Config) (*Service, error) {
-	prompts, err := loadPrompts(cfg.PromptDir)
-	if err != nil {
-		return nil, err
-	}
-	if cfg.MaxStructuredOutputRetry < 0 {
-		cfg.MaxStructuredOutputRetry = 0
-	}
-	return &Service{provider: provider, cfg: cfg, prompts: prompts}, nil
+func NewService(provider Provider, cfg Config) (*service, error) {
+
+	cfg.MaxStructuredOutputRetry = max(0, cfg.MaxStructuredOutputRetry)
+
+	return &service{provider: provider, cfg: cfg}, nil
 }
 
-func (s *Service) GenerateJSON(ctx context.Context, role Role, input any, output any, validate func() error) error {
+func (s *service) GenerateJSON(ctx context.Context, role Role, input any, output any, validate func() error) error {
 	if s == nil || s.provider == nil {
 		return entity.ErrAIProviderUnavailable
 	}
@@ -84,18 +76,14 @@ func (s *Service) GenerateJSON(ctx context.Context, role Role, input any, output
 	if err != nil {
 		return err
 	}
-	systemPrompt, ok := s.prompts[role]
-	if !ok || strings.TrimSpace(systemPrompt) == "" {
-		return fmt.Errorf("ai prompt for role %s is missing", role)
-	}
+
 	var lastErr error
-	messages := []Message{
-		{Role: "system", Content: systemPrompt},
+	messages := []message{
 		{Role: "user", Content: string(payload)},
 	}
 	for attempt := 0; attempt <= s.cfg.MaxStructuredOutputRetry; attempt++ {
 		if attempt > 0 && lastErr != nil {
-			messages = append(messages, Message{Role: "user", Content: "Previous response did not pass backend JSON/schema validation: " + lastErr.Error() + ". Return only corrected JSON."})
+			messages = append(messages, message{Role: "user", Content: "Previous response did not pass backend JSON/schema validation: " + lastErr.Error() + ". Return only corrected JSON."})
 		}
 		content, err := s.provider.Generate(ctx, GenerateRequest{Model: model, Temperature: temperature, Messages: messages})
 		if err != nil {
@@ -119,7 +107,7 @@ func (s *Service) GenerateJSON(ctx context.Context, role Role, input any, output
 	return entity.ErrAIInvalidStructuredOutput
 }
 
-func (s *Service) modelForRole(role Role) (string, float64, error) {
+func (s *service) modelForRole(role Role) (string, float64, error) {
 	switch role {
 	case RoleScenarioArchitect:
 		return s.cfg.ScenarioArchitectModel, s.cfg.ScenarioArchitectTemp, nil
@@ -134,28 +122,6 @@ func (s *Service) modelForRole(role Role) (string, float64, error) {
 	default:
 		return "", 0, fmt.Errorf("unknown ai role %s", role)
 	}
-}
-
-func loadPrompts(dir string) (map[Role]string, error) {
-	if strings.TrimSpace(dir) == "" {
-		dir = "prompts"
-	}
-	files := map[Role]string{
-		RoleScenarioArchitect: "01_scenario_architect.system.md",
-		RoleBlockDesigner:     "02_block_designer.system.md",
-		RoleDialogueBuilder:   "03_deterministic_dialogue_builder.system.md",
-		RoleActionClassifier:  "04_semantic_action_classifier.system.md",
-		RoleVirtualPartner:    "05_virtual_partner_turn.system.md",
-	}
-	prompts := make(map[Role]string, len(files))
-	for role, name := range files {
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			return nil, err
-		}
-		prompts[role] = string(data)
-	}
-	return prompts, nil
 }
 
 func decodeModelJSON(content string, output any) error {
@@ -193,10 +159,3 @@ func mapProviderError(err error) error {
 }
 
 var ErrProviderUnavailable = errors.New("provider unavailable")
-
-func TimeoutContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if timeout <= 0 {
-		return context.WithCancel(parent)
-	}
-	return context.WithTimeout(parent, timeout)
-}

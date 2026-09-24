@@ -21,11 +21,11 @@ export default function BlockNode({ data, selected }) {
     <div style={{
       padding: '12px 16px',
       borderRadius: 12,
-      background: 'var(--paper-raised)',
+      background: 'var(--surface-2)',
       border: `${selected ? 3 : 2}px solid ${color}`,
       minWidth: 200,
       maxWidth: 240,
-      boxShadow: selected ? '0 8px 20px rgba(0,0,0,0.15)' : '0 2px 6px rgba(0,0,0,0.08)',
+      boxShadow: selected ? '0 8px 20px rgba(0,0,0,0.35)' : '0 2px 6px rgba(0,0,0,0.22)',
       fontFamily: 'inherit',
       transition: 'box-shadow 0.15s'
     }}>
@@ -46,18 +46,18 @@ export default function BlockNode({ data, selected }) {
         {TYPE_LABELS[type]}
       </div>
 
-      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
         {data.name}
       </div>
 
       {data.description && (
-        <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 6, lineHeight: 1.4 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, lineHeight: 1.4 }}>
           {data.description.slice(0, 60)}{data.description.length > 60 ? '...' : ''}
         </div>
       )}
 
       {block.transitions?.length > 0 && (
-        <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 6 }}>
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
           Переходов: {block.transitions.length}
         </div>
       )}

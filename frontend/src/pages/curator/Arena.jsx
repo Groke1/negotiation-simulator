@@ -1,76 +1,107 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  getCuratorTeam,
-  getScenarios,
-  createArenaAssignment,
-  getArenaAssignments
-} from '../../api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createArenaAssignment, getArenaAssignments, getCuratorTeam, getScenario, getScenarios } from '../../api';
+import { ClusterBars, EmptyState, ErrorState, LoadingState, StatusBadge, TagList } from '../../components/UI';
+
+function CandidateCard({ person, selected, onSelect }) {
+  return (
+    <button className={selected ? 'panel candidate selected' : 'panel candidate'} type="button" onClick={() => onSelect(person)}>
+      <strong>{person.name}</strong>
+      <span>{person.sessions_count || 0} тренировок{person.average_score != null ? ` · score ${person.average_score}` : ''}</span>
+      <ClusterBars clusters={person.clusters || []} />
+    </button>
+  );
+}
 
 export default function CuratorArena() {
   const navigate = useNavigate();
-  const [team, setTeam] = useState([]);
-  const [scenarios, setScenarios] = useState([]);
-  const [arenas, setArenas] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const client = useQueryClient();
+  const [query, setQuery] = useState('');
+  const [participantA, setParticipantA] = useState(null);
+  const [participantB, setParticipantB] = useState(null);
+  const [scenarioId, setScenarioId] = useState('');
+  const [schedule, setSchedule] = useState('');
+  const [channel, setChannel] = useState('chat');
+  const [roles, setRoles] = useState([]);
+  const [roleAId, setRoleAId] = useState('');
+  const [roleBId, setRoleBId] = useState('');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const [scenarioId, setScenarioId] = useState('');
-  const [learnerA, setLearnerA] = useState('');
-  const [learnerB, setLearnerB] = useState('');
-  const [scheduledAt, setScheduledAt] = useState('');
+  const team = useQuery({ queryKey: ['curator-team'], queryFn: ({ signal }) => getCuratorTeam(signal) });
+  const scenarios = useQuery({ queryKey: ['scenarios', 'arena'], queryFn: ({ signal }) => getScenarios({ status: 'published', runtime: 'arena', limit: 100 }, signal) });
+  const arenas = useQuery({ queryKey: ['arena-assignments'], queryFn: ({ signal }) => getArenaAssignments({}, signal) });
 
-  async function loadAll() {
+  const candidates = useMemo(() => {
+    const value = query.trim().toLowerCase();
+    return (team.data || []).filter((person) => {
+      if (person.user_id === participantA?.user_id) return false;
+      return !value || person.name.toLowerCase().includes(value);
+    });
+  }, [team.data, participantA, query]);
+
+  async function selectScenario(value) {
+    setScenarioId(value);
+    setRoles([]);
+    setRoleAId('');
+    setRoleBId('');
+    if (!value) return;
     try {
-      const teamData = await getCuratorTeam();
-      setTeam(teamData);
+      const detail = await getScenario(value);
+      const nextRoles = detail.roles || [];
+      setRoles(nextRoles);
+      setRoleAId(nextRoles[0]?.id || '');
+      setRoleBId(nextRoles.find((role) => role.id !== nextRoles[0]?.id)?.id || '');
     } catch (err) {
       setError(err.message);
     }
-
-    try {
-      const scenariosData = await getScenarios();
-      setScenarios(scenariosData.filter(s => s.status === 'published'));
-    } catch {}
-
-    try {
-      const arenasData = await getArenaAssignments();
-      setArenas(arenasData);
-    } catch {}
   }
 
-  useEffect(() => {
-    loadAll().finally(() => setLoading(false));
-  }, []);
+  function changeRoleA(value) {
+    setRoleAId(value);
+    if (value === roleBId) setRoleBId(roles.find((role) => role.id !== value)?.id || '');
+  }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  function changeRoleB(value) {
+    setRoleBId(value);
+    if (value === roleAId) setRoleAId(roles.find((role) => role.id !== value)?.id || '');
+  }
+
+  async function submit(event) {
+    event.preventDefault();
     setError('');
-    setSuccess('');
-
-    if (learnerA === learnerB) {
-      setError('Нельзя выбрать одного и того же ученика');
+    if (!participantA || !participantB || !scenarioId || !schedule || !roleAId || !roleBId) {
+      setError('Заполните двух участников, сценарий, разные роли и время.');
       return;
     }
-
+    if (participantA.user_id === participantB.user_id) {
+      setError('Для Arena нужны два разных участника.');
+      return;
+    }
+    if (roleAId === roleBId) {
+      setError('Участникам нельзя назначить одну и ту же переговорную роль.');
+      return;
+    }
     setSaving(true);
     try {
-      await createArenaAssignment(
-        scenarioId,
-        [
-          { user_id: learnerA, role: 'learner' },
-          { user_id: learnerB, role: 'partner' }
+      await createArenaAssignment({
+        scenario_id: scenarioId,
+        participants: [
+          { user_id: participantA.user_id, scenario_role_id: roleAId },
+          { user_id: participantB.user_id, scenario_role_id: roleBId },
         ],
-        new Date(scheduledAt).toISOString()
-      );
-      setSuccess('Арена назначена');
+        channel,
+        scheduled_at: new Date(schedule).toISOString(),
+      });
+      await client.invalidateQueries({ queryKey: ['arena-assignments'] });
+      setParticipantA(null);
+      setParticipantB(null);
       setScenarioId('');
-      setLearnerA('');
-      setLearnerB('');
-      setScheduledAt('');
-      await loadAll();
+      setSchedule('');
+      setRoles([]);
+      setRoleAId('');
+      setRoleBId('');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -78,121 +109,96 @@ export default function CuratorArena() {
     }
   }
 
-  function formatDate(iso) {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleString('ru-RU', {
-      day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit'
-    });
-  }
-
-  function statusLabel(status) {
-    const map = {
-      scheduled: 'Запланирована',
-      ready: 'Готова',
-      in_progress: 'Идёт',
-      completed: 'Завершена',
-      cancelled: 'Отменена'
-    };
-    return map[status] || status;
-  }
-
-  if (loading) return <div className="page">Загрузка...</div>;
+  if (team.isLoading || scenarios.isLoading || arenas.isLoading) return <LoadingState />;
+  if (team.error || scenarios.error || arenas.error) return <ErrorState error={team.error || scenarios.error || arenas.error} retry={() => { team.refetch(); scenarios.refetch(); arenas.refetch(); }} />;
 
   return (
     <div className="page">
-      <header>
-        <h1>Назначить арену</h1>
-        <p>Выберите сценарий, двух учеников и дату переговоров.</p>
+      <header className="page-header">
+        <div>
+          <span className="eyebrow">Куратор</span>
+          <h1>Арены</h1>
+          <p>Подберите двух людей по профилю, выберите сценарий Arena и назначьте разные переговорные роли.</p>
+        </div>
+        <button className="secondary" type="button" onClick={() => navigate('/curator/team')}>Команда</button>
       </header>
 
-      <section className="nav" style={{ marginBottom: 16 }}>
-        <button onClick={() => navigate('/curator')}>Назад к команде</button>
-      </section>
-
-      <form onSubmit={handleSubmit} className="card">
-        <h2 className="section-title">Новая арена</h2>
-
+      <form className="card form-grid" onSubmit={submit}>
+        <h2>Новая Arena</h2>
         <label className="field">
-          <span>Сценарий</span>
-          <select value={scenarioId} onChange={e => setScenarioId(e.target.value)} required>
-            <option value="">— выберите —</option>
-            {scenarios.map(s => (
-              <option key={s.scenario_id || s.id} value={s.scenario_id || s.id}>
-                {s.title}
-              </option>
-            ))}
+          Поиск участников
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Имя сотрудника" />
+        </label>
+        <div className="split">
+          <section className="panel">
+            <h2>Участник 1</h2>
+            {participantA ? (
+              <>
+                <strong>{participantA.name}</strong>
+                <ClusterBars clusters={participantA.clusters || []} />
+                <button className="secondary" type="button" onClick={() => setParticipantA(null)}>Изменить</button>
+              </>
+            ) : (
+              <div className="candidate-list">
+                {(team.data || []).filter((person) => !query || person.name.toLowerCase().includes(query.toLowerCase())).map((person) => <CandidateCard key={person.user_id} person={person} onSelect={setParticipantA} />)}
+              </div>
+            )}
+          </section>
+          <section className="panel">
+            <h2>Участник 2</h2>
+            {participantB ? (
+              <>
+                <strong>{participantB.name}</strong>
+                <ClusterBars clusters={participantB.clusters || []} />
+                <button className="secondary" type="button" onClick={() => setParticipantB(null)}>Изменить</button>
+              </>
+            ) : (
+              <div className="candidate-list">
+                {candidates.map((person) => <CandidateCard key={person.user_id} person={person} onSelect={setParticipantB} />)}
+              </div>
+            )}
+          </section>
+        </div>
+        <label className="field">
+          Сценарий
+          <select value={scenarioId} onChange={(event) => selectScenario(event.target.value)}>
+            <option value="">Выберите сценарий</option>
+            {scenarios.data.map((scenario) => <option key={scenario.scenario_id} value={scenario.scenario_id}>{scenario.title}</option>)}
           </select>
-          {scenarios.length === 0 && (
-            <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-              Нет опубликованных сценариев.
-            </p>
-          )}
         </label>
-
-        <label className="field">
-          <span>Первый ученик (learner)</span>
-          <select value={learnerA} onChange={e => setLearnerA(e.target.value)} required>
-            <option value="">— выберите —</option>
-            {team.map(m => (
-              <option key={m.user_id || m.id} value={m.user_id || m.id}>{m.name}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="field">
-          <span>Второй ученик (partner)</span>
-          <select value={learnerB} onChange={e => setLearnerB(e.target.value)} required>
-            <option value="">— выберите —</option>
-            {team.map(m => (
-              <option key={m.user_id || m.id} value={m.user_id || m.id}>{m.name}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="field">
-          <span>Дата и время</span>
-          <input
-            type="datetime-local"
-            value={scheduledAt}
-            onChange={e => setScheduledAt(e.target.value)}
-            required
-          />
-        </label>
-
+        {scenarioId && scenarios.data.find((scenario) => scenario.scenario_id === scenarioId) && (
+          <div className="panel">
+            <TagList tags={scenarios.data.find((scenario) => scenario.scenario_id === scenarioId).tags} />
+            <p>{scenarios.data.find((scenario) => scenario.scenario_id === scenarioId).description}</p>
+          </div>
+        )}
+        {roles.length === 2 && (
+          <div className="split">
+            <label className="field">{participantA?.name || 'Участник 1'}<select value={roleAId} onChange={(event) => changeRoleA(event.target.value)}>{roles.map((role) => <option key={role.id} value={role.id} disabled={role.id === roleBId}>{role.name}</option>)}</select></label>
+            <label className="field">{participantB?.name || 'Участник 2'}<select value={roleBId} onChange={(event) => changeRoleB(event.target.value)}>{roles.map((role) => <option key={role.id} value={role.id} disabled={role.id === roleAId}>{role.name}</option>)}</select></label>
+          </div>
+        )}
+        <label className="field">Дата и время<input type="datetime-local" required value={schedule} onChange={(event) => setSchedule(event.target.value)} /></label>
+        <label className="field">Канал<select value={channel} onChange={(event) => setChannel(event.target.value)}><option value="chat">Чат</option></select></label>
         {error && <p className="error">{error}</p>}
-        {success && <p style={{ color: '#0a7c2f', fontSize: 14, fontWeight: 600 }}>{success}</p>}
-
-        <button type="submit" disabled={saving}>
-          {saving ? 'Сохранение...' : 'Назначить арену'}
-        </button>
+        <button disabled={saving}>{saving ? 'Создаём…' : 'Создать Arena'}</button>
       </form>
 
-      <div className="card">
-        <h2 className="section-title">Все арены</h2>
-
-        {arenas.length === 0 && (
-          <p className="muted">Пока нет назначенных арен.</p>
-        )}
-
-        {arenas.map(a => (
-          <div key={a.arena_assignment_id || a.id} className="competency-item">
-            <div style={{ flex: 1 }}>
-              <strong>{a.scenario_title}</strong>
-              <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
-                {formatDate(a.scheduled_at)} · {statusLabel(a.status)}
-              </p>
-              <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
-                Участников: {a.participants?.length || 0}
-              </p>
-            </div>
-            {a.arena_session_id && a.status === 'completed' && (
-              <button onClick={() => navigate(`/curator/arena/${a.arena_session_id}/feedback`)}>
-                Фидбек
-              </button>
-            )}
+      <section className="card" style={{ marginTop: 16 }}>
+        <h2>Все Arena</h2>
+        {arenas.data.length ? (
+          <div className="card-grid">
+            {arenas.data.map((arena) => (
+              <article className="panel" key={arena.arena_assignment_id}>
+                <StatusBadge value={arena.status} />
+                <h2 style={{ marginTop: 12 }}>{arena.scenario_title}</h2>
+                <p>{new Date(arena.scheduled_at).toLocaleString('ru-RU')}</p>
+                {arena.arena_session_id && arena.status === 'completed' && <button type="button" onClick={() => navigate(`/curator/arenas/${arena.arena_session_id}`)}>Фидбек</button>}
+              </article>
+            ))}
           </div>
-        ))}
-      </div>
+        ) : <EmptyState title="Arena пока не назначены" />}
+      </section>
     </div>
   );
 }

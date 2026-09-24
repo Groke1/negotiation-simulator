@@ -357,6 +357,9 @@ func currentNodeFromState(raw json.RawMessage, doc *entity.ScenarioDocument) *de
 		if block.ID != state.BlockID {
 			continue
 		}
+		if block.DeterministicDialogue == nil {
+			return nil
+		}
 		for _, node := range block.DeterministicDialogue.Nodes {
 			if node.ID != state.CurrentNodeID {
 				continue

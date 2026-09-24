@@ -57,6 +57,7 @@ func (s *scenarioService) GenerateDraft(ctx context.Context, claims entity.Acces
 	if err != nil {
 		return nil, nil, err
 	}
+	entity.NormalizeScenarioBlocks(blocks)
 	proposal := &entity.ScenarioDraftProposal{ExpandedContext: strings.TrimSpace(output.ExpandedContext), Blocks: blocks}
 	copyScenario := *scenario
 	copyScenario.Context = entity.ScenarioContextJSON(doc.Description, proposal.ExpandedContext, doc.Tags)
@@ -131,7 +132,7 @@ func (s *scenarioService) GenerateDialogue(ctx context.Context, claims entity.Ac
 		return nil, nil, err
 	}
 	blocks := append([]entity.ScenarioBlock(nil), doc.Blocks...)
-	blocks[index].DeterministicDialogue = dialogue
+	blocks[index].DeterministicDialogue = &dialogue
 	copyScenario := *scenario
 	nodes, _ := json.Marshal(blocks)
 	copyScenario.Nodes = nodes
@@ -230,8 +231,9 @@ type dialogueOutput struct {
 }
 
 type localDialogue struct {
-	StartNodeKey string            `json:"start_node_key"`
-	Nodes        []localDialogNode `json:"nodes"`
+	LearnerRoleID string            `json:"learner_role_id"`
+	StartNodeKey  string            `json:"start_node_key"`
+	Nodes         []localDialogNode `json:"nodes"`
 }
 
 type localDialogNode struct {
@@ -348,6 +350,9 @@ func (output dialogueOutput) effectiveDialogue() localDialogue {
 }
 
 func validateDialogueOutput(output localDialogue, learnerRoleID string, block entity.ScenarioBlock, actions []entity.SemanticActionDefinition) error {
+	if strings.TrimSpace(output.LearnerRoleID) != learnerRoleID {
+		return fmt.Errorf("learner_role_id mismatch")
+	}
 	startKey := strings.TrimSpace(output.StartNodeKey)
 	if startKey == "" || len(output.Nodes) == 0 {
 		return fmt.Errorf("empty dialogue")
@@ -429,7 +434,7 @@ func normalizeDialogue(input localDialogue) (entity.DeterministicDialogue, error
 		}
 		nodes = append(nodes, entity.DeterministicDialogueNode{ID: keyToID[nodeKey], IncomingMessage: node.IncomingMessage, ReplyOptions: options})
 	}
-	return entity.DeterministicDialogue{StartNodeID: keyToID[strings.TrimSpace(input.StartNodeKey)], Nodes: nodes}, nil
+	return entity.DeterministicDialogue{LearnerRoleID: strings.TrimSpace(input.LearnerRoleID), StartNodeID: keyToID[strings.TrimSpace(input.StartNodeKey)], Nodes: nodes}, nil
 }
 
 func findBlock(blocks []entity.ScenarioBlock, id string) (entity.ScenarioBlock, int, bool) {
