@@ -270,7 +270,12 @@ func (c *Controller) WebSocket(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	conn, err := websocket.Upgrade(w, r, nil, 4096, 4096)
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		Subprotocols:    []string{"arena-v1"},
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
