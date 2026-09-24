@@ -363,9 +363,6 @@ func normalizeScenarioNodes(raw json.RawMessage) (json.RawMessage, error) {
 			blocks[i].DeterministicDialogue = nil
 			continue
 		}
-		if dialogue.LearnerRoleID == "" {
-			return nil, entity.ErrInvalidScenarioJSON
-		}
 	}
 	normalized, err := json.Marshal(blocks)
 	if err != nil {
