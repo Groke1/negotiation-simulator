@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { semanticActionLabel } from '../../../app/presentation';
+import { createId } from '../../../app/id';
 
-const newId = () => crypto.randomUUID();
+const newId = createId;
 
 const emptyNode = (roleId = '') => ({
   id: newId(),

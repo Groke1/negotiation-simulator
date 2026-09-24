@@ -7,8 +7,9 @@ import TreeEditor from './tree/TreeEditor';
 import DialogueEditor from './tree/DialogueEditor';
 import { scenarioToFlow } from './tree/mapper';
 import { semanticActionLabel } from '../../app/presentation';
+import { createId } from '../../app/id';
 
-const newId = () => crypto.randomUUID();
+const newId = createId;
 const blankRole = () => ({ id: newId(), name: '', description: '', goal: '', interests: '', constraints: '', private_information: '' });
 const blankBlock = () => ({ id: newId(), type: 'regular', name: 'Новое состояние', description: '', expanded_context: '', lead_role_id: '', lead_probability: 50, role_goals: [], behavior: '', action_rules: [], constraints: [], transitions: [], deterministic_dialogue: { learner_role_id: '', start_node_id: '', nodes: [] } });
 const RUNTIMES = [['virtual_partner', 'Виртуальный партнёр'], ['deterministic', 'Подготовленный диалог'], ['arena', 'Arena']];
