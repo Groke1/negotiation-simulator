@@ -21,6 +21,7 @@ type scenarioRepository interface {
 
 type profileRepository interface {
 	ListCompetencyClusters(ctx context.Context) ([]entity.CompetencyCluster, error)
+	ListSemanticActions(ctx context.Context) ([]entity.SemanticActionDefinition, error)
 }
 
 type userRepository interface {
@@ -47,8 +48,8 @@ func (s *scenarioService) ListCompetencyClusters(ctx context.Context) ([]entity.
 	return s.profileRepository.ListCompetencyClusters(ctx)
 }
 
-func (s *scenarioService) ListSemanticActions(context.Context) ([]entity.SemanticActionDefinition, error) {
-	return entity.DefaultSemanticActions(), nil
+func (s *scenarioService) ListSemanticActions(ctx context.Context) ([]entity.SemanticActionDefinition, error) {
+	return s.profileRepository.ListSemanticActions(ctx)
 }
 
 func (s *scenarioService) ListScenarios(ctx context.Context, claims entity.AccessClaims, params entity.ListScenarios) ([]entity.Scenario, error) {
@@ -393,7 +394,20 @@ func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 	for _, role := range doc.Roles {
 		roleIDs[role.ID] = true
 	}
+	targetClusterIDs := make(map[string]bool, len(doc.TargetClusterIDs))
+	for _, clusterID := range doc.TargetClusterIDs {
+		targetClusterIDs[clusterID] = true
+	}
 	for _, block := range doc.Blocks {
+		if block.Type == "end" {
+			if block.Result == nil || block.Result.Summary == "" {
+				id := block.ID
+				issues = append(issues, validationIssue("error", "END_BLOCK_RESULT_MISSING", "End block must contain result", "block", &id))
+			}
+		} else if block.Result != nil {
+			id := block.ID
+			issues = append(issues, validationIssue("error", "NON_END_BLOCK_RESULT_UNEXPECTED", "Only end block can contain result", "block", &id))
+		}
 		if !containsString(doc.SupportedRuntimes, "deterministic") || block.Type == "start" || block.Type == "end" {
 			continue
 		}
@@ -407,11 +421,49 @@ func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 			issues = append(issues, validationIssue("error", "INVALID_DIALOGUE_LEARNER_ROLE", "Deterministic dialogue must reference an existing learner role", "block", &id))
 		}
 		for _, node := range block.DeterministicDialogue.Nodes {
+			targets := map[string]bool{}
+			for _, target := range node.AssessmentTargets {
+				if !targetClusterIDs[target.ClusterID] {
+					id := block.ID
+					issues = append(issues, validationIssue("error", "ASSESSMENT_TARGET_CLUSTER_NOT_TARGETED", "Assessment target cluster must be included in scenario target_cluster_ids", "block", &id))
+				}
+				if targets[target.ClusterID] {
+					id := block.ID
+					issues = append(issues, validationIssue("error", "ASSESSMENT_TARGET_DUPLICATED", "Assessment target cluster is duplicated in node", "block", &id))
+				}
+				targets[target.ClusterID] = true
+				if !validAssessmentWeight(target.Weight) {
+					id := block.ID
+					issues = append(issues, validationIssue("error", "ASSESSMENT_TARGET_WEIGHT_INVALID", "Assessment target weight must be 0.5, 1 or 1.5", "block", &id))
+				}
+			}
 			for _, option := range node.ReplyOptions {
 				if option.RoleID != block.DeterministicDialogue.LearnerRoleID {
 					id := block.ID
 					issues = append(issues, validationIssue("error", "INVALID_DIALOGUE_REPLY_ROLE", "Deterministic reply option role must match dialogue learner_role_id", "block", &id))
 					break
+				}
+				assessments := map[string]bool{}
+				for _, assessment := range option.Assessments {
+					if assessment.Level < 0 || assessment.Level > 4 {
+						id := block.ID
+						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_LEVEL_INVALID", "Reply option assessment level must be between 0 and 4", "block", &id))
+					}
+					if !targets[assessment.ClusterID] {
+						id := block.ID
+						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_UNEXPECTED", "Reply option assessment cluster is not targeted by node", "block", &id))
+					}
+					if assessments[assessment.ClusterID] {
+						id := block.ID
+						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_DUPLICATED", "Reply option assessment cluster is duplicated", "block", &id))
+					}
+					assessments[assessment.ClusterID] = true
+				}
+				for clusterID := range targets {
+					if !assessments[clusterID] {
+						id := block.ID
+						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_MISSING", "Reply option must contain assessment for every node target", "block", &id))
+					}
 				}
 			}
 		}
@@ -426,6 +478,10 @@ func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 		}
 	}
 	return &entity.ScenarioValidation{Valid: errorsCount == 0, ErrorsCount: errorsCount, WarningsCount: warningsCount, Issues: issues}, nil
+}
+
+func validAssessmentWeight(value float64) bool {
+	return value == 0.5 || value == 1 || value == 1.5
 }
 
 func validationIssue(severity, code, message, entityType string, entityID *string) entity.ScenarioValidationIssue {

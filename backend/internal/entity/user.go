@@ -74,11 +74,15 @@ type SwitchRole struct {
 }
 
 type ProfileCluster struct {
-	ClusterID string     `json:"cluster_id"`
-	Code      string     `json:"code"`
-	Name      string     `json:"name"`
-	Score     int        `json:"score"`
-	UpdatedAt *time.Time `json:"updated_at"`
+	ClusterID     string     `json:"cluster_id"`
+	Code          string     `json:"code"`
+	Name          string     `json:"name"`
+	Score         int        `json:"score"`
+	ScoreRaw      float64    `json:"-"`
+	Confidence    int        `json:"confidence"`
+	ConfidenceRaw float64    `json:"-"`
+	EvidenceMass  float64    `json:"-"`
+	UpdatedAt     *time.Time `json:"updated_at"`
 }
 
 type ProfileHistoryEvent struct {
@@ -90,8 +94,8 @@ type ProfileHistoryEvent struct {
 }
 
 type ProfileClusterChange struct {
-	ClusterID string `json:"cluster_id"`
-	Before    int    `json:"before"`
-	After     int    `json:"after"`
-	Delta     int    `json:"delta"`
+	ClusterID string  `json:"cluster_id"`
+	Before    float64 `json:"before"`
+	After     float64 `json:"after"`
+	Delta     float64 `json:"delta"`
 }

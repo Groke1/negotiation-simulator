@@ -978,6 +978,20 @@ components:
         '
     ScenarioBlock:
       type: object
+      allOf:
+        - if:
+            properties:
+              type:
+                const: end
+            required:
+              - type
+          then:
+            required:
+              - result
+          else:
+            not:
+              required:
+                - result
       required:
         - id
         - type
@@ -1065,6 +1079,16 @@ components:
           items:
             type: string
             maxLength: 5000
+        result:
+          allOf:
+            - $ref: '#/components/schemas/ScenarioEndResult'
+          description: 'Результат переговоров для конечного блока. Для `type=end` поле обязательно при publish;
+
+            для `start` и `regular` должно отсутствовать. Оно описывает outcome переговоров и не участвует
+
+            в competency scoring.
+
+            '
         deterministic_dialogue:
           $ref: '#/components/schemas/DeterministicDialogue'
         transitions:
@@ -1076,6 +1100,37 @@ components:
             '
           items:
             $ref: '#/components/schemas/ScenarioTransition'
+    ScenarioEndResult:
+      type: object
+      required:
+        - summary
+        - goals_met
+        - goals_missed
+      description: 'Структурированный результат переговоров для конечного блока (`type=end`).
+
+        Backend копирует эти данные в `TrainingAnalysis.result` для deterministic training.
+
+        Для блоков `start` и `regular` поле `ScenarioBlock.result` не используется.
+
+        '
+      properties:
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: Краткое человекочитаемое описание того, чем закончились переговоры в этом end-блоке.
+        goals_met:
+          type: array
+          description: Цели роли learner, которые считаются достигнутыми при попадании в этот end-блок.
+          items:
+            type: string
+            maxLength: 5000
+        goals_missed:
+          type: array
+          description: Цели роли learner, которые считаются не достигнутыми при попадании в этот end-блок.
+          items:
+            type: string
+            maxLength: 5000
     BlockRoleGoal:
       type: object
       required:
@@ -1131,7 +1186,17 @@ components:
         note:
           type: string
           maxLength: 5000
-          description: Методическая мотивация перехода; не обязана участвовать в runtime.
+          description: Методическая мотивация перехода; не обязана участвовать в runtime и не показывается learner.
+        feedback_comment:
+          type: string
+          maxLength: 5000
+          description: 'Опциональное объяснение последствия перехода для итогового deterministic-разбора learner.
+
+            Например: «После ультимативной формулировки работодатель прекратил обсуждение условий».
+
+            Поле не влияет на score и не используется как runtime-вес.
+
+            '
         weight:
           type: integer
           minimum: 0
@@ -1177,6 +1242,71 @@ components:
           description: Узлы многоходового дерева реплик внутри блока.
           items:
             $ref: '#/components/schemas/DeterministicDialogueNode'
+    DeterministicAssessmentTarget:
+      type: object
+      required:
+        - cluster_id
+        - weight
+      description: 'Одна компетенция, которую методист намеренно проверяет в данной точке выбора deterministic-диалога.
+
+        Это assessment metadata и она не связана напрямую с semantic_action_code.
+
+        '
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+          description: 'ID кластера из `GET /competency-clusters`. При publish должен входить в
+
+            `Scenario.target_cluster_ids`.
+
+            '
+        weight:
+          type: number
+          enum:
+            - 0.5
+            - 1
+            - 1.5
+          default: 1
+          description: 'Сила evidence этой точки выбора для данного кластера: 0.5 — низкая, 1 — обычная,
+
+            1.5 — высокая. Не имеет отношения к `ScenarioTransition.weight`.
+
+            '
+    DeterministicReplyAssessment:
+      type: object
+      required:
+        - cluster_id
+        - level
+      description: 'Заранее заданная методистом оценка того, насколько конкретный reply option проявляет
+
+        компетенцию из `DeterministicDialogueNode.assessment_targets`.
+
+        '
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+          description: ID оцениваемого кластера. Должен соответствовать одному из assessment_targets текущего узла.
+        level:
+          type: integer
+          minimum: 0
+          maximum: 4
+          description: 'Уровень качества решения: 0 — контрпродуктивно, 1 — слабо, 2 — базово/приемлемо,
+
+            3 — эффективно, 4 — сильное решение. Для session score backend переводит уровень в
+
+            шкалу 0/25/50/75/100.
+
+            '
+        comment:
+          type: string
+          maxLength: 5000
+          description: 'Опциональное методическое объяснение выбранной оценки. Может использоваться в deterministic
+
+            feedback. Само наличие или отсутствие комментария не влияет на score.
+
+            '
     DeterministicDialogueNode:
       type: object
       required:
@@ -1189,6 +1319,18 @@ components:
           description: Уникальный идентификатор узла внутри deterministic-дерева блока.
         incoming_message:
           $ref: '#/components/schemas/DeterministicMessage'
+        assessment_targets:
+          type: array
+          uniqueItems: true
+          description: 'Опциональный список кластеров, которые проверяет этот decision node. Если список задан,
+
+            каждый reply option узла обязан содержать ровно по одному assessment для каждого указанного
+
+            cluster_id. Пустой/отсутствующий список означает, что узел не влияет на competency scoring.
+
+            '
+          items:
+            $ref: '#/components/schemas/DeterministicAssessmentTarget'
         reply_options:
           type: array
           description: 'Готовые варианты следующей реплики пользователя. После выбора одного варианта runtime
@@ -1251,6 +1393,17 @@ components:
         semantic_action_code:
           type: string
           description: Правильная семантическая разметка выбранной реплики.
+        assessments:
+          type: array
+          description: 'Опциональные заранее заданные оценки этого варианта ответа по competency clusters.
+
+            Для узла с `assessment_targets` validate требует ровно по одной оценке на каждый target.
+
+            Semantic action и competency assessment являются независимыми слоями данных.
+
+            '
+          items:
+            $ref: '#/components/schemas/DeterministicReplyAssessment'
         next_node_id:
           type: string
           format: uuid
@@ -1291,6 +1444,8 @@ components:
         - CLUSTER_NOT_FOUND
         - START_BLOCK_COUNT_INVALID
         - END_BLOCK_MISSING
+        - END_BLOCK_RESULT_MISSING
+        - NON_END_BLOCK_RESULT_UNEXPECTED
         - BLOCK_ID_DUPLICATED
         - BLOCK_UNREACHABLE
         - BLOCK_NO_PATH_TO_END
@@ -1317,6 +1472,13 @@ components:
         - REPLY_OPTION_DESTINATION_INVALID
         - REPLY_OPTION_NEXT_NODE_NOT_FOUND
         - REPLY_OPTION_TRANSITION_NOT_FOUND
+        - ASSESSMENT_TARGET_CLUSTER_NOT_TARGETED
+        - ASSESSMENT_TARGET_DUPLICATED
+        - ASSESSMENT_TARGET_WEIGHT_INVALID
+        - REPLY_OPTION_ASSESSMENT_MISSING
+        - REPLY_OPTION_ASSESSMENT_UNEXPECTED
+        - REPLY_OPTION_ASSESSMENT_DUPLICATED
+        - REPLY_OPTION_ASSESSMENT_LEVEL_INVALID
       description: Машиночитаемый код ошибки или предупреждения конструктора.
     ScenarioValidationIssue:
       type: object

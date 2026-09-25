@@ -14,7 +14,8 @@ type Querier interface {
 	CreateProfileHistory(ctx context.Context, arg CreateProfileHistoryParams) error
 	ListCompetencyClusters(ctx context.Context) ([]ListCompetencyClustersRow, error)
 	ListProfileForUpdate(ctx context.Context, userID pgtype.UUID) ([]ListProfileForUpdateRow, error)
-	UpdateProfileScore(ctx context.Context, arg UpdateProfileScoreParams) error
+	ListSemanticActions(ctx context.Context) ([]ListSemanticActionsRow, error)
+	UpdateProfileState(ctx context.Context, arg UpdateProfileStateParams) error
 }
 
 var _ Querier = (*Queries)(nil)

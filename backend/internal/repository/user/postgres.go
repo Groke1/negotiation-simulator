@@ -123,7 +123,17 @@ func (r *userRepository) ListProfile(ctx context.Context, userID string) ([]enti
 	}
 	profile := make([]entity.ProfileCluster, 0, len(rows))
 	for _, row := range rows {
-		profile = append(profile, entity.ProfileCluster{ClusterID: pgxconv.UUIDToString(row.ClusterID), Code: row.Code, Name: row.Name, Score: int(row.Score), UpdatedAt: pgxconv.TimestamptzToTime(row.UpdatedAt)})
+		profile = append(profile, entity.ProfileCluster{
+			ClusterID:     pgxconv.UUIDToString(row.ClusterID),
+			Code:          row.Code,
+			Name:          row.Name,
+			Score:         int(row.Score),
+			ScoreRaw:      row.ScoreRaw,
+			Confidence:    int(row.Confidence),
+			ConfidenceRaw: row.ConfidenceRaw,
+			EvidenceMass:  row.EvidenceMass,
+			UpdatedAt:     pgxconv.TimestamptzToTime(row.UpdatedAt),
+		})
 	}
 	return profile, nil
 }

@@ -642,6 +642,7 @@ components:
         - code
         - name
         - score
+        - confidence
       properties:
         cluster_id:
           type: string
@@ -657,7 +658,20 @@ components:
           type: number
           minimum: 0
           maximum: 100
-          description: Текущее значение характеристики пользователя.
+          description: 'Текущее значение характеристики пользователя. Backend хранит float; на frontend отдает
+
+            с округлением вниз.
+
+            '
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: 'Уверенность системы в текущем score на основании накопленной силы evidence. Backend хранит
+
+            float; на frontend отдает с округлением вниз 
+
+            '
         updated_at:
           oneOf:
             - type: string

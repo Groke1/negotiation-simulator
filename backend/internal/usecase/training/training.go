@@ -3,6 +3,7 @@ package training
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strings"
 
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/ai"
@@ -14,7 +15,7 @@ type repository interface {
 	GetSession(ctx context.Context, id string) (*entity.TrainingSession, error)
 	ListSessions(ctx context.Context, filter entity.TrainingSessionFilter) ([]entity.TrainingSession, error)
 	UpdateState(ctx context.Context, sessionID string, state []byte, status entity.TrainingStatus) (*entity.TrainingSession, error)
-	Complete(ctx context.Context, sessionID string, score int, analysis []byte) (*entity.TrainingSession, error)
+	Complete(ctx context.Context, sessionID string, score float64, analysis []byte) (*entity.TrainingSession, error)
 	CompleteLinkedAssignment(ctx context.Context, sessionID string) error
 	CreateMessage(ctx context.Context, params entity.CreateTrainingMessage) (*entity.TrainingMessage, error)
 	ListMessages(ctx context.Context, sessionID string) ([]entity.TrainingMessage, error)
@@ -27,7 +28,8 @@ type scenarioRepository interface {
 }
 
 type profileRecalculator interface {
-	RecalculateAfterTraining(ctx context.Context, userID, sourceID string, score int) ([]entity.ProfileClusterChange, error)
+	RecalculateAfterTraining(ctx context.Context, userID, sourceID string, results []entity.TrainingClusterResult) ([]entity.ProfileClusterChange, error)
+	ListSemanticActions(ctx context.Context) ([]entity.SemanticActionDefinition, error)
 }
 
 type transactor interface {
@@ -127,7 +129,7 @@ func (s *Service) SubmitAction(ctx context.Context, claims entity.AccessClaims, 
 	if err != nil {
 		return nil, err
 	}
-	node, ok := currentNode(doc, state)
+	block, node, ok := currentBlockAndNode(doc, state)
 	if !ok {
 		return nil, entity.ErrInvalidTrainingState
 	}
@@ -135,8 +137,9 @@ func (s *Service) SubmitAction(ctx context.Context, claims entity.AccessClaims, 
 	if !ok {
 		return nil, entity.ErrActionNotAvailable
 	}
-	classification := classificationJSON(selectedCode, option.SemanticActionCode)
+	classification := deterministicEventJSON(block, node, option, selectedCode, clientEventID)
 	msg, err := s.repository.CreateMessage(ctx, entity.CreateTrainingMessage{
+		ID:                 clientEventID,
 		SessionID:          session.ID,
 		Author:             "learner",
 		Content:            chatContent(option.Text),
@@ -149,7 +152,12 @@ func (s *Service) SubmitAction(ctx context.Context, claims entity.AccessClaims, 
 	}
 	status := entity.TrainingStatusInProgress
 	state.CurrentNodeID = option.NextNodeID
-	if state.CurrentNodeID == "" {
+	if state.CurrentNodeID == "" && option.TransitionID != "" {
+		if transition, ok := transitionByID(block.Transitions, option.TransitionID); ok {
+			state.BlockID = transition.TargetBlockID
+		}
+		status = entity.TrainingStatusReadyToComplete
+	} else if state.CurrentNodeID == "" {
 		status = entity.TrainingStatusReadyToComplete
 	} else if next, ok := currentNode(doc, state); ok && next.IncomingMessage != nil {
 		if _, err := s.createPartnerMessage(ctx, session.ID, next.IncomingMessage.Text, next.IncomingMessage.SemanticActionCode); err != nil {
@@ -268,18 +276,23 @@ func (s *Service) Complete(ctx context.Context, claims entity.AccessClaims, sess
 		if err != nil {
 			return err
 		}
-		score := scoreMessages(messages)
-		outcome := outcomeJSON(score)
-		analysis := analysisJSON(session.ID, score, outcome, messages, nil)
+		doc, state, err := sessionRuntime(session)
+		if err != nil {
+			return err
+		}
+		clusterResults := deterministicClusterResults(messages)
+		score := overallTrainingScore(clusterResults)
+		outcome := outcomeJSON(doc, state)
+		analysis := analysisJSON(session.ID, score, outcome, messages, clusterResults, nil)
 		completed, err := s.repository.Complete(txCtx, session.ID, score, analysis)
 		if err != nil {
 			return err
 		}
-		changes, err := s.profile.RecalculateAfterTraining(txCtx, session.UserID, session.ID, score)
+		changes, err := s.profile.RecalculateAfterTraining(txCtx, session.UserID, session.ID, clusterResults)
 		if err != nil {
 			return err
 		}
-		analysis = analysisJSON(session.ID, score, outcome, messages, changes)
+		analysis = analysisJSON(session.ID, score, outcome, messages, clusterResults, changes)
 		completed, err = s.repository.Complete(txCtx, session.ID, score, analysis)
 		if err != nil {
 			return err
@@ -287,7 +300,7 @@ func (s *Service) Complete(ctx context.Context, claims entity.AccessClaims, sess
 		if err := s.repository.CompleteLinkedAssignment(txCtx, session.ID); err != nil {
 			return err
 		}
-		result = &entity.TrainingCompletion{Session: *completed, Score: score, Outcome: outcome, ProfileChange: changes}
+		result = &entity.TrainingCompletion{Session: *completed, Score: floorScore(score), Outcome: outcome, ProfileChange: changes}
 		return nil
 	})
 	if err != nil {
@@ -367,20 +380,25 @@ func sessionRuntime(session *entity.TrainingSession) (entity.ScenarioDocument, t
 }
 
 func currentNode(doc entity.ScenarioDocument, state trainingState) (entity.DeterministicDialogueNode, bool) {
+	_, node, ok := currentBlockAndNode(doc, state)
+	return node, ok
+}
+
+func currentBlockAndNode(doc entity.ScenarioDocument, state trainingState) (entity.ScenarioBlock, entity.DeterministicDialogueNode, bool) {
 	for _, block := range doc.Blocks {
 		if block.ID != state.BlockID {
 			continue
 		}
 		if block.DeterministicDialogue == nil {
-			return entity.DeterministicDialogueNode{}, false
+			return entity.ScenarioBlock{}, entity.DeterministicDialogueNode{}, false
 		}
 		for _, node := range block.DeterministicDialogue.Nodes {
 			if node.ID == state.CurrentNodeID {
-				return node, true
+				return block, node, true
 			}
 		}
 	}
-	return entity.DeterministicDialogueNode{}, false
+	return entity.ScenarioBlock{}, entity.DeterministicDialogueNode{}, false
 }
 
 func actionByID(actions []entity.DeterministicReplyOption, id string) (entity.DeterministicReplyOption, bool) {
@@ -427,17 +445,21 @@ func contentMatchesChannel(raw json.RawMessage, channel entity.TrainingChannel) 
 
 func (s *Service) classifyLearnerMessage(ctx context.Context, session *entity.TrainingSession, state trainingState, text string) (entity.SemanticClassification, error) {
 	var output entity.SemanticClassification
+	actions, err := s.profile.ListSemanticActions(ctx)
+	if err != nil {
+		return output, err
+	}
 	input := map[string]any{
 		"task":             "classify_message",
-		"semantic_actions": entity.DefaultSemanticActions(),
+		"semantic_actions": actions,
 		"text":             text,
 		"context": map[string]any{
 			"channel":               session.Channel,
 			"current_block_summary": state.ShortSummary,
 		},
 	}
-	err := s.ai.GenerateJSON(ctx, ai.RoleActionClassifier, input, &output, func() error {
-		if !semanticActionAllowed(output.SemanticActionCode) {
+	err = s.ai.GenerateJSON(ctx, ai.RoleActionClassifier, input, &output, func() error {
+		if !semanticActionAllowed(actions, output.SemanticActionCode) {
 			return entity.ErrAIInvalidStructuredOutput
 		}
 		if output.Confidence < 0 || output.Confidence > 1 {
@@ -450,6 +472,10 @@ func (s *Service) classifyLearnerMessage(ctx context.Context, session *entity.Tr
 
 func (s *Service) generateVirtualPartnerTurn(ctx context.Context, session *entity.TrainingSession, doc entity.ScenarioDocument, state trainingState, history []entity.TrainingMessage, learnerContent json.RawMessage, learnerText string, classification entity.SemanticClassification) (entity.VirtualPartnerTurn, error) {
 	var output entity.VirtualPartnerTurn
+	actions, err := s.profile.ListSemanticActions(ctx)
+	if err != nil {
+		return output, err
+	}
 	current, _ := blockByID(doc.Blocks, state.BlockID)
 	learnerRole, _ := roleByID(doc.Roles, session.ScenarioRoleID)
 	partnerRole := entity.ScenarioRole{}
@@ -470,11 +496,11 @@ func (s *Service) generateVirtualPartnerTurn(ctx context.Context, session *entit
 		"runtime_state":            state,
 		"history":                  history,
 		"learner_message":          map[string]any{"content": learnerContent, "text": learnerText},
-		"semantic_actions":         entity.DefaultSemanticActions(),
+		"semantic_actions":         actions,
 		"allowed_transitions":      allowedTransitions(current),
 	}
-	err := s.ai.GenerateJSON(ctx, ai.RoleVirtualPartner, input, &output, func() error {
-		if !semanticActionAllowed(output.PartnerSemanticActionCode) {
+	err = s.ai.GenerateJSON(ctx, ai.RoleVirtualPartner, input, &output, func() error {
+		if !semanticActionAllowed(actions, output.PartnerSemanticActionCode) {
 			return entity.ErrAIInvalidStructuredOutput
 		}
 		if _, err := normalizePartnerContent(output.Content, session.Channel); err != nil {
@@ -628,8 +654,17 @@ func transitionAllowed(block entity.ScenarioBlock, id string) bool {
 	return false
 }
 
-func semanticActionAllowed(code string) bool {
-	for _, action := range entity.DefaultSemanticActions() {
+func transitionByID(transitions []entity.ScenarioTransition, id string) (entity.ScenarioTransition, bool) {
+	for _, transition := range transitions {
+		if transition.ID == id && !transition.Forbidden {
+			return transition, true
+		}
+	}
+	return entity.ScenarioTransition{}, false
+}
+
+func semanticActionAllowed(actions []entity.SemanticActionDefinition, code string) bool {
+	for _, action := range actions {
 		if action.Code == code {
 			return true
 		}
@@ -656,60 +691,211 @@ func classificationJSON(selected, expected string) json.RawMessage {
 	return raw
 }
 
-func outcomeJSON(score int) json.RawMessage {
-	raw, _ := json.Marshal(map[string]any{"summary": "Training completed", "goals_met": []string{}, "goals_missed": []string{}, "score": score})
+func deterministicEventJSON(block entity.ScenarioBlock, node entity.DeterministicDialogueNode, option entity.DeterministicReplyOption, selected, clientEventID string) json.RawMessage {
+	events := make([]assessmentEvent, 0, len(node.AssessmentTargets))
+	assessmentByCluster := make(map[string]entity.DeterministicReplyAssessment, len(option.Assessments))
+	for _, assessment := range option.Assessments {
+		assessmentByCluster[assessment.ClusterID] = assessment
+	}
+	for _, target := range node.AssessmentTargets {
+		assessment, ok := assessmentByCluster[target.ClusterID]
+		if !ok {
+			continue
+		}
+		events = append(events, assessmentEvent{
+			ClusterID: target.ClusterID,
+			Weight:    target.Weight,
+			Level:     assessment.Level,
+			Score:     levelToScore(assessment.Level),
+			Comment:   assessment.Comment,
+		})
+	}
+	transitionID := option.TransitionID
+	feedbackComment := ""
+	if transitionID != "" {
+		if transition, ok := transitionByID(block.Transitions, transitionID); ok {
+			feedbackComment = transition.FeedbackComment
+		}
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"client_event_id":               clientEventID,
+		"block_id":                      block.ID,
+		"node_id":                       node.ID,
+		"reply_option_id":               option.ID,
+		"transition_id":                 transitionID,
+		"transition_feedback_comment":   feedbackComment,
+		"selected_semantic_action_code": selected,
+		"expected_semantic_action_code": option.SemanticActionCode,
+		"correct":                       selected == option.SemanticActionCode,
+		"assessment_events":             events,
+	})
 	return raw
 }
 
-func analysisJSON(sessionID string, score int, outcome json.RawMessage, messages []entity.TrainingMessage, changes []entity.ProfileClusterChange) json.RawMessage {
+type assessmentEvent struct {
+	ClusterID string  `json:"cluster_id"`
+	Weight    float64 `json:"weight"`
+	Level     int     `json:"level"`
+	Score     float64 `json:"score"`
+	Comment   string  `json:"comment,omitempty"`
+}
+
+func outcomeJSON(doc entity.ScenarioDocument, state trainingState) json.RawMessage {
+	if block, ok := blockByID(doc.Blocks, state.BlockID); ok && block.Type == "end" && block.Result != nil {
+		raw, _ := json.Marshal(block.Result)
+		return raw
+	}
+	raw, _ := json.Marshal(map[string]any{"summary": "Training completed", "goals_met": []string{}, "goals_missed": []string{}})
+	return raw
+}
+
+func analysisJSON(sessionID string, score float64, outcome json.RawMessage, messages []entity.TrainingMessage, results []entity.TrainingClusterResult, changes []entity.ProfileClusterChange) json.RawMessage {
 	process := make([]map[string]any, 0, len(messages))
 	for i, message := range messages {
 		if message.SemanticActionCode == nil {
 			continue
 		}
-		process = append(process, map[string]any{"order": i + 1, "summary": "Learner action: " + *message.SemanticActionCode, "semantic_action_codes": []string{*message.SemanticActionCode}})
+		event := deterministicEventFromMessage(message)
+		summary := "Learner action: " + *message.SemanticActionCode
+		if event.ReplyOptionID != "" {
+			summary = "Learner selected reply option " + event.ReplyOptionID
+		}
+		if strings.TrimSpace(event.TransitionFeedbackComment) != "" {
+			summary = event.TransitionFeedbackComment
+		}
+		process = append(process, map[string]any{"order": i + 1, "summary": summary, "semantic_action_codes": []string{*message.SemanticActionCode}})
+	}
+	competencies := make([]map[string]any, 0, len(results))
+	for _, result := range results {
+		competencies = append(competencies, map[string]any{"cluster_id": result.ClusterID, "score": floorScore(result.Score), "comment": result.Comment})
 	}
 	raw, _ := json.Marshal(map[string]any{
 		"session_id":     sessionID,
-		"score":          score,
+		"score":          floorScore(score),
 		"result":         json.RawMessage(outcome),
 		"process":        process,
-		"strengths":      []map[string]string{{"title": "Consistency", "description": "Learner kept the dialogue moving."}},
-		"improvements":   []map[string]string{{"title": "Precision", "description": "Make trade-offs and criteria more explicit."}},
-		"competencies":   []map[string]any{},
+		"strengths":      trainingStrengths(results),
+		"improvements":   trainingImprovements(results),
+		"competencies":   competencies,
 		"profile_change": map[string]any{"changes": changes},
 	})
 	return raw
 }
 
-func scoreMessages(messages []entity.TrainingMessage) int {
-	total := 0
-	correct := 0
+type deterministicEvent struct {
+	ClientEventID              string            `json:"client_event_id"`
+	BlockID                    string            `json:"block_id"`
+	NodeID                     string            `json:"node_id"`
+	ReplyOptionID              string            `json:"reply_option_id"`
+	TransitionID               string            `json:"transition_id"`
+	TransitionFeedbackComment  string            `json:"transition_feedback_comment"`
+	SelectedSemanticActionCode string            `json:"selected_semantic_action_code"`
+	ExpectedSemanticActionCode string            `json:"expected_semantic_action_code"`
+	Correct                    bool              `json:"correct"`
+	AssessmentEvents           []assessmentEvent `json:"assessment_events"`
+}
+
+func deterministicEventFromMessage(message entity.TrainingMessage) deterministicEvent {
+	var event deterministicEvent
+	if len(message.Classification) > 0 {
+		_ = json.Unmarshal(message.Classification, &event)
+	}
+	return event
+}
+
+func deterministicClusterResults(messages []entity.TrainingMessage) []entity.TrainingClusterResult {
+	type aggregate struct {
+		weightedScore float64
+		weight        float64
+		comments      []string
+	}
+	aggregates := map[string]*aggregate{}
 	for _, message := range messages {
-		if len(message.Classification) == 0 {
-			continue
-		}
-		var classification struct {
-			Correct bool `json:"correct"`
-		}
-		if json.Unmarshal(message.Classification, &classification) == nil {
-			total++
-			if classification.Correct {
-				correct++
+		event := deterministicEventFromMessage(message)
+		for _, assessment := range event.AssessmentEvents {
+			if assessment.ClusterID == "" || assessment.Weight <= 0 {
+				continue
+			}
+			item := aggregates[assessment.ClusterID]
+			if item == nil {
+				item = &aggregate{}
+				aggregates[assessment.ClusterID] = item
+			}
+			item.weight += assessment.Weight
+			item.weightedScore += assessment.Score * assessment.Weight
+			if strings.TrimSpace(assessment.Comment) != "" {
+				item.comments = append(item.comments, strings.TrimSpace(assessment.Comment))
 			}
 		}
 	}
-	if total == 0 {
-		return 70
+	results := make([]entity.TrainingClusterResult, 0, len(aggregates))
+	for clusterID, item := range aggregates {
+		if item.weight <= 0 {
+			continue
+		}
+		results = append(results, entity.TrainingClusterResult{ClusterID: clusterID, Score: item.weightedScore / item.weight, EvidenceWeight: math.Min(1, item.weight/3.0), Comment: strings.Join(item.comments, " ")})
 	}
-	score := 50 + correct*50/total
-	if score < 0 {
+	return results
+}
+
+func overallTrainingScore(results []entity.TrainingClusterResult) float64 {
+	if len(results) == 0 {
 		return 0
 	}
-	if score > 100 {
+	sum := 0.0
+	for _, result := range results {
+		sum += result.Score
+	}
+	return sum / float64(len(results))
+}
+
+func levelToScore(level int) float64 {
+	switch {
+	case level <= 0:
+		return 0
+	case level == 1:
+		return 25
+	case level == 2:
+		return 50
+	case level == 3:
+		return 75
+	default:
 		return 100
 	}
-	return score
+}
+
+func floorScore(value float64) int {
+	if value < 0 || math.IsNaN(value) {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+	return int(math.Floor(value))
+}
+
+func trainingStrengths(results []entity.TrainingClusterResult) []map[string]string {
+	items := []map[string]string{}
+	for _, result := range results {
+		if result.Score >= 75 {
+			items = append(items, map[string]string{"title": "Сильное проявление компетенции", "description": result.Comment})
+		}
+	}
+	return items
+}
+
+func trainingImprovements(results []entity.TrainingClusterResult) []map[string]string {
+	items := []map[string]string{}
+	for _, result := range results {
+		if result.Score < 75 {
+			description := result.Comment
+			if description == "" {
+				description = "В этой компетенции есть пространство для улучшения."
+			}
+			items = append(items, map[string]string{"title": "Зона роста", "description": description})
+		}
+	}
+	return items
 }
 
 func TrimSemanticActionCode(value *string) *string {

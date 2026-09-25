@@ -48,7 +48,7 @@ Backend читает твой ответ строгим JSON parser-ом.
 {
   "task": "classify_message",
   "semantic_actions": [
-    {"code": "ASK_QUESTION", "name": "...", "description": "..."}
+    {"code": "PROBE_INTEREST", "name": "...", "description": "..."}
   ],
   "text": "...",
   "context": {
@@ -63,7 +63,7 @@ Backend читает твой ответ строгим JSON parser-ом.
 
 ```json
 {
-  "semantic_action_code": "ASK_QUESTION",
+  "semantic_action_code": "PROBE_INTEREST",
   "confidence": 0.94,
   "reason": "Реплика запрашивает информацию о приоритетах другой стороны."
 }

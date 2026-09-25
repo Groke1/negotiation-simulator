@@ -75,11 +75,17 @@ func (q *Queries) ListCompetencyClusters(ctx context.Context) ([]ListCompetencyC
 
 const listProfileForUpdate = `-- name: ListProfileForUpdate :many
 WITH seeded AS (
-    INSERT INTO learning.user_profile (user_id, cluster_id, score)
-    SELECT $1, id, 50 FROM learning.competency_clusters
+    INSERT INTO learning.user_profile (user_id, cluster_id, score, evidence_mass, confidence)
+    SELECT $1, id, 50, 0, 0 FROM learning.competency_clusters
     ON CONFLICT (user_id, cluster_id) DO NOTHING
 )
-SELECT c.id AS cluster_id, c.code, c.name, p.score::integer AS score, p.updated_at
+SELECT c.id AS cluster_id, c.code, c.name,
+       FLOOR(p.score)::integer AS score,
+       p.score AS score_raw,
+       FLOOR(p.confidence)::integer AS confidence,
+       p.confidence AS confidence_raw,
+       p.evidence_mass,
+       p.updated_at
 FROM learning.competency_clusters c
 JOIN learning.user_profile p ON p.cluster_id = c.id
 WHERE p.user_id = $1
@@ -88,11 +94,15 @@ FOR UPDATE OF p
 `
 
 type ListProfileForUpdateRow struct {
-	ClusterID pgtype.UUID        `json:"cluster_id"`
-	Code      string             `json:"code"`
-	Name      string             `json:"name"`
-	Score     int32              `json:"score"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ClusterID     pgtype.UUID        `json:"cluster_id"`
+	Code          string             `json:"code"`
+	Name          string             `json:"name"`
+	Score         int32              `json:"score"`
+	ScoreRaw      float64            `json:"score_raw"`
+	Confidence    int32              `json:"confidence"`
+	ConfidenceRaw float64            `json:"confidence_raw"`
+	EvidenceMass  float64            `json:"evidence_mass"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) ListProfileForUpdate(ctx context.Context, userID pgtype.UUID) ([]ListProfileForUpdateRow, error) {
@@ -109,6 +119,10 @@ func (q *Queries) ListProfileForUpdate(ctx context.Context, userID pgtype.UUID) 
 			&i.Code,
 			&i.Name,
 			&i.Score,
+			&i.ScoreRaw,
+			&i.Confidence,
+			&i.ConfidenceRaw,
+			&i.EvidenceMass,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -121,20 +135,60 @@ func (q *Queries) ListProfileForUpdate(ctx context.Context, userID pgtype.UUID) 
 	return items, nil
 }
 
-const updateProfileScore = `-- name: UpdateProfileScore :exec
-UPDATE learning.user_profile
-SET score = $1, updated_at = NOW()
-WHERE user_id = $2
-  AND cluster_id = $3
+const listSemanticActions = `-- name: ListSemanticActions :many
+SELECT code, name, description
+FROM learning.semantic_actions
+ORDER BY code
 `
 
-type UpdateProfileScoreParams struct {
-	Score     int16       `json:"score"`
-	UserID    pgtype.UUID `json:"user_id"`
-	ClusterID pgtype.UUID `json:"cluster_id"`
+type ListSemanticActionsRow struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
-func (q *Queries) UpdateProfileScore(ctx context.Context, arg UpdateProfileScoreParams) error {
-	_, err := q.db.Exec(ctx, updateProfileScore, arg.Score, arg.UserID, arg.ClusterID)
+func (q *Queries) ListSemanticActions(ctx context.Context) ([]ListSemanticActionsRow, error) {
+	rows, err := q.db.Query(ctx, listSemanticActions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSemanticActionsRow
+	for rows.Next() {
+		var i ListSemanticActionsRow
+		if err := rows.Scan(&i.Code, &i.Name, &i.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateProfileState = `-- name: UpdateProfileState :exec
+UPDATE learning.user_profile
+SET score = $1, evidence_mass = $2, confidence = $3, updated_at = NOW()
+WHERE user_id = $4
+  AND cluster_id = $5
+`
+
+type UpdateProfileStateParams struct {
+	Score        float64     `json:"score"`
+	EvidenceMass float64     `json:"evidence_mass"`
+	Confidence   float64     `json:"confidence"`
+	UserID       pgtype.UUID `json:"user_id"`
+	ClusterID    pgtype.UUID `json:"cluster_id"`
+}
+
+func (q *Queries) UpdateProfileState(ctx context.Context, arg UpdateProfileStateParams) error {
+	_, err := q.db.Exec(ctx, updateProfileState,
+		arg.Score,
+		arg.EvidenceMass,
+		arg.Confidence,
+		arg.UserID,
+		arg.ClusterID,
+	)
 	return err
 }

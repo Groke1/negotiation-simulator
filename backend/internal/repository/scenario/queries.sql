@@ -148,7 +148,7 @@ WITH attempts AS (
       AND scenario_id = sqlc.arg(scenario_id)
 ),
 best AS (
-    SELECT id, score::integer AS score, completed_at
+    SELECT id, FLOOR(score)::integer AS score, completed_at
     FROM learning.training_sessions
     WHERE user_id = sqlc.arg(user_id)
       AND scenario_id = sqlc.arg(scenario_id)

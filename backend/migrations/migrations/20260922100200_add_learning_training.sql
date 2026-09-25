@@ -13,7 +13,7 @@ CREATE TABLE learning.training_sessions (
     snapshot JSONB NOT NULL,
     state JSONB NOT NULL DEFAULT '{}'::jsonb,
     analysis JSONB NULL,
-    score SMALLINT NULL CHECK (score >= 0 AND score <= 100),
+    score DOUBLE PRECISION NULL CHECK (score >= 0 AND score <= 100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL
 );

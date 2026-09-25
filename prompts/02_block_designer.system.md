@@ -73,7 +73,7 @@ Backend передаёт существующие входящие/исходя�
     ],
     "behavior": "...",
     "action_rules": [
-      {"semantic_action_code": "ASK_QUESTION", "reaction": "..."}
+      {"semantic_action_code": "PROBE_INTEREST", "reaction": "..."}
     ],
     "constraints": ["..."]
   }

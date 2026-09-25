@@ -143,20 +143,6 @@ type SemanticActionDefinition struct {
 	Description string
 }
 
-func DefaultSemanticActions() []SemanticActionDefinition {
-	return []SemanticActionDefinition{
-		{Code: "ASK_QUESTION", Name: "Ask question", Description: "Clarifies interests, constraints, or criteria"},
-		{Code: "MAKE_PROPOSAL", Name: "Make proposal", Description: "Offers a concrete negotiation option"},
-		{Code: "MAKE_CONCESSION", Name: "Make concession", Description: "Gives value to move the negotiation forward"},
-		{Code: "REQUEST_RECIPROCITY", Name: "Request reciprocity", Description: "Asks for a reciprocal move"},
-		{Code: "HOLD_BOUNDARY", Name: "Hold boundary", Description: "Protects a limit or non-negotiable condition"},
-		{Code: "CHANGE_TOPIC", Name: "Change topic", Description: "Moves the conversation to another issue"},
-		{Code: "PAUSE", Name: "Pause", Description: "Slows down or defers a decision"},
-		{Code: "SUMMARIZE", Name: "Summarize", Description: "Checks shared understanding"},
-		{Code: "CLOSE_NEGOTIATION", Name: "Close negotiation", Description: "Finalizes agreement or no-deal outcome"},
-	}
-}
-
 type ScenarioPersonalStats struct {
 	IsFavorite          bool
 	IsAssignedByCurator bool

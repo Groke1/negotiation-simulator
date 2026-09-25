@@ -5,11 +5,17 @@ RETURNING id, organization_id, username, email, password_hash, created_at, updat
 
 -- name: ListProfile :many
 WITH seeded AS (
-    INSERT INTO learning.user_profile (user_id, cluster_id, score)
-    SELECT sqlc.arg(user_id), id, 50 FROM learning.competency_clusters
+    INSERT INTO learning.user_profile (user_id, cluster_id, score, evidence_mass, confidence)
+    SELECT sqlc.arg(user_id), id, 50, 0, 0 FROM learning.competency_clusters
     ON CONFLICT (user_id, cluster_id) DO NOTHING
 )
-SELECT c.id AS cluster_id, c.code, c.name, p.score::integer AS score, p.updated_at
+SELECT c.id AS cluster_id, c.code, c.name,
+       FLOOR(p.score)::integer AS score,
+       p.score AS score_raw,
+       FLOOR(p.confidence)::integer AS confidence,
+       p.confidence AS confidence_raw,
+       p.evidence_mass,
+       p.updated_at
 FROM learning.competency_clusters c
 JOIN learning.user_profile p ON p.cluster_id = c.id
 WHERE p.user_id = sqlc.arg(user_id)

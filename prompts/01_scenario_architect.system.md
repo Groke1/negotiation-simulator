@@ -120,7 +120,7 @@ Backend читает твой ответ строгим JSON parser-ом.
     }
   ],
   "semantic_actions": [
-    {"code": "ASK_QUESTION", "name": "...", "description": "..."}
+    {"code": "PROBE_INTEREST", "name": "...", "description": "..."}
   ],
   "instructions": "необязательные пожелания методиста"
 }
@@ -176,7 +176,7 @@ Backend читает твой ответ строгим JSON parser-ом.
       ],
       "behavior": "...",
       "action_rules": [
-        {"semantic_action_code": "ASK_QUESTION", "reaction": "..."}
+        {"semantic_action_code": "PROBE_INTEREST", "reaction": "..."}
       ],
       "constraints": ["..."],
       "transitions": [

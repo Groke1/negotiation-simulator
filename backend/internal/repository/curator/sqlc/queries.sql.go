@@ -110,7 +110,7 @@ const listCuratorLearners = `-- name: ListCuratorLearners :many
 SELECT u.id, u.username, u.email, u.created_at,
        COALESCE(COUNT(ts.id), 0)::integer AS sessions_count,
        MAX(ts.completed_at)::timestamptz AS last_session_at,
-       COALESCE(AVG(ts.score)::integer, -1)::int4 AS average_score
+       COALESCE(FLOOR(AVG(ts.score))::integer, -1)::int4 AS average_score
 FROM users.users curator
 JOIN users.users u ON u.organization_id = curator.organization_id
 JOIN users.user_roles ur ON ur.user_id = u.id AND ur.role = 'learner'
@@ -167,7 +167,7 @@ func (q *Queries) ListCuratorLearners(ctx context.Context, arg ListCuratorLearne
 
 const listTeamTrainingSessions = `-- name: ListTeamTrainingSessions :many
 SELECT 'training'::text AS type, ts.id AS session_id, ARRAY[ts.user_id]::uuid[] AS user_ids,
-       ts.scenario_id, sc.title AS scenario_title, ts.status, COALESCE(ts.score::integer, -1)::int4 AS score,
+       ts.scenario_id, sc.title AS scenario_title, ts.status, COALESCE(FLOOR(ts.score)::integer, -1)::int4 AS score,
        ts.created_at AS started_at, ts.completed_at
 FROM learning.training_sessions ts
 JOIN scenarios.scenarios sc ON sc.id = ts.scenario_id

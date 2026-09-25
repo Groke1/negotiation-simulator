@@ -3,14 +3,23 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"math"
 
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 )
 
+const (
+	deterministicSourceWeight = 1.0
+	arenaSourceWeight         = 1.5
+	profileEvidenceCap        = 6.0
+	confidenceFullMass        = 6.0
+)
+
 type repository interface {
 	ListCompetencyClusters(ctx context.Context) ([]entity.CompetencyCluster, error)
+	ListSemanticActions(ctx context.Context) ([]entity.SemanticActionDefinition, error)
 	ListProfileForUpdate(ctx context.Context, userID string) ([]entity.ProfileCluster, error)
-	UpdateProfileScore(ctx context.Context, userID, clusterID string, score int) error
+	UpdateProfileState(ctx context.Context, userID, clusterID string, score, evidenceMass, confidence float64) error
 	CreateProfileHistory(ctx context.Context, userID, sourceID string, source entity.ProfileChangeSource, changes []byte) error
 }
 
@@ -26,39 +35,57 @@ func (s *Service) ListCompetencyClusters(ctx context.Context) ([]entity.Competen
 	return s.repository.ListCompetencyClusters(ctx)
 }
 
-func (s *Service) RecalculateAfterTraining(ctx context.Context, userID, sourceID string, score int) ([]entity.ProfileClusterChange, error) {
-	target := clampScore(score)
-	return s.recalculate(ctx, userID, sourceID, entity.ProfileChangeSourceTraining, func(current entity.ProfileCluster) int {
-		return clampScore(current.Score + (target-current.Score)/4)
-	})
+func (s *Service) ListSemanticActions(ctx context.Context) ([]entity.SemanticActionDefinition, error) {
+	return s.repository.ListSemanticActions(ctx)
+}
+
+func (s *Service) RecalculateAfterTraining(ctx context.Context, userID, sourceID string, results []entity.TrainingClusterResult) ([]entity.ProfileClusterChange, error) {
+	observations := make(map[string]profileObservation, len(results))
+	for _, result := range results {
+		if result.ClusterID == "" || result.EvidenceWeight <= 0 {
+			continue
+		}
+		observations[result.ClusterID] = profileObservation{
+			Score:  clampFloat(result.Score),
+			Weight: deterministicSourceWeight * result.EvidenceWeight,
+		}
+	}
+	return s.recalculate(ctx, userID, sourceID, entity.ProfileChangeSourceTraining, observations)
 }
 
 func (s *Service) RecalculateAfterArenaFeedback(ctx context.Context, userID, sourceID string, ratings map[string]int) ([]entity.ProfileClusterChange, error) {
-	return s.recalculate(ctx, userID, sourceID, entity.ProfileChangeSourceArenaFeedback, func(current entity.ProfileCluster) int {
-		target, ok := ratings[current.ClusterID]
-		if !ok {
-			target, ok = ratings[current.Code]
-		}
-		if !ok {
-			return current.Score
-		}
-		return clampScore((current.Score*3 + clampScore(target)) / 4)
-	})
+	observations := make(map[string]profileObservation, len(ratings))
+	for clusterID, score := range ratings {
+		observations[clusterID] = profileObservation{Score: clampFloat(float64(score)), Weight: arenaSourceWeight}
+	}
+	return s.recalculate(ctx, userID, sourceID, entity.ProfileChangeSourceArenaFeedback, observations)
 }
 
-func (s *Service) recalculate(ctx context.Context, userID, sourceID string, source entity.ProfileChangeSource, next func(entity.ProfileCluster) int) ([]entity.ProfileClusterChange, error) {
+type profileObservation struct {
+	Score  float64
+	Weight float64
+}
+
+func (s *Service) recalculate(ctx context.Context, userID, sourceID string, source entity.ProfileChangeSource, observations map[string]profileObservation) ([]entity.ProfileClusterChange, error) {
 	profile, err := s.repository.ListProfileForUpdate(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	changes := make([]entity.ProfileClusterChange, 0, len(profile))
 	for _, current := range profile {
-		before := current.Score
-		after := next(current)
-		if after == before {
+		observation, ok := observations[current.ClusterID]
+		if !ok {
+			observation, ok = observations[current.Code]
+		}
+		if !ok || observation.Weight <= 0 {
 			continue
 		}
-		if err := s.repository.UpdateProfileScore(ctx, userID, current.ClusterID, after); err != nil {
+		before := rawScore(current)
+		beforeMass := clampEvidenceMass(current.EvidenceMass)
+		after := weightedScore(before, beforeMass, observation.Score, observation.Weight)
+		afterMass := clampEvidenceMass(beforeMass + observation.Weight)
+		confidence := confidenceFromMass(afterMass)
+		if err := s.repository.UpdateProfileState(ctx, userID, current.ClusterID, after, afterMass, confidence); err != nil {
 			return nil, err
 		}
 		changes = append(changes, entity.ProfileClusterChange{ClusterID: current.ClusterID, Before: before, After: after, Delta: after - before})
@@ -76,8 +103,39 @@ func (s *Service) recalculate(ctx context.Context, userID, sourceID string, sour
 	return changes, nil
 }
 
-func clampScore(value int) int {
+func rawScore(current entity.ProfileCluster) float64 {
+	if current.ScoreRaw > 0 || current.Score != 0 {
+		return clampFloat(current.ScoreRaw)
+	}
+	return clampFloat(float64(current.Score))
+}
+
+func weightedScore(currentScore, currentMass, observationScore, observationWeight float64) float64 {
+	if currentMass <= 0 {
+		return clampFloat(observationScore)
+	}
+	return clampFloat((currentScore*currentMass + observationScore*observationWeight) / (currentMass + observationWeight))
+}
+
+func confidenceFromMass(mass float64) float64 {
+	if confidenceFullMass <= 0 {
+		return 0
+	}
+	return clampFloat((mass / confidenceFullMass) * 100)
+}
+
+func clampEvidenceMass(value float64) float64 {
 	if value < 0 {
+		return 0
+	}
+	if value > profileEvidenceCap {
+		return profileEvidenceCap
+	}
+	return value
+}
+
+func clampFloat(value float64) float64 {
+	if math.IsNaN(value) || value < 0 {
 		return 0
 	}
 	if value > 100 {

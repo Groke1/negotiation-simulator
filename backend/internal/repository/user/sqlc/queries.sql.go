@@ -181,11 +181,17 @@ func (q *Queries) ListOrganizationUsers(ctx context.Context, arg ListOrganizatio
 
 const listProfile = `-- name: ListProfile :many
 WITH seeded AS (
-    INSERT INTO learning.user_profile (user_id, cluster_id, score)
-    SELECT $1, id, 50 FROM learning.competency_clusters
+    INSERT INTO learning.user_profile (user_id, cluster_id, score, evidence_mass, confidence)
+    SELECT $1, id, 50, 0, 0 FROM learning.competency_clusters
     ON CONFLICT (user_id, cluster_id) DO NOTHING
 )
-SELECT c.id AS cluster_id, c.code, c.name, p.score::integer AS score, p.updated_at
+SELECT c.id AS cluster_id, c.code, c.name,
+       FLOOR(p.score)::integer AS score,
+       p.score AS score_raw,
+       FLOOR(p.confidence)::integer AS confidence,
+       p.confidence AS confidence_raw,
+       p.evidence_mass,
+       p.updated_at
 FROM learning.competency_clusters c
 JOIN learning.user_profile p ON p.cluster_id = c.id
 WHERE p.user_id = $1
@@ -193,11 +199,15 @@ ORDER BY c.code
 `
 
 type ListProfileRow struct {
-	ClusterID pgtype.UUID        `json:"cluster_id"`
-	Code      string             `json:"code"`
-	Name      string             `json:"name"`
-	Score     int32              `json:"score"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ClusterID     pgtype.UUID        `json:"cluster_id"`
+	Code          string             `json:"code"`
+	Name          string             `json:"name"`
+	Score         int32              `json:"score"`
+	ScoreRaw      float64            `json:"score_raw"`
+	Confidence    int32              `json:"confidence"`
+	ConfidenceRaw float64            `json:"confidence_raw"`
+	EvidenceMass  float64            `json:"evidence_mass"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) ListProfile(ctx context.Context, userID pgtype.UUID) ([]ListProfileRow, error) {
@@ -214,6 +224,10 @@ func (q *Queries) ListProfile(ctx context.Context, userID pgtype.UUID) ([]ListPr
 			&i.Code,
 			&i.Name,
 			&i.Score,
+			&i.ScoreRaw,
+			&i.Confidence,
+			&i.ConfidenceRaw,
+			&i.EvidenceMass,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err

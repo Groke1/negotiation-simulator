@@ -32,7 +32,7 @@ type LearningTrainingSession struct {
 	Snapshot       []byte             `json:"snapshot"`
 	State          []byte             `json:"state"`
 	Analysis       []byte             `json:"analysis"`
-	Score          pgtype.Int2        `json:"score"`
+	Score          pgtype.Float8      `json:"score"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
 }

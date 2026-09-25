@@ -38,7 +38,10 @@ Backend передаёт:
 13. Incoming message также получает правильный semantic action code, который frontend не обязан показывать пользователю заранее.
 14. Не нарушай constraints роли и блока.
 15. Не раскрывай partner private_information без переговорной причины. Если скрытая информация раскрывается, это должно происходить через естественную ветку диалога.
-16. Не возвращай markdown или пояснения вне JSON.
+16. Если создаёшь assessment-разметку, используй только `scenario.target_cluster_ids` и веса `0.5`, `1`, `1.5`.
+17. Для каждого `assessment_targets[].cluster_id` каждый reply option этого node должен содержать ровно один matching `assessments[]`.
+18. Assessment `level` всегда integer `0..4`.
+19. Не возвращай markdown или пояснения вне JSON.
 
 ## Строгий контракт ответа
 
@@ -87,12 +90,25 @@ Backend читает твой ответ строгим JSON parser-ом.
           "text": "...",
           "semantic_action_code": "MAKE_PROPOSAL"
         },
+        "assessment_targets": [
+          {
+            "cluster_id": "target-cluster-uuid-from-scenario",
+            "weight": 1
+          }
+        ],
         "reply_options": [
           {
             "key": "n1_r1",
             "role_id": "learner-role-id",
             "text": "...",
-            "semantic_action_code": "ASK_QUESTION",
+            "semantic_action_code": "PROBE_INTEREST",
+            "assessments": [
+              {
+                "cluster_id": "target-cluster-uuid-from-scenario",
+                "level": 4,
+                "comment": "Пользователь уточняет настоящий интерес второй стороны до торга."
+              }
+            ],
             "next_node_key": "n2"
           },
           {
@@ -100,6 +116,13 @@ Backend читает твой ответ строгим JSON parser-ом.
             "role_id": "learner-role-id",
             "text": "...",
             "semantic_action_code": "HOLD_BOUNDARY",
+            "assessments": [
+              {
+                "cluster_id": "target-cluster-uuid-from-scenario",
+                "level": 2,
+                "comment": "Пользователь удерживает границу, но рано закрывает исследование интересов."
+              }
+            ],
             "transition_id": "existing-transition-uuid"
           }
         ]
@@ -109,8 +132,9 @@ Backend читает твой ответ строгим JSON parser-ом.
         "incoming_message": {
           "role_id": "opponent-role-id",
           "text": "...",
-          "semantic_action_code": "PROVIDE_INFORMATION"
+          "semantic_action_code": "CLARIFY"
         },
+        "assessment_targets": [],
         "reply_options": []
       }
     ]

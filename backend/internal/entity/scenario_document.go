@@ -52,8 +52,15 @@ type ScenarioBlock struct {
 	Behavior              string                 `json:"behavior"`
 	ActionRules           []SemanticActionRule   `json:"action_rules"`
 	Constraints           []string               `json:"constraints"`
+	Result                *ScenarioEndResult     `json:"result,omitempty"`
 	DeterministicDialogue *DeterministicDialogue `json:"deterministic_dialogue,omitempty"`
 	Transitions           []ScenarioTransition   `json:"transitions"`
+}
+
+type ScenarioEndResult struct {
+	Summary     string   `json:"summary"`
+	GoalsMet    []string `json:"goals_met"`
+	GoalsMissed []string `json:"goals_missed"`
 }
 
 type BlockRoleGoal struct {
@@ -67,12 +74,13 @@ type SemanticActionRule struct {
 }
 
 type ScenarioTransition struct {
-	ID            string `json:"id"`
-	TargetBlockID string `json:"target_block_id"`
-	Condition     string `json:"condition"`
-	Note          string `json:"note"`
-	Weight        int    `json:"weight"`
-	Forbidden     bool   `json:"forbidden"`
+	ID              string `json:"id"`
+	TargetBlockID   string `json:"target_block_id"`
+	Condition       string `json:"condition"`
+	Note            string `json:"note"`
+	FeedbackComment string `json:"feedback_comment"`
+	Weight          int    `json:"weight"`
+	Forbidden       bool   `json:"forbidden"`
 }
 
 type DeterministicDialogue struct {
@@ -82,9 +90,15 @@ type DeterministicDialogue struct {
 }
 
 type DeterministicDialogueNode struct {
-	ID              string                     `json:"id"`
-	IncomingMessage *DeterministicMessage      `json:"incoming_message"`
-	ReplyOptions    []DeterministicReplyOption `json:"reply_options"`
+	ID                string                          `json:"id"`
+	IncomingMessage   *DeterministicMessage           `json:"incoming_message"`
+	AssessmentTargets []DeterministicAssessmentTarget `json:"assessment_targets"`
+	ReplyOptions      []DeterministicReplyOption      `json:"reply_options"`
+}
+
+type DeterministicAssessmentTarget struct {
+	ClusterID string  `json:"cluster_id"`
+	Weight    float64 `json:"weight"`
 }
 
 type DeterministicMessage struct {
@@ -94,12 +108,19 @@ type DeterministicMessage struct {
 }
 
 type DeterministicReplyOption struct {
-	ID                 string `json:"id"`
-	RoleID             string `json:"role_id"`
-	Text               string `json:"text"`
-	SemanticActionCode string `json:"semantic_action_code"`
-	NextNodeID         string `json:"next_node_id"`
-	TransitionID       string `json:"transition_id"`
+	ID                 string                         `json:"id"`
+	RoleID             string                         `json:"role_id"`
+	Text               string                         `json:"text"`
+	SemanticActionCode string                         `json:"semantic_action_code"`
+	Assessments        []DeterministicReplyAssessment `json:"assessments"`
+	NextNodeID         string                         `json:"next_node_id"`
+	TransitionID       string                         `json:"transition_id"`
+}
+
+type DeterministicReplyAssessment struct {
+	ClusterID string `json:"cluster_id"`
+	Level     int    `json:"level"`
+	Comment   string `json:"comment"`
 }
 
 func ScenarioDocumentFromScenario(s Scenario) ScenarioDocument {
@@ -162,8 +183,16 @@ func NormalizeScenarioBlocks(blocks []ScenarioBlock) {
 			dialogue.Nodes = []DeterministicDialogueNode{}
 		}
 		for j := range dialogue.Nodes {
+			if dialogue.Nodes[j].AssessmentTargets == nil {
+				dialogue.Nodes[j].AssessmentTargets = []DeterministicAssessmentTarget{}
+			}
 			if dialogue.Nodes[j].ReplyOptions == nil {
 				dialogue.Nodes[j].ReplyOptions = []DeterministicReplyOption{}
+			}
+			for k := range dialogue.Nodes[j].ReplyOptions {
+				if dialogue.Nodes[j].ReplyOptions[k].Assessments == nil {
+					dialogue.Nodes[j].ReplyOptions[k].Assessments = []DeterministicReplyAssessment{}
+				}
 			}
 		}
 	}

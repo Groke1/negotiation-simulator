@@ -193,7 +193,7 @@ WITH attempts AS (
       AND scenario_id = $2
 ),
 best AS (
-    SELECT id, score::integer AS score, completed_at
+    SELECT id, FLOOR(score)::integer AS score, completed_at
     FROM learning.training_sessions
     WHERE user_id = $1
       AND scenario_id = $2

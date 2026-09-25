@@ -45,12 +45,22 @@ func (r *Repository) ListProfileForUpdate(ctx context.Context, userID string) ([
 	}
 	profile := make([]entity.ProfileCluster, 0, len(rows))
 	for _, row := range rows {
-		profile = append(profile, entity.ProfileCluster{ClusterID: pgxconv.UUIDToString(row.ClusterID), Code: row.Code, Name: row.Name, Score: int(row.Score), UpdatedAt: pgxconv.TimestamptzToTime(row.UpdatedAt)})
+		profile = append(profile, entity.ProfileCluster{
+			ClusterID:     pgxconv.UUIDToString(row.ClusterID),
+			Code:          row.Code,
+			Name:          row.Name,
+			Score:         int(row.Score),
+			ScoreRaw:      row.ScoreRaw,
+			Confidence:    int(row.Confidence),
+			ConfidenceRaw: row.ConfidenceRaw,
+			EvidenceMass:  row.EvidenceMass,
+			UpdatedAt:     pgxconv.TimestamptzToTime(row.UpdatedAt),
+		})
 	}
 	return profile, nil
 }
 
-func (r *Repository) UpdateProfileScore(ctx context.Context, userID, clusterID string, score int) error {
+func (r *Repository) UpdateProfileState(ctx context.Context, userID, clusterID string, score, evidenceMass, confidence float64) error {
 	pgUserID, err := pgxconv.StringToUUID(userID)
 	if err != nil {
 		return entity.ErrInvalidRequest
@@ -59,7 +69,7 @@ func (r *Repository) UpdateProfileScore(ctx context.Context, userID, clusterID s
 	if err != nil {
 		return entity.ErrInvalidRequest
 	}
-	return r.getQueries(ctx).UpdateProfileScore(ctx, sqlc.UpdateProfileScoreParams{UserID: pgUserID, ClusterID: pgClusterID, Score: int16(score)})
+	return r.getQueries(ctx).UpdateProfileState(ctx, sqlc.UpdateProfileStateParams{UserID: pgUserID, ClusterID: pgClusterID, Score: score, EvidenceMass: evidenceMass, Confidence: confidence})
 }
 
 func (r *Repository) CreateProfileHistory(ctx context.Context, userID, sourceID string, source entity.ProfileChangeSource, changes []byte) error {
@@ -80,6 +90,18 @@ func (r *Repository) CreateProfileHistory(ctx context.Context, userID, sourceID 
 		return entity.ErrInvalidRequest
 	}
 	return r.getQueries(ctx).CreateProfileHistory(ctx, sqlc.CreateProfileHistoryParams{ID: pgID, UserID: pgUserID, Source: string(source), SourceID: pgSourceID, Changes: changes})
+}
+
+func (r *Repository) ListSemanticActions(ctx context.Context) ([]entity.SemanticActionDefinition, error) {
+	rows, err := r.getQueries(ctx).ListSemanticActions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	actions := make([]entity.SemanticActionDefinition, 0, len(rows))
+	for _, row := range rows {
+		actions = append(actions, entity.SemanticActionDefinition{Code: row.Code, Name: row.Name, Description: row.Description})
+	}
+	return actions, nil
 }
 
 func (r *Repository) getQueries(ctx context.Context) *sqlc.Queries {

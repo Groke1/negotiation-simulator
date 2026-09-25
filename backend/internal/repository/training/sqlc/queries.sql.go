@@ -35,9 +35,9 @@ RETURNING id, user_id, scenario_id, scenario_role_id, mode, channel, status, ass
 `
 
 type CompleteTrainingSessionParams struct {
-	Score    pgtype.Int2 `json:"score"`
-	Analysis []byte      `json:"analysis"`
-	ID       pgtype.UUID `json:"id"`
+	Score    pgtype.Float8 `json:"score"`
+	Analysis []byte        `json:"analysis"`
+	ID       pgtype.UUID   `json:"id"`
 }
 
 func (q *Queries) CompleteTrainingSession(ctx context.Context, arg CompleteTrainingSessionParams) (LearningTrainingSession, error) {
@@ -216,7 +216,7 @@ type GetTrainingSessionRow struct {
 	Snapshot       []byte             `json:"snapshot"`
 	State          []byte             `json:"state"`
 	Analysis       []byte             `json:"analysis"`
-	Score          pgtype.Int2        `json:"score"`
+	Score          pgtype.Float8      `json:"score"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
 	ScenarioTitle  string             `json:"scenario_title"`
@@ -317,7 +317,7 @@ type ListTrainingSessionsRow struct {
 	Snapshot       []byte             `json:"snapshot"`
 	State          []byte             `json:"state"`
 	Analysis       []byte             `json:"analysis"`
-	Score          pgtype.Int2        `json:"score"`
+	Score          pgtype.Float8      `json:"score"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
 	ScenarioTitle  string             `json:"scenario_title"`

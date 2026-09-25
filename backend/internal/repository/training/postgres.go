@@ -3,6 +3,7 @@ package training
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -117,12 +118,12 @@ func (r *Repository) UpdateState(ctx context.Context, sessionID string, state []
 	return sessionFromSQL(row, ""), nil
 }
 
-func (r *Repository) Complete(ctx context.Context, sessionID string, score int, analysis []byte) (*entity.TrainingSession, error) {
+func (r *Repository) Complete(ctx context.Context, sessionID string, score float64, analysis []byte) (*entity.TrainingSession, error) {
 	pgID, err := pgxconv.StringToUUID(sessionID)
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}
-	row, err := r.getQueries(ctx).CompleteTrainingSession(ctx, sqlc.CompleteTrainingSessionParams{ID: pgID, Score: pgtype.Int2{Int16: int16(score), Valid: true}, Analysis: analysis})
+	row, err := r.getQueries(ctx).CompleteTrainingSession(ctx, sqlc.CompleteTrainingSessionParams{ID: pgID, Score: pgtype.Float8{Float64: score, Valid: true}, Analysis: analysis})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, entity.ErrTrainingSessionNotFound
 	}
@@ -248,7 +249,7 @@ func sessionFromSQL(row sqlc.LearningTrainingSession, title string) *entity.Trai
 		Snapshot:       row.Snapshot,
 		State:          row.State,
 		Analysis:       row.Analysis,
-		Score:          int2ToInt(row.Score),
+		Score:          floatScoreToInt(row.Score),
 		CreatedAt:      row.CreatedAt.Time,
 		CompletedAt:    pgxconv.TimestamptzToTime(row.CompletedAt),
 	}
@@ -323,10 +324,16 @@ func nullableJSON(value []byte) []byte {
 	return value
 }
 
-func int2ToInt(value pgtype.Int2) *int {
+func floatScoreToInt(value pgtype.Float8) *int {
 	if !value.Valid {
 		return nil
 	}
-	v := int(value.Int16)
+	v := int(math.Floor(value.Float64))
+	if v < 0 {
+		v = 0
+	}
+	if v > 100 {
+		v = 100
+	}
 	return &v
 }
