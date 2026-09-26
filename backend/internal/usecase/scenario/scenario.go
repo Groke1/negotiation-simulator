@@ -376,19 +376,19 @@ func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 	doc := entity.ScenarioDocumentFromScenario(*s)
 	issues := []entity.ScenarioValidationIssue{}
 	if doc.Description == "" {
-		issues = append(issues, validationIssue("error", "MISSING_DESCRIPTION", "Scenario description is required", "scenario", nil))
+		issues = append(issues, validationIssue("error", "MISSING_DESCRIPTION", "Нужно заполнить описание сценария.", "scenario", nil))
 	}
 	if len(doc.Roles) < 2 {
-		issues = append(issues, validationIssue("error", "MISSING_ROLES", "At least two roles are required", "scenario", nil))
+		issues = append(issues, validationIssue("error", "MISSING_ROLES", "В сценарии должны быть как минимум две роли.", "scenario", nil))
 	}
 	if len(doc.SupportedRuntimes) == 0 {
-		issues = append(issues, validationIssue("error", "MISSING_RUNTIME", "At least one runtime is required", "scenario", nil))
+		issues = append(issues, validationIssue("error", "MISSING_RUNTIME", "Нужно выбрать хотя бы один режим тренировки.", "scenario", nil))
 	}
 	if len(doc.SupportedChannels) == 0 {
-		issues = append(issues, validationIssue("error", "MISSING_CHANNEL", "At least one channel is required", "scenario", nil))
+		issues = append(issues, validationIssue("error", "MISSING_CHANNEL", "Нужно выбрать хотя бы один канал общения.", "scenario", nil))
 	}
 	if len(doc.Blocks) == 0 {
-		issues = append(issues, validationIssue("error", "MISSING_BLOCKS", "At least one block is required", "scenario", nil))
+		issues = append(issues, validationIssue("error", "MISSING_BLOCKS", "Нужно добавить хотя бы один блок сценария.", "scenario", nil))
 	}
 	roleIDs := make(map[string]bool, len(doc.Roles))
 	for _, role := range doc.Roles {
@@ -402,72 +402,73 @@ func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 		if block.Type == "end" {
 			if block.Result == nil || block.Result.Summary == "" {
 				id := block.ID
-				issues = append(issues, validationIssue("error", "END_BLOCK_RESULT_MISSING", "End block must contain result", "block", &id))
+				issues = append(issues, validationIssue("error", "END_BLOCK_RESULT_MISSING", "Финальный блок должен содержать результат переговоров.", "block", &id))
 			}
 		} else if block.Result != nil {
 			id := block.ID
-			issues = append(issues, validationIssue("error", "NON_END_BLOCK_RESULT_UNEXPECTED", "Only end block can contain result", "block", &id))
+			issues = append(issues, validationIssue("error", "NON_END_BLOCK_RESULT_UNEXPECTED", "Результат переговоров можно задавать только в финальном блоке.", "block", &id))
 		}
 		if !containsString(doc.SupportedRuntimes, "deterministic") || block.Type == "start" || block.Type == "end" {
 			continue
 		}
 		if block.DeterministicDialogue == nil || len(block.DeterministicDialogue.Nodes) == 0 {
 			id := block.ID
-			issues = append(issues, validationIssue("error", "MISSING_DIALOGUE_NODES", "Deterministic block must contain dialogue nodes", "block", &id))
+			issues = append(issues, validationIssue("error", "MISSING_DIALOGUE_NODES", "Для детерминированного режима блок должен содержать дерево реплик.", "block", &id))
 			continue
 		}
 		if block.DeterministicDialogue.LearnerRoleID == "" || !roleIDs[block.DeterministicDialogue.LearnerRoleID] {
 			id := block.ID
-			issues = append(issues, validationIssue("error", "INVALID_DIALOGUE_LEARNER_ROLE", "Deterministic dialogue must reference an existing learner role", "block", &id))
+			issues = append(issues, validationIssue("error", "INVALID_DIALOGUE_LEARNER_ROLE", "Детерминированное дерево должно ссылаться на существующую роль пользователя.", "block", &id))
 		}
 		for _, node := range block.DeterministicDialogue.Nodes {
 			targets := map[string]bool{}
 			for _, target := range node.AssessmentTargets {
 				if !targetClusterIDs[target.ClusterID] {
 					id := block.ID
-					issues = append(issues, validationIssue("error", "ASSESSMENT_TARGET_CLUSTER_NOT_TARGETED", "Assessment target cluster must be included in scenario target_cluster_ids", "block", &id))
+					issues = append(issues, validationIssue("error", "ASSESSMENT_TARGET_CLUSTER_NOT_TARGETED", "Оцениваемый кластер должен входить в целевые кластеры сценария.", "block", &id))
 				}
 				if targets[target.ClusterID] {
 					id := block.ID
-					issues = append(issues, validationIssue("error", "ASSESSMENT_TARGET_DUPLICATED", "Assessment target cluster is duplicated in node", "block", &id))
+					issues = append(issues, validationIssue("error", "ASSESSMENT_TARGET_DUPLICATED", "Оцениваемый кластер продублирован в узле диалога.", "block", &id))
 				}
 				targets[target.ClusterID] = true
 				if !validAssessmentWeight(target.Weight) {
 					id := block.ID
-					issues = append(issues, validationIssue("error", "ASSESSMENT_TARGET_WEIGHT_INVALID", "Assessment target weight must be 0.5, 1 or 1.5", "block", &id))
+					issues = append(issues, validationIssue("error", "ASSESSMENT_TARGET_WEIGHT_INVALID", "Вес оцениваемого кластера должен быть 0.5, 1 или 1.5.", "block", &id))
 				}
 			}
 			for _, option := range node.ReplyOptions {
 				if option.RoleID != block.DeterministicDialogue.LearnerRoleID {
 					id := block.ID
-					issues = append(issues, validationIssue("error", "INVALID_DIALOGUE_REPLY_ROLE", "Deterministic reply option role must match dialogue learner_role_id", "block", &id))
+					issues = append(issues, validationIssue("error", "INVALID_DIALOGUE_REPLY_ROLE", "Роль варианта ответа должна совпадать с learner_role_id детерминированного дерева.", "block", &id))
 					break
 				}
 				assessments := map[string]bool{}
 				for _, assessment := range option.Assessments {
 					if assessment.Level < 0 || assessment.Level > 4 {
 						id := block.ID
-						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_LEVEL_INVALID", "Reply option assessment level must be between 0 and 4", "block", &id))
+						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_LEVEL_INVALID", "Уровень оценки варианта ответа должен быть от 0 до 4.", "block", &id))
 					}
 					if !targets[assessment.ClusterID] {
 						id := block.ID
-						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_UNEXPECTED", "Reply option assessment cluster is not targeted by node", "block", &id))
+						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_UNEXPECTED", "Вариант ответа оценивает кластер, который не указан среди целей узла.", "block", &id))
 					}
 					if assessments[assessment.ClusterID] {
 						id := block.ID
-						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_DUPLICATED", "Reply option assessment cluster is duplicated", "block", &id))
+						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_DUPLICATED", "Оценка кластера продублирована в варианте ответа.", "block", &id))
 					}
 					assessments[assessment.ClusterID] = true
 				}
 				for clusterID := range targets {
 					if !assessments[clusterID] {
 						id := block.ID
-						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_MISSING", "Reply option must contain assessment for every node target", "block", &id))
+						issues = append(issues, validationIssue("error", "REPLY_OPTION_ASSESSMENT_MISSING", "Вариант ответа должен содержать оценку по каждому целевому кластеру узла.", "block", &id))
 					}
 				}
 			}
 		}
 	}
+	issues = append(issues, blockGraphIssues(doc.Blocks)...)
 	errorsCount := 0
 	warningsCount := 0
 	for _, issue := range issues {
@@ -482,6 +483,106 @@ func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 
 func validAssessmentWeight(value float64) bool {
 	return value == 0.5 || value == 1 || value == 1.5
+}
+
+func blockGraphIssues(blocks []entity.ScenarioBlock) []entity.ScenarioValidationIssue {
+	issues := []entity.ScenarioValidationIssue{}
+	startIDs := []string{}
+	endCount := 0
+	for _, block := range blocks {
+		switch block.Type {
+		case "start":
+			startIDs = append(startIDs, block.ID)
+		case "end":
+			endCount++
+		}
+	}
+	if len(startIDs) != 1 {
+		issues = append(issues, validationIssue("error", "START_BLOCK_COUNT_INVALID", "В сценарии должен быть ровно один начальный блок.", "scenario", nil))
+	}
+	if len(blocks) > 0 && endCount == 0 {
+		issues = append(issues, validationIssue("error", "END_BLOCK_MISSING", "В сценарии должен быть хотя бы один финальный блок.", "scenario", nil))
+	}
+	graph := make(map[string][]string, len(blocks))
+	known := make(map[string]bool, len(blocks))
+	for _, block := range blocks {
+		known[block.ID] = true
+	}
+	for _, block := range blocks {
+		for _, transition := range block.Transitions {
+			if transition.Forbidden || !known[transition.TargetBlockID] {
+				continue
+			}
+			graph[block.ID] = append(graph[block.ID], transition.TargetBlockID)
+		}
+	}
+	if len(startIDs) == 1 {
+		reachable := reachableBlocks(graph, startIDs[0])
+		for _, block := range blocks {
+			if !reachable[block.ID] {
+				id := block.ID
+				issues = append(issues, validationIssue("error", "BLOCK_UNREACHABLE", "Блок недостижим из начального состояния.", "block", &id))
+			}
+		}
+	}
+	issues = append(issues, blockGraphCycleIssues(graph, blocks)...)
+	return issues
+}
+
+func reachableBlocks(graph map[string][]string, startID string) map[string]bool {
+	reachable := map[string]bool{}
+	var visit func(string)
+	visit = func(blockID string) {
+		if reachable[blockID] {
+			return
+		}
+		reachable[blockID] = true
+		for _, nextID := range graph[blockID] {
+			visit(nextID)
+		}
+	}
+	visit(startID)
+	return reachable
+}
+
+func blockGraphCycleIssues(graph map[string][]string, blocks []entity.ScenarioBlock) []entity.ScenarioValidationIssue {
+	const (
+		unvisited = 0
+		visiting  = 1
+		visited   = 2
+	)
+	state := make(map[string]int, len(blocks))
+	reported := map[string]bool{}
+	issues := []entity.ScenarioValidationIssue{}
+	var visit func(string) bool
+	visit = func(blockID string) bool {
+		switch state[blockID] {
+		case visiting:
+			return true
+		case visited:
+			return false
+		}
+		state[blockID] = visiting
+		for _, nextID := range graph[blockID] {
+			if visit(nextID) {
+				if !reported[blockID] {
+					id := blockID
+					issues = append(issues, validationIssue("error", "BLOCK_GRAPH_CYCLE", "В графе блоков обнаружен цикл. Сценарий должен вести к финальному блоку без возвратов к уже пройденным состояниям.", "block", &id))
+					reported[blockID] = true
+				}
+				state[blockID] = visited
+				return true
+			}
+		}
+		state[blockID] = visited
+		return false
+	}
+	for _, block := range blocks {
+		if state[block.ID] == unvisited {
+			visit(block.ID)
+		}
+	}
+	return issues
 }
 
 func validationIssue(severity, code, message, entityType string, entityID *string) entity.ScenarioValidationIssue {

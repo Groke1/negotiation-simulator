@@ -400,7 +400,12 @@ func (q *Queries) UpdateTrainingMessageClassification(ctx context.Context, arg U
 
 const updateTrainingState = `-- name: UpdateTrainingState :one
 UPDATE learning.training_sessions
-SET state = $1, status = $2
+SET state = $1,
+    status = $2,
+    completed_at = CASE
+        WHEN $2 = 'completed' THEN COALESCE(completed_at, NOW())
+        ELSE completed_at
+    END
 WHERE id = $3
 RETURNING id, user_id, scenario_id, scenario_role_id, mode, channel, status, assignment_id, snapshot, state, analysis, score, created_at, completed_at
 `

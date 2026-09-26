@@ -319,38 +319,6 @@ paths:
                 $ref: '#/components/schemas/MessageNotClassifiableError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-  /training/sessions/{session_id}/complete:
-    parameters:
-      - $ref: '#/components/parameters/SessionId'
-    post:
-      tags:
-        - Training
-      summary: Завершить тренировку
-      description: 'Завершает попытку, формирует итоговый score, outcome и обновление Profile. Если TrainingSession
-
-        связана с pending Assignment, соответствующее назначение становится completed.
-
-        '
-      operationId: completeTrainingSession
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: TrainingSession завершена.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CompleteTrainingResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/TrainingSessionNotFound'
-        '409':
-          $ref: '#/components/responses/InvalidState'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
   /training/sessions/{session_id}/analysis:
     parameters:
       - $ref: '#/components/parameters/SessionId'
@@ -447,7 +415,6 @@ components:
       type: string
       enum:
         - in_progress
-        - ready_to_complete
         - completed
         - abandoned
       description: Жизненный цикл отдельной попытки тренировки.
@@ -811,6 +778,7 @@ components:
         - mode
         - channel
         - status
+        - is_end
         - preparation
         - current_node
         - messages
@@ -840,6 +808,9 @@ components:
           $ref: '#/components/schemas/TrainingChannel'
         status:
           $ref: '#/components/schemas/TrainingStatus'
+        is_end:
+          type: boolean
+          description: true, если попытка уже автоматически завершена и можно запрашивать итоговый analysis.
         preparation:
           $ref: '#/components/schemas/TrainingPreparation'
         current_node:
@@ -864,6 +835,7 @@ components:
         - mode
         - channel
         - status
+        - is_end
         - preparation
         - current_node
         - messages
@@ -893,6 +865,9 @@ components:
           $ref: '#/components/schemas/TrainingChannel'
         status:
           $ref: '#/components/schemas/TrainingStatus'
+        is_end:
+          type: boolean
+          description: true, если попытка завершена и доступен `GET /training/sessions/{session_id}/analysis`.
         preparation:
           $ref: '#/components/schemas/TrainingPreparation'
         current_node:
@@ -1010,6 +985,7 @@ components:
         - classification
         - next_node
         - status
+        - is_end
       properties:
         event_id:
           type: string
@@ -1024,12 +1000,16 @@ components:
           description: Новый deterministic-узел; null при выходе к завершению.
         status:
           $ref: '#/components/schemas/TrainingStatus'
+        is_end:
+          type: boolean
+          description: true, если выбор реплики привёл к финальному блоку и тренировка завершилась автоматически.
     TrainingMessageResponse:
       type: object
       required:
         - learner_message
         - partner_message
         - status
+        - is_end
       properties:
         learner_message:
           $ref: '#/components/schemas/TrainingMessage'
@@ -1037,6 +1017,9 @@ components:
           $ref: '#/components/schemas/TrainingMessage'
         status:
           $ref: '#/components/schemas/TrainingStatus'
+        is_end:
+          type: boolean
+          description: true, если после этого сообщения тренировка завершилась автоматически.
     ClassifyPartnerMessageRequest:
       type: object
       required:
@@ -1113,35 +1096,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProfileClusterChange'
-    CompleteTrainingResponse:
-      type: object
-      required:
-        - session_id
-        - status
-        - score
-        - outcome
-        - profile_change
-        - completed_at
-      properties:
-        session_id:
-          type: string
-          format: uuid
-        status:
-          type: string
-          enum:
-            - completed
-        score:
-          type: number
-          minimum: 0
-          maximum: 100
-          description: Итоговая оценка попытки, используемая в том числе для best_attempt сценария.
-        outcome:
-          $ref: '#/components/schemas/Outcome'
-        profile_change:
-          $ref: '#/components/schemas/ProfileChange'
-        completed_at:
-          type: string
-          format: date-time
     AnalysisNote:
       type: object
       required:

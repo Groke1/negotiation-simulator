@@ -3,3 +3,7 @@ bin
 .env
 mocks
 *.log
+frontend/examples
+doc
+tests.bash
+todo.txt

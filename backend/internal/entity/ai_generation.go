@@ -50,3 +50,51 @@ type VirtualPartnerCompletion struct {
 	Completed bool    `json:"completed"`
 	Reason    *string `json:"reason"`
 }
+
+type VirtualPartnerRuntimeTurn struct {
+	LearnerSemanticActionCode string         `json:"learner_semantic_action_code"`
+	LearnerConfidence         float64        `json:"learner_confidence"`
+	PartnerSemanticActionCode string         `json:"partner_semantic_action_code"`
+	Content                   map[string]any `json:"content"`
+	Decision                  string         `json:"decision"`
+	TransitionID              *string        `json:"transition_id"`
+}
+
+type TrainingStateEvaluation struct {
+	Decision          string                     `json:"decision"`
+	TransitionID      *string                    `json:"transition_id"`
+	TerminationReason *string                    `json:"termination_reason"`
+	Reason            string                     `json:"reason"`
+	StateUpdates      VirtualPartnerStateUpdates `json:"state_updates"`
+}
+
+type TrainingAssessment struct {
+	Process            []TrainingProcessAssessment `json:"process"`
+	Strengths          []TrainingAnalysisNote      `json:"strengths"`
+	Improvements       []TrainingAnalysisNote      `json:"improvements"`
+	ClusterAssessments []TrainingClusterAssessment `json:"cluster_assessments"`
+}
+
+type TrainingProcessAssessment struct {
+	Order               int      `json:"order"`
+	Summary             string   `json:"summary"`
+	SemanticActionCodes []string `json:"semantic_action_codes"`
+}
+
+type TrainingAnalysisNote struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+type TrainingClusterAssessment struct {
+	ClusterID        string                    `json:"cluster_id"`
+	Status           string                    `json:"status"`
+	Level            int                       `json:"level"`
+	EvidenceEpisodes []TrainingEvidenceEpisode `json:"evidence_episodes"`
+	Comment          string                    `json:"comment"`
+}
+
+type TrainingEvidenceEpisode struct {
+	Summary             string   `json:"summary"`
+	SemanticActionCodes []string `json:"semantic_action_codes"`
+}

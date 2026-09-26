@@ -8,7 +8,7 @@ CREATE TABLE learning.training_sessions (
     scenario_role_id TEXT NOT NULL,
     mode TEXT NOT NULL CHECK (mode IN ('deterministic','virtual_partner')),
     channel TEXT NOT NULL CHECK (channel IN ('chat','email','voice_message')),
-    status TEXT NOT NULL CHECK (status IN ('in_progress','ready_to_complete','completed','abandoned')),
+    status TEXT NOT NULL CHECK (status IN ('in_progress','completed','abandoned')),
     assignment_id UUID NULL,
     snapshot JSONB NOT NULL,
     state JSONB NOT NULL DEFAULT '{}'::jsonb,

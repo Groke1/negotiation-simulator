@@ -80,22 +80,33 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	var aiProvider ai.Provider
 	switch strings.ToLower(strings.TrimSpace(cfg.AI.Provider)) {
 	case "ollama":
-		aiProvider = ollama.NewProvider(ollama.Config{BaseURL: cfg.AI.BaseURL, Timeout: cfg.AI.Timeout, Think: cfg.AI.Think, Stream: cfg.AI.Stream})
+		aiProvider = ollama.NewProvider(ollama.Config{BaseURL: cfg.AI.BaseURL, Timeout: cfg.AI.Timeout, Think: cfg.AI.Think, Stream: cfg.AI.Stream, Format: cfg.AI.Format})
 	default:
 		return fmt.Errorf("unsupported AI_PROVIDER %q", cfg.AI.Provider)
 	}
 	aiService, err := ai.NewService(aiProvider, ai.Config{
-		ScenarioArchitectModel:   cfg.AI.ScenarioArchitectModel,
-		BlockDesignerModel:       cfg.AI.BlockDesignerModel,
-		DialogueBuilderModel:     cfg.AI.DialogueBuilderModel,
-		ActionClassifierModel:    cfg.AI.ActionClassifierModel,
-		VirtualPartnerModel:      cfg.AI.VirtualPartnerModel,
-		ScenarioArchitectTemp:    cfg.AI.ScenarioArchitectTemperature,
-		BlockDesignerTemp:        cfg.AI.BlockDesignerTemperature,
-		DialogueBuilderTemp:      cfg.AI.DialogueBuilderTemperature,
-		ActionClassifierTemp:     cfg.AI.ActionClassifierTemperature,
-		VirtualPartnerTemp:       cfg.AI.VirtualPartnerTemperature,
-		MaxStructuredOutputRetry: cfg.AI.MaxStructuredOutputRetry,
+		ScenarioArchitectModel:     cfg.AI.ScenarioArchitectModel,
+		BlockDesignerModel:         cfg.AI.BlockDesignerModel,
+		DialogueBuilderModel:       cfg.AI.DialogueBuilderModel,
+		ActionClassifierModel:      cfg.AI.ActionClassifierModel,
+		VirtualPartnerModel:        cfg.AI.VirtualPartnerModel,
+		VirtualPartnerRuntimeModel: cfg.AI.VirtualPartnerRuntimeModel,
+		TrainingStateModel:         cfg.AI.TrainingStateModel,
+		TrainingAssessmentModel:    cfg.AI.TrainingAssessmentModel,
+		ScenarioArchitectTemp:      cfg.AI.ScenarioArchitectTemperature,
+		BlockDesignerTemp:          cfg.AI.BlockDesignerTemperature,
+		DialogueBuilderTemp:        cfg.AI.DialogueBuilderTemperature,
+		ActionClassifierTemp:       cfg.AI.ActionClassifierTemperature,
+		VirtualPartnerTemp:         cfg.AI.VirtualPartnerTemperature,
+		VirtualPartnerRuntimeTemp:  cfg.AI.VirtualPartnerRuntimeTemperature,
+		TrainingStateTemp:          cfg.AI.TrainingStateTemperature,
+		TrainingAssessmentTemp:     cfg.AI.TrainingAssessmentTemperature,
+		BlockDesignerThink:         boolPtr(cfg.AI.BlockDesignerThink),
+		DialogueBuilderThink:       boolPtr(cfg.AI.DialogueBuilderThink),
+		VirtualPartnerRuntimeThink: boolPtr(cfg.AI.VirtualPartnerRuntimeThink),
+		TrainingStateThink:         boolPtr(cfg.AI.TrainingStateThink),
+		TrainingAssessmentThink:    boolPtr(cfg.AI.TrainingAssessmentThink),
+		MaxStructuredOutputRetry:   cfg.AI.MaxStructuredOutputRetry,
 	})
 	if err != nil {
 		logger.Error("can not initialize ai service", zap.Error(err))
@@ -110,6 +121,10 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	organizationService := orgserv.NewOrganizationService(organizationRepository)
 	userService := userserv.NewUserService(userRepository, organizationRepository, authRepository, authService)
 	profileService := profileserv.NewService(profileRepository)
+	if err := profileService.WarmCache(ctx); err != nil {
+		logger.Error("can not warm profile dictionaries cache", zap.Error(err))
+		return err
+	}
 	scenarioService := scenarioserv.NewScenarioService(scenarioRepository, profileService, userRepository, tx, aiService)
 	mediaService := mediaserv.NewService(mediaRepository, cfg.Settings.MediaMaxBytes)
 	trainingService := trainingserv.NewService(trainingRepository, scenarioRepository, profileService, tx, aiService)
@@ -165,4 +180,8 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"sync"
 
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 )
@@ -25,17 +26,50 @@ type repository interface {
 
 type Service struct {
 	repository repository
+	mu         sync.RWMutex
+	clusters   []entity.CompetencyCluster
+	actions    []entity.SemanticActionDefinition
 }
 
 func NewService(repository repository) *Service {
 	return &Service{repository: repository}
 }
 
+func (s *Service) WarmCache(ctx context.Context) error {
+	clusters, err := s.repository.ListCompetencyClusters(ctx)
+	if err != nil {
+		return err
+	}
+	actions, err := s.repository.ListSemanticActions(ctx)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clusters = append([]entity.CompetencyCluster(nil), clusters...)
+	s.actions = append([]entity.SemanticActionDefinition(nil), actions...)
+	return nil
+}
+
 func (s *Service) ListCompetencyClusters(ctx context.Context) ([]entity.CompetencyCluster, error) {
+	s.mu.RLock()
+	if s.clusters != nil {
+		clusters := append([]entity.CompetencyCluster(nil), s.clusters...)
+		s.mu.RUnlock()
+		return clusters, nil
+	}
+	s.mu.RUnlock()
 	return s.repository.ListCompetencyClusters(ctx)
 }
 
 func (s *Service) ListSemanticActions(ctx context.Context) ([]entity.SemanticActionDefinition, error) {
+	s.mu.RLock()
+	if s.actions != nil {
+		actions := append([]entity.SemanticActionDefinition(nil), s.actions...)
+		s.mu.RUnlock()
+		return actions, nil
+	}
+	s.mu.RUnlock()
 	return s.repository.ListSemanticActions(ctx)
 }
 

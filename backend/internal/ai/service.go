@@ -16,11 +16,14 @@ import (
 type Role string
 
 const (
-	RoleScenarioArchitect Role = "scenario_architect"
-	RoleBlockDesigner     Role = "block_designer"
-	RoleDialogueBuilder   Role = "dialogue_builder"
-	RoleActionClassifier  Role = "action_classifier"
-	RoleVirtualPartner    Role = "virtual_partner"
+	RoleScenarioArchitect     Role = "scenario_architect"
+	RoleBlockDesigner         Role = "block_designer"
+	RoleDialogueBuilder       Role = "dialogue_builder"
+	RoleActionClassifier      Role = "action_classifier"
+	RoleVirtualPartner        Role = "virtual_partner"
+	RoleVirtualPartnerRuntime Role = "virtual_partner_runtime"
+	RoleTrainingState         Role = "training_state"
+	RoleTrainingAssessment    Role = "training_assessment"
 )
 
 type message struct {
@@ -32,6 +35,7 @@ type GenerateRequest struct {
 	Model       string
 	Messages    []message
 	Temperature float64
+	Think       *bool
 }
 
 type Provider interface {
@@ -39,17 +43,28 @@ type Provider interface {
 }
 
 type Config struct {
-	ScenarioArchitectModel   string
-	BlockDesignerModel       string
-	DialogueBuilderModel     string
-	ActionClassifierModel    string
-	VirtualPartnerModel      string
-	ScenarioArchitectTemp    float64
-	BlockDesignerTemp        float64
-	DialogueBuilderTemp      float64
-	ActionClassifierTemp     float64
-	VirtualPartnerTemp       float64
-	MaxStructuredOutputRetry int
+	ScenarioArchitectModel     string
+	BlockDesignerModel         string
+	DialogueBuilderModel       string
+	ActionClassifierModel      string
+	VirtualPartnerModel        string
+	VirtualPartnerRuntimeModel string
+	TrainingStateModel         string
+	TrainingAssessmentModel    string
+	ScenarioArchitectTemp      float64
+	BlockDesignerTemp          float64
+	DialogueBuilderTemp        float64
+	ActionClassifierTemp       float64
+	VirtualPartnerTemp         float64
+	VirtualPartnerRuntimeTemp  float64
+	TrainingStateTemp          float64
+	TrainingAssessmentTemp     float64
+	BlockDesignerThink         *bool
+	DialogueBuilderThink       *bool
+	VirtualPartnerRuntimeThink *bool
+	TrainingStateThink         *bool
+	TrainingAssessmentThink    *bool
+	MaxStructuredOutputRetry   int
 }
 
 type service struct {
@@ -72,7 +87,7 @@ func (s *service) GenerateJSON(ctx context.Context, role Role, input any, output
 	if err != nil {
 		return err
 	}
-	model, temperature, err := s.modelForRole(role)
+	roleCfg, err := s.configForRole(role)
 	if err != nil {
 		return err
 	}
@@ -85,7 +100,7 @@ func (s *service) GenerateJSON(ctx context.Context, role Role, input any, output
 		if attempt > 0 && lastErr != nil {
 			messages = append(messages, message{Role: "user", Content: "Previous response did not pass backend JSON/schema validation: " + lastErr.Error() + ". Return only corrected JSON."})
 		}
-		content, err := s.provider.Generate(ctx, GenerateRequest{Model: model, Temperature: temperature, Messages: messages})
+		content, err := s.provider.Generate(ctx, GenerateRequest{Model: roleCfg.model, Temperature: roleCfg.temperature, Think: roleCfg.think, Messages: messages})
 		if err != nil {
 			return mapProviderError(err)
 		}
@@ -107,20 +122,32 @@ func (s *service) GenerateJSON(ctx context.Context, role Role, input any, output
 	return entity.ErrAIInvalidStructuredOutput
 }
 
-func (s *service) modelForRole(role Role) (string, float64, error) {
+type roleConfig struct {
+	model       string
+	temperature float64
+	think       *bool
+}
+
+func (s *service) configForRole(role Role) (roleConfig, error) {
 	switch role {
 	case RoleScenarioArchitect:
-		return s.cfg.ScenarioArchitectModel, s.cfg.ScenarioArchitectTemp, nil
+		return roleConfig{model: s.cfg.ScenarioArchitectModel, temperature: s.cfg.ScenarioArchitectTemp}, nil
 	case RoleBlockDesigner:
-		return s.cfg.BlockDesignerModel, s.cfg.BlockDesignerTemp, nil
+		return roleConfig{model: s.cfg.BlockDesignerModel, temperature: s.cfg.BlockDesignerTemp, think: s.cfg.BlockDesignerThink}, nil
 	case RoleDialogueBuilder:
-		return s.cfg.DialogueBuilderModel, s.cfg.DialogueBuilderTemp, nil
+		return roleConfig{model: s.cfg.DialogueBuilderModel, temperature: s.cfg.DialogueBuilderTemp, think: s.cfg.DialogueBuilderThink}, nil
 	case RoleActionClassifier:
-		return s.cfg.ActionClassifierModel, s.cfg.ActionClassifierTemp, nil
+		return roleConfig{model: s.cfg.ActionClassifierModel, temperature: s.cfg.ActionClassifierTemp}, nil
 	case RoleVirtualPartner:
-		return s.cfg.VirtualPartnerModel, s.cfg.VirtualPartnerTemp, nil
+		return roleConfig{model: s.cfg.VirtualPartnerModel, temperature: s.cfg.VirtualPartnerTemp}, nil
+	case RoleVirtualPartnerRuntime:
+		return roleConfig{model: s.cfg.VirtualPartnerRuntimeModel, temperature: s.cfg.VirtualPartnerRuntimeTemp, think: s.cfg.VirtualPartnerRuntimeThink}, nil
+	case RoleTrainingState:
+		return roleConfig{model: s.cfg.TrainingStateModel, temperature: s.cfg.TrainingStateTemp, think: s.cfg.TrainingStateThink}, nil
+	case RoleTrainingAssessment:
+		return roleConfig{model: s.cfg.TrainingAssessmentModel, temperature: s.cfg.TrainingAssessmentTemp, think: s.cfg.TrainingAssessmentThink}, nil
 	default:
-		return "", 0, fmt.Errorf("unknown ai role %s", role)
+		return roleConfig{}, fmt.Errorf("unknown ai role %s", role)
 	}
 }
 

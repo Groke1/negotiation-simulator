@@ -9,7 +9,7 @@ function CandidateCard({ person, selected, onSelect }) {
     <button className={selected ? 'panel candidate selected' : 'panel candidate'} type="button" onClick={() => onSelect(person)}>
       <strong>{person.name}</strong>
       <span>{person.sessions_count || 0} тренировок{person.average_score != null ? ` · score ${person.average_score}` : ''}</span>
-      <ClusterBars clusters={person.clusters || []} />
+      <ClusterBars clusters={person.clusters || []} variant="curator-clusters" showConfidence={false} />
     </button>
   );
 }
@@ -135,7 +135,7 @@ export default function CuratorArena() {
             {participantA ? (
               <>
                 <strong>{participantA.name}</strong>
-                <ClusterBars clusters={participantA.clusters || []} />
+                <ClusterBars clusters={participantA.clusters || []} variant="curator-clusters" showConfidence={false} />
                 <button className="secondary" type="button" onClick={() => setParticipantA(null)}>Изменить</button>
               </>
             ) : (
@@ -149,7 +149,7 @@ export default function CuratorArena() {
             {participantB ? (
               <>
                 <strong>{participantB.name}</strong>
-                <ClusterBars clusters={participantB.clusters || []} />
+                <ClusterBars clusters={participantB.clusters || []} variant="curator-clusters" showConfidence={false} />
                 <button className="secondary" type="button" onClick={() => setParticipantB(null)}>Изменить</button>
               </>
             ) : (

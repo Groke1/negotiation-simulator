@@ -474,8 +474,6 @@ func validUpdateScenarioRequest(req updateScenarioRequest) bool {
 	return validString(req.Title, 1, 200) &&
 		validString(req.Description, 1, 4000) &&
 		req.Difficulty.Valid() &&
-		len(req.SupportedRuntimes) > 0 &&
-		len(req.SupportedChannels) > 0 &&
 		rawObjectOrArray(req.Roles) &&
 		rawObjectOrArray(req.Blocks)
 }

@@ -23,10 +23,9 @@ const (
 type TrainingStatus string
 
 const (
-	TrainingStatusInProgress      TrainingStatus = "in_progress"
-	TrainingStatusReadyToComplete TrainingStatus = "ready_to_complete"
-	TrainingStatusCompleted       TrainingStatus = "completed"
-	TrainingStatusAbandoned       TrainingStatus = "abandoned"
+	TrainingStatusInProgress TrainingStatus = "in_progress"
+	TrainingStatusCompleted  TrainingStatus = "completed"
+	TrainingStatusAbandoned  TrainingStatus = "abandoned"
 )
 
 type StartTrainingSession struct {

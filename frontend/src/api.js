@@ -41,7 +41,6 @@ export const getTrainingSession = (id, signal) => request(`/training/sessions/${
 export const sendTrainingMessage = (id, message) => request(`/training/sessions/${id}/messages`, { method: 'POST', data: message });
 export const sendTrainingAction = (id, action) => request(`/training/sessions/${id}/actions`, { method: 'POST', data: action });
 export const classifyPartnerMessage = (sessionId, messageId, semantic_action_code) => request(`/training/sessions/${sessionId}/messages/${messageId}/classification`, { method: 'POST', data: { semantic_action_code } });
-export const completeTrainingSession = (id) => request(`/training/sessions/${id}/complete`, { method: 'POST' });
 export const getTrainingAnalysis = (id, signal) => request(`/training/sessions/${id}/analysis`, { signal });
 
 export const getMyProfile = (signal) => request('/users/me/profile', { signal });

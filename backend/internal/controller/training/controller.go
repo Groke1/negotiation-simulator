@@ -23,7 +23,6 @@ type Service interface {
 	SubmitAction(ctx context.Context, claims entity.AccessClaims, sessionID, actionID, selectedCode, clientEventID string) (*entity.TrainingActionResult, error)
 	SendMessage(ctx context.Context, claims entity.AccessClaims, sessionID string, messageID string, content json.RawMessage, semanticActionCode *string, annotations json.RawMessage) (*entity.TrainingMessageExchange, error)
 	ClassifyMessage(ctx context.Context, claims entity.AccessClaims, sessionID, messageID, selectedCode string) (*entity.TrainingMessage, error)
-	Complete(ctx context.Context, claims entity.AccessClaims, sessionID string) (*entity.TrainingCompletion, error)
 	GetAnalysis(ctx context.Context, claims entity.AccessClaims, sessionID string) (json.RawMessage, error)
 }
 
@@ -43,7 +42,6 @@ func (c *Controller) InitRoutes(r chi.Router) {
 	r.Post("/training/sessions/{session_id}/actions", c.SubmitAction)
 	r.Post("/training/sessions/{session_id}/messages", c.SendMessage)
 	r.Post("/training/sessions/{session_id}/messages/{message_id}/classification", c.ClassifyMessage)
-	r.Post("/training/sessions/{session_id}/complete", c.Complete)
 	r.Get("/training/sessions/{session_id}/analysis", c.GetAnalysis)
 }
 
@@ -145,7 +143,7 @@ func (c *Controller) SubmitAction(w http.ResponseWriter, r *http.Request) {
 		doc := scenarioDocument(details.Session.Snapshot)
 		next = currentNodeFromState(result.NextState, &doc)
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, trainingActionResponse{EventID: result.EventID, Classification: result.Classification, NextNode: next, Status: result.Status})
+	pkghttpx.WriteJSON(w, http.StatusOK, trainingActionResponse{EventID: result.EventID, Classification: result.Classification, NextNode: next, Status: result.Status, IsEnd: result.Status == entity.TrainingStatusCompleted})
 }
 
 func (c *Controller) SendMessage(w http.ResponseWriter, r *http.Request) {
@@ -164,7 +162,7 @@ func (c *Controller) SendMessage(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, trainingMessageResponse{LearnerMessage: messageToResponse(exchange.LearnerMessage), PartnerMessage: messageToResponse(exchange.PartnerMessage), Status: exchange.Status})
+	pkghttpx.WriteJSON(w, http.StatusOK, trainingMessageResponse{LearnerMessage: messageToResponse(exchange.LearnerMessage), PartnerMessage: messageToResponse(exchange.PartnerMessage), Status: exchange.Status, IsEnd: exchange.Status == entity.TrainingStatusCompleted})
 }
 
 func (c *Controller) ClassifyMessage(w http.ResponseWriter, r *http.Request) {
@@ -190,19 +188,6 @@ func (c *Controller) ClassifyMessage(w http.ResponseWriter, r *http.Request) {
 	resp := classifyMessageResponse{MessageID: msg.ID}
 	_ = json.Unmarshal(msg.Classification, &resp)
 	pkghttpx.WriteJSON(w, http.StatusOK, resp)
-}
-
-func (c *Controller) Complete(w http.ResponseWriter, r *http.Request) {
-	claims, sessionID, ok := claimsAndSessionID(w, r)
-	if !ok {
-		return
-	}
-	result, err := c.service.Complete(r.Context(), claims, sessionID)
-	if err != nil {
-		c.writeError(w, r, err)
-		return
-	}
-	pkghttpx.WriteJSON(w, http.StatusOK, completeTrainingResponse{SessionID: result.Session.ID, Status: result.Session.Status, Score: result.Score, Outcome: result.Outcome, ProfileChange: profileChangeResponse{Changes: result.ProfileChange}, CompletedAt: result.Session.CompletedAt})
 }
 
 func (c *Controller) GetAnalysis(w http.ResponseWriter, r *http.Request) {
@@ -298,6 +283,7 @@ func detailsToResponse(details entity.TrainingSessionDetails) trainingSessionRes
 		Mode:           details.Session.Mode,
 		Channel:        details.Session.Channel,
 		Status:         details.Session.Status,
+		IsEnd:          details.Session.Status == entity.TrainingStatusCompleted,
 		Preparation:    preparation(doc, details.Session.ScenarioRoleID),
 		CurrentNode:    currentNodeFromState(details.Session.State, &doc),
 		Messages:       messagesToResponse(details.Messages),

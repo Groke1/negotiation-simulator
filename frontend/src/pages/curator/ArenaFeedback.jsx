@@ -9,6 +9,8 @@ import {
   getArenaSession
 } from '../../api';
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from '../../components/UI';
+import { formatDelta, formatNumber } from '../../app/format';
+import { sortMessagesChronologically } from '../../app/messages';
 
 export default function ArenaFeedback() {
   const { sessionId } = useParams();
@@ -71,7 +73,7 @@ export default function ArenaFeedback() {
           <StatusBadge value={session.data?.status} />
           {messages.data.length ? (
             <div className="chat-stream inline-chat">
-              {messages.data.map((message) => (
+              {sortMessagesChronologically(messages.data).map((message) => (
                 <div key={message.message_id} className="bubble">
                   <small>{message.sender_id === activeParticipant ? 'Выбранный участник' : 'Другой участник'}</small>
                   {message.text}
@@ -99,7 +101,7 @@ export default function ArenaFeedback() {
               <span className="eyebrow">Feedback уже отправлен</span>
               <p>{currentFeedback.comment || 'Комментарий не указан.'}</p>
               {currentFeedback.ratings?.length ? currentFeedback.ratings.map((rating) => <p key={rating.cluster_id}>{clusters.data.find((cluster) => cluster.id === rating.cluster_id)?.name || 'Компетенция'}: {rating.score}</p>) : <p>Оценки по кластерам не добавлялись.</p>}
-              {currentFeedback.profile_change?.length ? <section><h3>Изменение профиля</h3>{currentFeedback.profile_change.map((change) => <p key={change.cluster_id}>{clusters.data.find((cluster) => cluster.id === change.cluster_id)?.name || 'Компетенция'}: {change.before} → {change.after} ({change.delta > 0 ? '+' : ''}{change.delta})</p>)}</section> : <p>Backend не вернул изменений профиля для этого feedback.</p>}
+              {currentFeedback.profile_change?.length ? <section><h3>Изменение профиля</h3>{currentFeedback.profile_change.map((change) => <p key={change.cluster_id}>{clusters.data.find((cluster) => cluster.id === change.cluster_id)?.name || 'Компетенция'}: {formatNumber(change.before)} → {formatNumber(change.after)} ({formatDelta(change.delta)})</p>)}</section> : <p>Backend не вернул изменений профиля для этого feedback.</p>}
               <small>{currentFeedback.created_at ? new Date(currentFeedback.created_at).toLocaleString('ru-RU') : ''}</small>
             </article>
           ) : session.data?.status !== 'completed' ? (

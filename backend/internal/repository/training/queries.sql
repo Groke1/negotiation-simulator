@@ -29,7 +29,12 @@ LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: UpdateTrainingState :one
 UPDATE learning.training_sessions
-SET state = sqlc.arg(state), status = sqlc.arg(status)
+SET state = sqlc.arg(state),
+    status = sqlc.arg(status),
+    completed_at = CASE
+        WHEN sqlc.arg(status) = 'completed' THEN COALESCE(completed_at, NOW())
+        ELSE completed_at
+    END
 WHERE id = sqlc.arg(id)
 RETURNING *;
 

@@ -93,6 +93,7 @@ type trainingSessionResponse struct {
 	Mode           entity.TrainingMode       `json:"mode"`
 	Channel        entity.TrainingChannel    `json:"channel"`
 	Status         entity.TrainingStatus     `json:"status"`
+	IsEnd          bool                      `json:"is_end"`
 	Preparation    trainingPreparation       `json:"preparation"`
 	CurrentNode    *deterministicCurrentNode `json:"current_node"`
 	Messages       []trainingMessage         `json:"messages"`
@@ -112,6 +113,7 @@ type trainingActionResponse struct {
 	Classification json.RawMessage           `json:"classification"`
 	NextNode       *deterministicCurrentNode `json:"next_node"`
 	Status         entity.TrainingStatus     `json:"status"`
+	IsEnd          bool                      `json:"is_end"`
 }
 
 type trainingMessageRequest struct {
@@ -125,6 +127,7 @@ type trainingMessageResponse struct {
 	LearnerMessage trainingMessage       `json:"learner_message"`
 	PartnerMessage trainingMessage       `json:"partner_message"`
 	Status         entity.TrainingStatus `json:"status"`
+	IsEnd          bool                  `json:"is_end"`
 }
 
 type classifyMessageRequest struct {
@@ -136,17 +139,4 @@ type classifyMessageResponse struct {
 	SelectedSemanticActionCode string `json:"selected_semantic_action_code"`
 	ExpectedSemanticActionCode string `json:"expected_semantic_action_code"`
 	Correct                    bool   `json:"correct"`
-}
-
-type completeTrainingResponse struct {
-	SessionID     string                `json:"session_id"`
-	Status        entity.TrainingStatus `json:"status"`
-	Score         int                   `json:"score"`
-	Outcome       json.RawMessage       `json:"outcome"`
-	ProfileChange profileChangeResponse `json:"profile_change"`
-	CompletedAt   *time.Time            `json:"completed_at"`
-}
-
-type profileChangeResponse struct {
-	Changes []entity.ProfileClusterChange `json:"changes"`
 }

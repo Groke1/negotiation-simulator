@@ -6,9 +6,9 @@ import { webSocketUrl } from '../../api/client';
 import { useAuth } from '../../app/AuthContext';
 import { ErrorState, LoadingState, SemanticActionPicker } from '../../components/UI';
 import { createId } from '../../app/id';
+import { sortMessagesChronologically } from '../../app/messages';
 
-const mergeMessages = (current, incoming) => Array.from(new Map([...current, ...incoming].map((message) => [message.message_id, message])).values())
-  .sort((left, right) => new Date(left.created_at) - new Date(right.created_at));
+const mergeMessages = (current, incoming) => sortMessagesChronologically(Array.from(new Map([...current, ...incoming].map((message) => [message.message_id, message])).values()));
 const messageTime = (value) => value ? new Date(value).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
 
 export default function ArenaSession() {
@@ -21,11 +21,17 @@ export default function ArenaSession() {
   const [status, setStatus] = useState('Подключаемся…');
   const [error, setError] = useState('');
   const [finishing, setFinishing] = useState(false);
+  const streamRef = useRef(null);
   const socket = useRef(null);
   const retry = useRef(null);
   const joining = useQuery({ queryKey: ['arena-join', assignmentId], queryFn: () => joinArena(assignmentId), retry: false });
   const actions = useQuery({ queryKey: ['semantic-actions'], queryFn: ({ signal }) => getSemanticActions(signal), staleTime: 60 * 60 * 1000 });
   const joined = joining.data;
+
+  useEffect(() => {
+    const stream = streamRef.current;
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  }, [messages.length]);
 
   useEffect(() => {
     if (!joined?.arena_session_id) return undefined;
@@ -98,7 +104,7 @@ export default function ArenaSession() {
       <div><span className="eyebrow">Arena · живые переговоры</span><h2>{joined?.preparation?.title}</h2><p>{status}</p></div>
       <div className="header-actions"><button className="secondary" type="button" onClick={finish} disabled={finishing}>{finishing ? 'Завершаем…' : 'Завершить Arena'}</button><button className="secondary" type="button" onClick={() => navigate('/learner/arenas')}>Выйти</button></div>
     </header>
-    <section className="chat-stream">
+    <section className="chat-stream" ref={streamRef}>
       {joined?.preparation && <div className="panel"><strong>{joined.preparation.my_role.name}</strong><p>{joined.preparation.expanded_context}</p></div>}
       {messages.map((message) => <div className={`bubble ${message.sender_id === me?.id ? 'mine' : ''}`} key={message.message_id}><small>{message.sender_id === me?.id ? 'Вы' : 'Собеседник'}</small>{message.text}<time className="message-time">{messageTime(message.created_at)}</time></div>)}
       {error && <p className="error">{error}</p>}

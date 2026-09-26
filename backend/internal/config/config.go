@@ -43,19 +43,31 @@ type (
 			Timeout                  time.Duration `env:"AI_TIMEOUT" envDefault:"180s"`
 			Think                    bool          `env:"AI_THINK" envDefault:"false"`
 			Stream                   bool          `env:"AI_STREAM" envDefault:"false"`
+			Format                   string        `env:"AI_FORMAT" envDefault:"json"`
 			MaxStructuredOutputRetry int           `env:"AI_MAX_STRUCTURED_OUTPUT_RETRY" envDefault:"1"`
 
-			ScenarioArchitectModel string `env:"AI_SCENARIO_ARCHITECT_MODEL" envDefault:"negotiation-scenario-architect"`
-			BlockDesignerModel     string `env:"AI_BLOCK_DESIGNER_MODEL" envDefault:"negotiation-block-designer"`
-			DialogueBuilderModel   string `env:"AI_DIALOGUE_BUILDER_MODEL" envDefault:"negotiation-dialogue-builder"`
-			ActionClassifierModel  string `env:"AI_ACTION_CLASSIFIER_MODEL" envDefault:"negotiation-action-classifier"`
-			VirtualPartnerModel    string `env:"AI_VIRTUAL_PARTNER_MODEL" envDefault:"negotiation-virtual-partner"`
+			ScenarioArchitectModel     string `env:"AI_SCENARIO_ARCHITECT_MODEL" envDefault:"negotiation-scenario-architect"`
+			BlockDesignerModel         string `env:"AI_BLOCK_DESIGNER_MODEL" envDefault:"negotiation-block-designer"`
+			DialogueBuilderModel       string `env:"AI_DIALOGUE_BUILDER_MODEL" envDefault:"negotiation-dialogue-builder"`
+			ActionClassifierModel      string `env:"AI_ACTION_CLASSIFIER_MODEL" envDefault:"negotiation-action-classifier"`
+			VirtualPartnerModel        string `env:"AI_VIRTUAL_PARTNER_MODEL" envDefault:"negotiation-virtual-partner"`
+			VirtualPartnerRuntimeModel string `env:"AI_VIRTUAL_PARTNER_RUNTIME_MODEL" envDefault:"negotiation-virtual-partner-runtime"`
+			TrainingStateModel         string `env:"AI_TRAINING_STATE_MODEL" envDefault:"negotiation-state-evaluator"`
+			TrainingAssessmentModel    string `env:"AI_TRAINING_ASSESSMENT_MODEL" envDefault:"negotiation-assessment-evaluator"`
 
-			ScenarioArchitectTemperature float64 `env:"AI_SCENARIO_ARCHITECT_TEMPERATURE" envDefault:"0.4"`
-			BlockDesignerTemperature     float64 `env:"AI_BLOCK_DESIGNER_TEMPERATURE" envDefault:"0.4"`
-			DialogueBuilderTemperature   float64 `env:"AI_DIALOGUE_BUILDER_TEMPERATURE" envDefault:"0.5"`
-			ActionClassifierTemperature  float64 `env:"AI_ACTION_CLASSIFIER_TEMPERATURE" envDefault:"0.1"`
-			VirtualPartnerTemperature    float64 `env:"AI_VIRTUAL_PARTNER_TEMPERATURE" envDefault:"0.5"`
+			ScenarioArchitectTemperature     float64 `env:"AI_SCENARIO_ARCHITECT_TEMPERATURE" envDefault:"0.4"`
+			BlockDesignerTemperature         float64 `env:"AI_BLOCK_DESIGNER_TEMPERATURE" envDefault:"0.4"`
+			DialogueBuilderTemperature       float64 `env:"AI_DIALOGUE_BUILDER_TEMPERATURE" envDefault:"0.5"`
+			ActionClassifierTemperature      float64 `env:"AI_ACTION_CLASSIFIER_TEMPERATURE" envDefault:"0.1"`
+			VirtualPartnerTemperature        float64 `env:"AI_VIRTUAL_PARTNER_TEMPERATURE" envDefault:"0.5"`
+			VirtualPartnerRuntimeTemperature float64 `env:"AI_VIRTUAL_PARTNER_RUNTIME_TEMPERATURE" envDefault:"0.4"`
+			TrainingStateTemperature         float64 `env:"AI_TRAINING_STATE_TEMPERATURE" envDefault:"0.2"`
+			TrainingAssessmentTemperature    float64 `env:"AI_TRAINING_ASSESSMENT_TEMPERATURE" envDefault:"0.2"`
+			BlockDesignerThink               bool    `env:"AI_BLOCK_DESIGNER_THINK" envDefault:"true"`
+			DialogueBuilderThink             bool    `env:"AI_DIALOGUE_BUILDER_THINK" envDefault:"true"`
+			VirtualPartnerRuntimeThink       bool    `env:"AI_VIRTUAL_PARTNER_RUNTIME_THINK" envDefault:"false"`
+			TrainingStateThink               bool    `env:"AI_TRAINING_STATE_THINK" envDefault:"true"`
+			TrainingAssessmentThink          bool    `env:"AI_TRAINING_ASSESSMENT_THINK" envDefault:"true"`
 		}
 	}
 )

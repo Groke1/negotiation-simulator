@@ -17,6 +17,7 @@ type Config struct {
 	Timeout time.Duration
 	Think   bool
 	Stream  bool
+	Format  string
 }
 
 type Provider struct {
@@ -38,7 +39,11 @@ func (p *Provider) Generate(ctx context.Context, req ai.GenerateRequest) (string
 		Messages: make([]chatMessage, 0, len(req.Messages)),
 		Think:    p.cfg.Think,
 		Stream:   p.cfg.Stream,
+		Format:   strings.TrimSpace(p.cfg.Format),
 		Options:  map[string]any{"temperature": req.Temperature},
+	}
+	if req.Think != nil {
+		payload.Think = *req.Think
 	}
 	for _, msg := range req.Messages {
 		payload.Messages = append(payload.Messages, chatMessage{Role: msg.Role, Content: msg.Content})
@@ -75,6 +80,7 @@ type chatRequest struct {
 	Messages []chatMessage  `json:"messages"`
 	Think    bool           `json:"think"`
 	Stream   bool           `json:"stream"`
+	Format   string         `json:"format,omitempty"`
 	Options  map[string]any `json:"options,omitempty"`
 }
 
