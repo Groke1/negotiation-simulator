@@ -33,12 +33,14 @@ type trainingSessionListItem struct {
 }
 
 type trainingPreparation struct {
-	ScenarioID      string              `json:"scenario_id"`
-	Title           string              `json:"title"`
-	Description     string              `json:"description"`
-	ExpandedContext string              `json:"expanded_context"`
-	MyRole          scenarioRolePrivate `json:"my_role"`
-	PartnerRole     scenarioRoleVisible `json:"partner_role"`
+	ScenarioID      string                       `json:"scenario_id"`
+	Title           string                       `json:"title"`
+	Description     string                       `json:"description"`
+	ExpandedContext string                       `json:"expanded_context"`
+	MyRole          scenarioRolePrivate          `json:"my_role"`
+	PartnerRole     scenarioRoleVisible          `json:"partner_role"`
+	Roles           []entity.PublicScenarioRole  `json:"roles"`
+	Blocks          []entity.PublicScenarioBlock `json:"blocks"`
 }
 
 type scenarioRolePrivate struct {
@@ -55,6 +57,9 @@ type scenarioRoleVisible struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Goal        string `json:"goal"`
+	Interests   string `json:"interests"`
+	Constraints string `json:"constraints"`
 }
 
 type deterministicCurrentNode struct {
@@ -85,21 +90,23 @@ type trainingMessage struct {
 }
 
 type trainingSessionResponse struct {
-	SessionID      string                    `json:"session_id"`
-	ScenarioID     string                    `json:"scenario_id"`
-	ScenarioTitle  string                    `json:"scenario_title"`
-	ScenarioRoleID string                    `json:"scenario_role_id"`
-	AssignmentID   *string                   `json:"assignment_id"`
-	Mode           entity.TrainingMode       `json:"mode"`
-	Channel        entity.TrainingChannel    `json:"channel"`
-	Status         entity.TrainingStatus     `json:"status"`
-	IsEnd          bool                      `json:"is_end"`
-	Preparation    trainingPreparation       `json:"preparation"`
-	CurrentNode    *deterministicCurrentNode `json:"current_node"`
-	Messages       []trainingMessage         `json:"messages"`
-	Score          *int                      `json:"score"`
-	StartedAt      time.Time                 `json:"started_at"`
-	CompletedAt    *time.Time                `json:"completed_at"`
+	SessionID      string                      `json:"session_id"`
+	ScenarioID     string                      `json:"scenario_id"`
+	ScenarioTitle  string                      `json:"scenario_title"`
+	ScenarioRoleID string                      `json:"scenario_role_id"`
+	AssignmentID   *string                     `json:"assignment_id"`
+	Mode           entity.TrainingMode         `json:"mode"`
+	Channel        entity.TrainingChannel      `json:"channel"`
+	Status         entity.TrainingStatus       `json:"status"`
+	IsEnd          bool                        `json:"is_end"`
+	Scenario       entity.PublicScenarioInfo   `json:"scenario"`
+	Preparation    trainingPreparation         `json:"preparation"`
+	CurrentBlock   *entity.PublicScenarioBlock `json:"current_block"`
+	CurrentNode    *deterministicCurrentNode   `json:"current_node"`
+	Messages       []trainingMessage           `json:"messages"`
+	Score          *int                        `json:"score"`
+	StartedAt      time.Time                   `json:"started_at"`
+	CompletedAt    *time.Time                  `json:"completed_at"`
 }
 
 type trainingActionRequest struct {

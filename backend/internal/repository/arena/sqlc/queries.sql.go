@@ -123,17 +123,18 @@ func (q *Queries) CreateArenaFeedback(ctx context.Context, arg CreateArenaFeedba
 }
 
 const createArenaMessage = `-- name: CreateArenaMessage :one
-INSERT INTO learning.arena_messages (id, session_id, sender_id, text, semantic_action_code)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, session_id, sender_id, text, semantic_action_code, created_at
+INSERT INTO learning.arena_messages (id, session_id, sender_id, content, semantic_action_code, semantic_annotations)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, session_id, sender_id, content, semantic_action_code, semantic_annotations, created_at
 `
 
 type CreateArenaMessageParams struct {
-	ID                 pgtype.UUID `json:"id"`
-	SessionID          pgtype.UUID `json:"session_id"`
-	SenderID           pgtype.UUID `json:"sender_id"`
-	Text               string      `json:"text"`
-	SemanticActionCode string      `json:"semantic_action_code"`
+	ID                  pgtype.UUID `json:"id"`
+	SessionID           pgtype.UUID `json:"session_id"`
+	SenderID            pgtype.UUID `json:"sender_id"`
+	Content             []byte      `json:"content"`
+	SemanticActionCode  pgtype.Text `json:"semantic_action_code"`
+	SemanticAnnotations []byte      `json:"semantic_annotations"`
 }
 
 func (q *Queries) CreateArenaMessage(ctx context.Context, arg CreateArenaMessageParams) (LearningArenaMessage, error) {
@@ -141,16 +142,18 @@ func (q *Queries) CreateArenaMessage(ctx context.Context, arg CreateArenaMessage
 		arg.ID,
 		arg.SessionID,
 		arg.SenderID,
-		arg.Text,
+		arg.Content,
 		arg.SemanticActionCode,
+		arg.SemanticAnnotations,
 	)
 	var i LearningArenaMessage
 	err := row.Scan(
 		&i.ID,
 		&i.SessionID,
 		&i.SenderID,
-		&i.Text,
+		&i.Content,
 		&i.SemanticActionCode,
+		&i.SemanticAnnotations,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -360,7 +363,7 @@ func (q *Queries) ListArenaFeedback(ctx context.Context, sessionID pgtype.UUID) 
 }
 
 const listArenaMessages = `-- name: ListArenaMessages :many
-SELECT id, session_id, sender_id, text, semantic_action_code, created_at
+SELECT id, session_id, sender_id, content, semantic_action_code, semantic_annotations, created_at
 FROM learning.arena_messages
 WHERE session_id = $1
 ORDER BY created_at, id
@@ -379,8 +382,9 @@ func (q *Queries) ListArenaMessages(ctx context.Context, sessionID pgtype.UUID) 
 			&i.ID,
 			&i.SessionID,
 			&i.SenderID,
-			&i.Text,
+			&i.Content,
 			&i.SemanticActionCode,
+			&i.SemanticAnnotations,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

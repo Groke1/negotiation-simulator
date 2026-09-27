@@ -3,9 +3,8 @@ info:
   title: Negotiation Trainer - Arena WebSocket API
   version: 1.0.0
   description: |
-    WebSocket-протокол live text chat между двумя реальными участниками Arena. Сохраняет старый
-    канал и события. Единственное содержательное расширение message.send/message.created —
-    semantic_action_code, который отправитель выбирает для собственной реплики.
+    WebSocket-протокол live-обмена сообщениями между двумя реальными участниками Arena.
+    Поддерживает content для chat/email/voice_message и semantic-разметку реплик.
 defaultContentType: application/json
 servers:
   local:
@@ -57,11 +56,11 @@ components:
   messages:
     MessageSend:
       name: message.send
-      title: Отправить chat-сообщение
-      summary: Клиент отправляет собственную реплику и выбранный semantic action.
+      title: Отправить сообщение
+      summary: Клиент отправляет собственную реплику и semantic-разметку.
       payload:
         type: object
-        required: [type, message_id, text, semantic_action_code]
+        required: [type, message_id]
         properties:
           type:
             type: string
@@ -76,10 +75,20 @@ components:
             type: string
             minLength: 1
             maxLength: 5000
-            description: Текст собственной реплики участника.
+            description: Legacy-поле для chat. Если content отсутствует, сервер преобразует text в content={type:chat,text}.
+          content:
+            oneOf:
+              - $ref: '#/components/schemas/ChatContent'
+              - $ref: '#/components/schemas/EmailContent'
+              - $ref: '#/components/schemas/VoiceMessageContent'
           semantic_action_code:
             type: string
-            description: Код из GET /semantic-actions, выбранный отправителем для своей реплики.
+            description: Код из GET /semantic-actions; обязателен для chat и voice_message.
+          semantic_annotations:
+            type: array
+            description: Разметка body; обязательна для email.
+            items:
+              $ref: '#/components/schemas/SemanticAnnotation'
     MessageCreated:
       name: message.created
       title: Сообщение сохранено
@@ -93,7 +102,7 @@ components:
             const: message.created
           message:
             type: object
-            required: [message_id, sender_id, text, semantic_action_code, created_at]
+            required: [message_id, sender_id, content, created_at]
             properties:
               message_id:
                 type: string
@@ -101,11 +110,18 @@ components:
               sender_id:
                 type: string
                 format: uuid
-              text:
-                type: string
+              content:
+                oneOf:
+                  - $ref: '#/components/schemas/ChatContent'
+                  - $ref: '#/components/schemas/EmailContent'
+                  - $ref: '#/components/schemas/VoiceMessageContent'
               semantic_action_code:
                 type: string
-                description: Semantic action, выбранный автором для своей реплики.
+                description: Semantic action, выбранный автором для chat/voice_message.
+              semantic_annotations:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SemanticAnnotation'
               created_at:
                 type: string
                 format: date-time
@@ -157,3 +173,54 @@ components:
           message:
             type: string
             description: Человекочитаемое описание ошибки.
+  schemas:
+    ChatContent:
+      type: object
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          const: chat
+        text:
+          type: string
+          minLength: 1
+          maxLength: 10000
+    EmailContent:
+      type: object
+      required: [type, subject, body]
+      properties:
+        type:
+          type: string
+          const: email
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        body:
+          type: string
+          minLength: 1
+          maxLength: 30000
+    VoiceMessageContent:
+      type: object
+      required: [type, media_id]
+      properties:
+        type:
+          type: string
+          const: voice_message
+        media_id:
+          type: string
+          format: uuid
+        transcript:
+          type: string
+    SemanticAnnotation:
+      type: object
+      required: [start_offset, end_offset, semantic_action_code]
+      properties:
+        start_offset:
+          type: integer
+          minimum: 0
+        end_offset:
+          type: integer
+          minimum: 1
+        semantic_action_code:
+          type: string

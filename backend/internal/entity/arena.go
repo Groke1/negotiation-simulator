@@ -54,6 +54,9 @@ type ArenaSession struct {
 	AssignmentID  string                    `json:"arena_assignment_id"`
 	ScenarioID    string                    `json:"scenario_id"`
 	ScenarioTitle string                    `json:"scenario_title"`
+	Scenario      *PublicScenarioInfo       `json:"scenario,omitempty"`
+	MyRole        *ScenarioRole             `json:"-"`
+	OpponentRole  *PublicScenarioRole       `json:"-"`
 	Channel       string                    `json:"channel"`
 	Status        ArenaSessionStatus        `json:"status"`
 	ScheduledAt   time.Time                 `json:"scheduled_at"`
@@ -71,12 +74,22 @@ type ArenaSessionParticipant struct {
 }
 
 type ArenaMessage struct {
-	ID                 string    `json:"message_id"`
-	SessionID          string    `json:"arena_session_id,omitempty"`
-	SenderID           string    `json:"sender_id"`
-	Text               string    `json:"text"`
-	SemanticActionCode string    `json:"semantic_action_code"`
-	CreatedAt          time.Time `json:"created_at"`
+	ID                  string          `json:"message_id"`
+	SessionID           string          `json:"arena_session_id,omitempty"`
+	SenderID            string          `json:"sender_id"`
+	Content             json.RawMessage `json:"content"`
+	SemanticActionCode  *string         `json:"semantic_action_code,omitempty"`
+	SemanticAnnotations json.RawMessage `json:"semantic_annotations,omitempty"`
+	CreatedAt           time.Time       `json:"created_at"`
+}
+
+type CreateArenaMessage struct {
+	ID                  string
+	SessionID           string
+	SenderID            string
+	Content             json.RawMessage
+	SemanticActionCode  *string
+	SemanticAnnotations json.RawMessage
 }
 
 type ArenaFeedbackRating struct {

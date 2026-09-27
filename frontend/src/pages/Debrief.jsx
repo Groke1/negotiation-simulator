@@ -8,6 +8,7 @@ import { useAuth } from '../app/AuthContext';
 import { resolveActiveRole } from '../app/roles';
 import { formatDelta, formatNumber } from '../app/format';
 import { sortMessagesChronologically } from '../app/messages';
+import PublicScenarioViewer from '../components/PublicScenarioViewer';
 
 const messageText = (message) => {
   const content = message?.content || {};
@@ -53,7 +54,7 @@ export default function Debrief() {
   const result = data.result || {};
   const clusterNames = new Map((dictionary.data || []).map((cluster) => [cluster.id, cluster.name]));
   return <div className="page training-report">
-    <header className="page-header"><div><span className="eyebrow">Разбор тренировки</span><h1>{formatNumber(data.score || 0)} / 100</h1><p>{result.summary || 'Итог тренировки сформирован.'}</p></div><div><button type="button" onClick={() => navigate(isCurator ? '/curator/team' : '/learner/training')}>{isCurator ? 'К команде' : 'К тренировкам'}</button></div></header>
+    <header className="page-header"><div><span className="eyebrow">Разбор тренировки</span><h1>{formatNumber(data.score || 0)} / 100</h1><p>{result.summary || 'Итог тренировки сформирован.'}</p></div><div className="header-actions"><PublicScenarioViewer scenario={session.data?.scenario} preparation={session.data?.preparation} currentBlock={session.data?.current_block} /><button type="button" onClick={() => navigate(isCurator ? '/curator/team' : '/learner/training')}>{isCurator ? 'К команде' : 'К тренировкам'}</button></div></header>
     {(result.goals_met?.length || result.goals_missed?.length) ? <section className="card report-outcome"><h2>Результат переговоров</h2><div className="split">{result.goals_met?.length ? <div><span className="eyebrow">Достигнуто</span><ul>{result.goals_met.map((goal) => <li key={goal}>{goal}</li>)}</ul></div> : <div><span className="eyebrow">Достигнуто</span><p>Достигнутые цели не отмечены.</p></div>}{result.goals_missed?.length ? <div><span className="eyebrow">Не достигнуто</span><ul>{result.goals_missed.map((goal) => <li key={goal}>{goal}</li>)}</ul></div> : <div><span className="eyebrow">Не достигнуто</span><p>Недостигнутые цели не отмечены.</p></div>}</div></section> : null}
     <div className="split"><section className="card"><h2>Что получилось</h2>{data.strengths?.length ? data.strengths.map((item) => <p className="feedback good" key={item.title}>✓ <strong>{item.title}</strong><br />{item.description}</p>) : <p>Сильные стороны пока не сформированы.</p>}</section><section className="card"><h2>Что улучшить</h2>{data.improvements?.length ? data.improvements.map((item) => <p className="feedback bad" key={item.title}>! <strong>{item.title}</strong><br />{item.description}</p>) : <p>Рекомендаций пока нет.</p>}</section></div>
     <section className="card" style={{ marginTop: 16 }}><h2>Компетенции в попытке</h2><ClusterBars clusters={data.competencies} dictionary={dictionary.data} />{data.competencies?.some((item) => item.comment) && <div className="form-grid" style={{ marginTop: 16 }}>{data.competencies.filter((item) => item.comment).map((item) => <p className="panel" key={item.cluster_id}><strong>{clusterNames.get(item.cluster_id) || 'Компетенция'}</strong><br />{item.comment}</p>)}</div>}</section>

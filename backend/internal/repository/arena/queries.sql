@@ -63,8 +63,8 @@ SET status = 'completed'
 WHERE id = sqlc.arg(id);
 
 -- name: CreateArenaMessage :one
-INSERT INTO learning.arena_messages (id, session_id, sender_id, text, semantic_action_code)
-VALUES (sqlc.arg(id), sqlc.arg(session_id), sqlc.arg(sender_id), sqlc.arg(text), sqlc.arg(semantic_action_code))
+INSERT INTO learning.arena_messages (id, session_id, sender_id, content, semantic_action_code, semantic_annotations)
+VALUES (sqlc.arg(id), sqlc.arg(session_id), sqlc.arg(sender_id), sqlc.arg(content), sqlc.narg(semantic_action_code), sqlc.narg(semantic_annotations))
 RETURNING *;
 
 -- name: ListArenaMessages :many

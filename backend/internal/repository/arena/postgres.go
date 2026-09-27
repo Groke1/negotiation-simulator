@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 	sqlc "sourcecraft.dev/lct-hackaton-2026.arena/internal/repository/arena/sqlc"
 	"sourcecraft.dev/lct-hackaton-2026.arena/pkg/db"
@@ -160,21 +161,35 @@ func (r *Repository) CompleteSession(ctx context.Context, sessionID string, assi
 	return r.getQueries(ctx).CompleteArenaAssignment(ctx, pgAssignmentID)
 }
 
-func (r *Repository) CreateMessage(ctx context.Context, sessionID, senderID, text, code string) (*entity.ArenaMessage, error) {
-	id, err := entity.NewUUID()
-	if err != nil {
-		return nil, err
+func (r *Repository) CreateMessage(ctx context.Context, params entity.CreateArenaMessage) (*entity.ArenaMessage, error) {
+	id := params.ID
+	if id == "" {
+		newID, err := entity.NewUUID()
+		if err != nil {
+			return nil, err
+		}
+		id = newID
 	}
-	pgID, _ := pgxconv.StringToUUID(id)
-	pgSessionID, err := pgxconv.StringToUUID(sessionID)
+	pgID, err := pgxconv.StringToUUID(id)
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}
-	pgSenderID, err := pgxconv.StringToUUID(senderID)
+	pgSessionID, err := pgxconv.StringToUUID(params.SessionID)
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}
-	row, err := r.getQueries(ctx).CreateArenaMessage(ctx, sqlc.CreateArenaMessageParams{ID: pgID, SessionID: pgSessionID, SenderID: pgSenderID, Text: text, SemanticActionCode: code})
+	pgSenderID, err := pgxconv.StringToUUID(params.SenderID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	row, err := r.getQueries(ctx).CreateArenaMessage(ctx, sqlc.CreateArenaMessageParams{
+		ID:                  pgID,
+		SessionID:           pgSessionID,
+		SenderID:            pgSenderID,
+		Content:             params.Content,
+		SemanticActionCode:  optionalText(params.SemanticActionCode),
+		SemanticAnnotations: nullableJSON(params.SemanticAnnotations),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +322,7 @@ func sessionFromGet(row sqlc.GetArenaSessionRow) *entity.ArenaSession {
 }
 
 func messageFromSQL(row sqlc.LearningArenaMessage) *entity.ArenaMessage {
-	return &entity.ArenaMessage{ID: pgxconv.UUIDToString(row.ID), SessionID: pgxconv.UUIDToString(row.SessionID), SenderID: pgxconv.UUIDToString(row.SenderID), Text: row.Text, SemanticActionCode: row.SemanticActionCode, CreatedAt: row.CreatedAt.Time}
+	return &entity.ArenaMessage{ID: pgxconv.UUIDToString(row.ID), SessionID: pgxconv.UUIDToString(row.SessionID), SenderID: pgxconv.UUIDToString(row.SenderID), Content: row.Content, SemanticActionCode: pgTextToString(row.SemanticActionCode), SemanticAnnotations: row.SemanticAnnotations, CreatedAt: row.CreatedAt.Time}
 }
 
 func feedbackFromSQL(row sqlc.LearningArenaFeedback) *entity.ArenaFeedback {
@@ -328,4 +343,19 @@ func nullableJSON(value []byte) []byte {
 		return nil
 	}
 	return value
+}
+
+func optionalText(value *string) pgtype.Text {
+	if value == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: *value, Valid: true}
+}
+
+func pgTextToString(value pgtype.Text) *string {
+	if !value.Valid {
+		return nil
+	}
+	out := value.String
+	return &out
 }

@@ -4,9 +4,10 @@ const timestamp = (message) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const identifier = (message) => String(message?.message_id || message?.id || '');
-
 export const sortMessagesChronologically = (messages = []) => [...messages]
   .map((message, index) => ({ message, index }))
-  .sort((left, right) => timestamp(left.message) - timestamp(right.message) || identifier(left.message).localeCompare(identifier(right.message)) || left.index - right.index)
+  // A backend response is already ordered by its stable creation order. UUIDs are
+  // deliberately random, so using one as a tie-breaker scrambles messages created
+  // in the same timestamp tick. Keep the server order for equal timestamps.
+  .sort((left, right) => timestamp(left.message) - timestamp(right.message) || left.index - right.index)
   .map(({ message }) => message);

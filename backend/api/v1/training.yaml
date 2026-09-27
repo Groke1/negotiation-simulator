@@ -457,6 +457,8 @@ components:
         - expanded_context
         - my_role
         - partner_role
+        - roles
+        - blocks
       properties:
         scenario_id:
           type: string
@@ -475,6 +477,16 @@ components:
           $ref: '#/components/schemas/MyScenarioRole'
         partner_role:
           $ref: '#/components/schemas/VisiblePartnerRole'
+        roles:
+          type: array
+          description: Обе переговорные роли без private information.
+          items:
+            $ref: '#/components/schemas/PublicScenarioRole'
+        blocks:
+          type: array
+          description: Публичная схема блоков сценария без служебной методической информации.
+          items:
+            $ref: '#/components/schemas/PublicScenarioBlock'
     MyScenarioRole:
       type: object
       required:
@@ -514,6 +526,9 @@ components:
         - id
         - name
         - description
+        - goal
+        - interests
+        - constraints
       properties:
         id:
           type: string
@@ -525,6 +540,85 @@ components:
         description:
           type: string
           description: Публичное описание роли партнёра.
+        goal:
+          type: string
+          description: Публичная цель роли партнёра.
+        interests:
+          type: string
+          description: Публичные интересы роли партнёра.
+        constraints:
+          type: string
+          description: Публичные ограничения роли партнёра.
+    PublicScenarioRole:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - goal
+        - interests
+        - constraints
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        goal:
+          type: string
+        interests:
+          type: string
+        constraints:
+          type: string
+      description: Переговорная роль без private_information.
+    PublicScenarioBlock:
+      type: object
+      required:
+        - id
+        - type
+        - name
+        - description
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          description: Тип блока, например start/middle/end.
+        name:
+          type: string
+        description:
+          type: string
+      description: Публичное описание блока без transitions, rules, constraints и deterministic_dialogue.
+    PublicScenarioInfo:
+      type: object
+      required:
+        - scenario_id
+        - title
+        - description
+        - expanded_context
+        - roles
+        - blocks
+      properties:
+        scenario_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        expanded_context:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicScenarioRole'
+        blocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicScenarioBlock'
     DeterministicAvailableAction:
       type: object
       required:
@@ -779,7 +873,9 @@ components:
         - channel
         - status
         - is_end
+        - scenario
         - preparation
+        - current_block
         - current_node
         - messages
         - started_at
@@ -811,8 +907,15 @@ components:
         is_end:
           type: boolean
           description: true, если попытка уже автоматически завершена и можно запрашивать итоговый analysis.
+        scenario:
+          $ref: '#/components/schemas/PublicScenarioInfo'
         preparation:
           $ref: '#/components/schemas/TrainingPreparation'
+        current_block:
+          oneOf:
+            - $ref: '#/components/schemas/PublicScenarioBlock'
+            - type: 'null'
+          description: Текущий блок сценария. Для завершённой сессии может указывать финальный блок.
         current_node:
           oneOf:
             - $ref: '#/components/schemas/DeterministicCurrentNode'
@@ -836,7 +939,9 @@ components:
         - channel
         - status
         - is_end
+        - scenario
         - preparation
+        - current_block
         - current_node
         - messages
         - score
@@ -868,8 +973,15 @@ components:
         is_end:
           type: boolean
           description: true, если попытка завершена и доступен `GET /training/sessions/{session_id}/analysis`.
+        scenario:
+          $ref: '#/components/schemas/PublicScenarioInfo'
         preparation:
           $ref: '#/components/schemas/TrainingPreparation'
+        current_block:
+          oneOf:
+            - $ref: '#/components/schemas/PublicScenarioBlock'
+            - type: 'null'
+          description: Текущий блок сценария. Для virtual_partner это основной способ показать, где находится пользователь.
         current_node:
           oneOf:
             - $ref: '#/components/schemas/DeterministicCurrentNode'

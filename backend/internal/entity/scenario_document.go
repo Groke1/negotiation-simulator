@@ -40,6 +40,31 @@ type ScenarioRole struct {
 	PrivateInformation string `json:"private_information"`
 }
 
+type PublicScenarioInfo struct {
+	ScenarioID      string                `json:"scenario_id"`
+	Title           string                `json:"title"`
+	Description     string                `json:"description"`
+	ExpandedContext string                `json:"expanded_context"`
+	Roles           []PublicScenarioRole  `json:"roles"`
+	Blocks          []PublicScenarioBlock `json:"blocks"`
+}
+
+type PublicScenarioRole struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Goal        string `json:"goal"`
+	Interests   string `json:"interests"`
+	Constraints string `json:"constraints"`
+}
+
+type PublicScenarioBlock struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 type ScenarioBlock struct {
 	ID                    string                 `json:"id"`
 	Type                  string                 `json:"type"`
@@ -155,6 +180,52 @@ func ScenarioDocumentFromScenario(s Scenario) ScenarioDocument {
 		UpdatedAt:         s.UpdatedAt,
 		PublishedAt:       s.PublishedAt,
 	}
+}
+
+func PublicScenarioInfoFromDocument(doc ScenarioDocument) PublicScenarioInfo {
+	roles := make([]PublicScenarioRole, 0, len(doc.Roles))
+	for _, role := range doc.Roles {
+		roles = append(roles, PublicScenarioRole{
+			ID:          role.ID,
+			Name:        role.Name,
+			Description: role.Description,
+			Goal:        role.Goal,
+			Interests:   role.Interests,
+			Constraints: role.Constraints,
+		})
+	}
+	blocks := make([]PublicScenarioBlock, 0, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		blocks = append(blocks, PublicScenarioBlock{
+			ID:          block.ID,
+			Type:        block.Type,
+			Name:        block.Name,
+			Description: block.Description,
+		})
+	}
+	return PublicScenarioInfo{
+		ScenarioID:      doc.ScenarioID,
+		Title:           doc.Title,
+		Description:     doc.Description,
+		ExpandedContext: doc.ExpandedContext,
+		Roles:           roles,
+		Blocks:          blocks,
+	}
+}
+
+func PublicScenarioBlockByID(doc ScenarioDocument, blockID string) *PublicScenarioBlock {
+	for _, block := range doc.Blocks {
+		if block.ID != blockID {
+			continue
+		}
+		return &PublicScenarioBlock{
+			ID:          block.ID,
+			Type:        block.Type,
+			Name:        block.Name,
+			Description: block.Description,
+		}
+	}
+	return nil
 }
 
 func NormalizeScenarioBlocks(blocks []ScenarioBlock) {

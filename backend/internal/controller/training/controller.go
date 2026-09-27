@@ -284,7 +284,9 @@ func detailsToResponse(details entity.TrainingSessionDetails) trainingSessionRes
 		Channel:        details.Session.Channel,
 		Status:         details.Session.Status,
 		IsEnd:          details.Session.Status == entity.TrainingStatusCompleted,
+		Scenario:       entity.PublicScenarioInfoFromDocument(doc),
 		Preparation:    preparation(doc, details.Session.ScenarioRoleID),
+		CurrentBlock:   currentBlockFromState(details.Session.State, doc),
 		CurrentNode:    currentNodeFromState(details.Session.State, &doc),
 		Messages:       messagesToResponse(details.Messages),
 		Score:          details.Session.Score,
@@ -325,7 +327,35 @@ func preparation(doc entity.ScenarioDocument, roleID string) trainingPreparation
 			partner = role
 		}
 	}
-	return trainingPreparation{ScenarioID: doc.ScenarioID, Title: doc.Title, Description: doc.Description, ExpandedContext: doc.ExpandedContext, MyRole: scenarioRolePrivate(me), PartnerRole: scenarioRoleVisible{ID: partner.ID, Name: partner.Name, Description: partner.Description}}
+	public := entity.PublicScenarioInfoFromDocument(doc)
+	return trainingPreparation{
+		ScenarioID:      doc.ScenarioID,
+		Title:           doc.Title,
+		Description:     doc.Description,
+		ExpandedContext: doc.ExpandedContext,
+		MyRole:          scenarioRolePrivateFromScenario(me),
+		PartnerRole:     scenarioRoleVisibleFromScenario(partner),
+		Roles:           public.Roles,
+		Blocks:          public.Blocks,
+	}
+}
+
+func scenarioRolePrivateFromScenario(role entity.ScenarioRole) scenarioRolePrivate {
+	return scenarioRolePrivate{ID: role.ID, Name: role.Name, Description: role.Description, Goal: role.Goal, Interests: role.Interests, Constraints: role.Constraints, PrivateInformation: role.PrivateInformation}
+}
+
+func scenarioRoleVisibleFromScenario(role entity.ScenarioRole) scenarioRoleVisible {
+	return scenarioRoleVisible{ID: role.ID, Name: role.Name, Description: role.Description, Goal: role.Goal, Interests: role.Interests, Constraints: role.Constraints}
+}
+
+func currentBlockFromState(raw json.RawMessage, doc entity.ScenarioDocument) *entity.PublicScenarioBlock {
+	var state struct {
+		BlockID string `json:"block_id"`
+	}
+	if json.Unmarshal(raw, &state) != nil || state.BlockID == "" {
+		return nil
+	}
+	return entity.PublicScenarioBlockByID(doc, state.BlockID)
 }
 
 func currentNodeFromState(raw json.RawMessage, doc *entity.ScenarioDocument) *deterministicCurrentNode {

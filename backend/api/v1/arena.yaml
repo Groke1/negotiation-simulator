@@ -9,9 +9,8 @@ info:
     WebSocket-протоколом, описанным отдельно в `arena_asyncapi.yaml`.
 
 
-    В текущем MVP Arena работает через channel=chat. Поддержка email/voice_message/audio_call может
-
-    быть добавлена позже без изменения жизненного цикла ArenaAssignment/ArenaSession.
+    Arena поддерживает каналы chat, email и voice_message. Live-обмен может идти по WebSocket,
+    REST endpoint сообщений сохраняется для reconnect, истории и клиентов без WebSocket.
 
     '
 servers:
@@ -158,7 +157,8 @@ paths:
 
         Первый join создаёт ArenaSession. Ответ дополнительно отдаёт безопасную preparation-информацию:
 
-        свою private_information пользователь видит, private_information второй роли не возвращается.
+        публичные данные сценария, схему блоков без служебной информации, private information своей
+        роли и публичное описание роли партнёра без чужой private information.
 
         '
       operationId: joinArena
@@ -239,6 +239,42 @@ paths:
           $ref: '#/components/responses/ArenaAccessDenied'
         '404':
           $ref: '#/components/responses/ArenaSessionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags:
+        - Arena Sessions
+      summary: Отправить сообщение в Arena
+      description: 'REST-вариант отправки сообщения. Для chat/voice_message передаётся один
+        semantic_action_code; для email передаются semantic_annotations по фрагментам body.
+
+        '
+      operationId: sendArenaMessage
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArenaMessageSendRequest'
+      responses:
+        '201':
+          description: Сообщение сохранено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaMessage'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ArenaAccessDenied'
+        '404':
+          $ref: '#/components/responses/ArenaSessionNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidArenaState'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /arena/sessions/{arena_session_id}/complete:
@@ -487,7 +523,9 @@ components:
       type: string
       enum:
         - chat
-      description: Текущий Arena runtime использует text chat по WebSocket.
+        - email
+        - voice_message
+      description: Канал общения Arena.
     ArenaAssignmentParticipant:
       type: object
       required:
@@ -659,13 +697,16 @@ components:
           type: string
         private_information:
           type: string
-          description: Закрытая информация только своей роли.
+          description: Закрытая информация только своей роли. Private information партнёра не возвращается.
     VisibleArenaOpponentRole:
       type: object
       required:
         - id
         - name
         - description
+        - goal
+        - interests
+        - constraints
       properties:
         id:
           type: string
@@ -673,6 +714,12 @@ components:
         name:
           type: string
         description:
+          type: string
+        goal:
+          type: string
+        interests:
+          type: string
+        constraints:
           type: string
     ArenaPreparation:
       type: object
@@ -683,6 +730,8 @@ components:
         - expanded_context
         - my_role
         - opponent_role
+        - roles
+        - blocks
       properties:
         scenario_id:
           type: string
@@ -697,6 +746,85 @@ components:
           $ref: '#/components/schemas/MyArenaRole'
         opponent_role:
           $ref: '#/components/schemas/VisibleArenaOpponentRole'
+        roles:
+          type: array
+          description: Обе переговорные роли без private information.
+          items:
+            $ref: '#/components/schemas/PublicScenarioRole'
+        blocks:
+          type: array
+          description: Публичная схема блоков без служебной информации.
+          items:
+            $ref: '#/components/schemas/PublicScenarioBlock'
+    PublicScenarioRole:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - goal
+        - interests
+        - constraints
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        goal:
+          type: string
+        interests:
+          type: string
+        constraints:
+          type: string
+      description: Переговорная роль без private_information.
+    PublicScenarioBlock:
+      type: object
+      required:
+        - id
+        - type
+        - name
+        - description
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+      description: Публичный блок сценария без transitions/action_rules/deterministic_dialogue.
+    PublicScenarioInfo:
+      type: object
+      required:
+        - scenario_id
+        - title
+        - description
+        - expanded_context
+        - roles
+        - blocks
+      properties:
+        scenario_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        expanded_context:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicScenarioRole'
+        blocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicScenarioBlock'
     ArenaSessionParticipant:
       type: object
       required:
@@ -722,6 +850,7 @@ components:
         - status
         - participants
         - websocket_path
+        - scenario
         - preparation
       properties:
         arena_session_id:
@@ -735,7 +864,9 @@ components:
             $ref: '#/components/schemas/ArenaSessionParticipant'
         websocket_path:
           type: string
-          description: Путь WebSocket для channel=chat.
+          description: Путь WebSocket.
+        scenario:
+          $ref: '#/components/schemas/PublicScenarioInfo'
         preparation:
           $ref: '#/components/schemas/ArenaPreparation'
     ArenaSession:
@@ -745,6 +876,7 @@ components:
         - arena_assignment_id
         - scenario_id
         - scenario_title
+        - scenario
         - channel
         - status
         - scheduled_at
@@ -763,6 +895,10 @@ components:
           format: uuid
         scenario_title:
           type: string
+        scenario:
+          oneOf:
+            - $ref: '#/components/schemas/PublicScenarioInfo'
+            - type: 'null'
         channel:
           $ref: '#/components/schemas/ArenaChannel'
         status:
@@ -784,13 +920,100 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+    ChatContent:
+      type: object
+      required:
+        - type
+        - text
+      properties:
+        type:
+          type: string
+          enum:
+            - chat
+        text:
+          type: string
+          minLength: 1
+          maxLength: 10000
+    EmailContent:
+      type: object
+      required:
+        - type
+        - subject
+        - body
+      properties:
+        type:
+          type: string
+          enum:
+            - email
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        body:
+          type: string
+          minLength: 1
+          maxLength: 30000
+    VoiceMessageContent:
+      type: object
+      required:
+        - type
+        - media_id
+      properties:
+        type:
+          type: string
+          enum:
+            - voice_message
+        media_id:
+          type: string
+          format: uuid
+        transcript:
+          type: string
+    ArenaMessageContent:
+      oneOf:
+        - $ref: '#/components/schemas/ChatContent'
+        - $ref: '#/components/schemas/EmailContent'
+        - $ref: '#/components/schemas/VoiceMessageContent'
+    ArenaSemanticAnnotation:
+      type: object
+      required:
+        - start_offset
+        - end_offset
+        - semantic_action_code
+      properties:
+        start_offset:
+          type: integer
+          minimum: 0
+        end_offset:
+          type: integer
+          minimum: 1
+        semantic_action_code:
+          type: string
+    ArenaMessageSendRequest:
+      type: object
+      required:
+        - message_id
+        - content
+      properties:
+        message_id:
+          type: string
+          format: uuid
+          description: Frontend-generated постоянный ID и ключ идемпотентности сообщения.
+        content:
+          $ref: '#/components/schemas/ArenaMessageContent'
+        semantic_action_code:
+          type: string
+          description: Обязателен для chat и voice_message.
+        semantic_annotations:
+          type: array
+          description: Обязателен для email; разметка фрагментов body.
+          items:
+            $ref: '#/components/schemas/ArenaSemanticAnnotation'
     ArenaMessage:
       type: object
       required:
         - message_id
         - sender_id
-        - text
-        - semantic_action_code
+        - content
         - created_at
       properties:
         message_id:
@@ -800,11 +1023,16 @@ components:
         sender_id:
           type: string
           format: uuid
-        text:
-          type: string
+        content:
+          $ref: '#/components/schemas/ArenaMessageContent'
         semantic_action_code:
           type: string
-          description: Semantic action, который отправитель приписал своей chat-реплике.
+          description: Semantic action, который отправитель приписал chat/voice_message реплике.
+        semantic_annotations:
+          type: array
+          description: Разметки body для email-сообщения.
+          items:
+            $ref: '#/components/schemas/ArenaSemanticAnnotation'
         created_at:
           type: string
           format: date-time
@@ -998,12 +1226,17 @@ components:
       type: object
       required:
         - session
+        - scenario
         - messages
         - feedback
         - media
       properties:
         session:
           $ref: '#/components/schemas/ArenaSession'
+        scenario:
+          oneOf:
+            - $ref: '#/components/schemas/PublicScenarioInfo'
+            - type: 'null'
         messages:
           type: array
           items:

@@ -59,6 +59,7 @@ export const getArenaAssignment = (id, signal) => request(`/arena/assignments/${
 export const joinArena = (id) => request(`/arena/assignments/${id}/join`, { method: 'POST' });
 export const getArenaSession = (id, signal) => request(`/arena/sessions/${id}`, { signal });
 export const getArenaMessages = (id, signal) => request(`/arena/sessions/${id}/messages`, { signal }).then((data) => data.messages || []);
+export const sendArenaMessage = (id, message) => request(`/arena/sessions/${id}/messages`, { method: 'POST', data: message });
 export const completeArena = (id) => request(`/arena/sessions/${id}/complete`, { method: 'POST' });
 export const getArenaFeedback = (id, signal) => request(`/arena/sessions/${id}/feedback`, { signal }).then((data) => data.feedback || []);
 export const createArenaFeedback = (sessionId, participantId, comment, ratings = []) => request(`/arena/sessions/${sessionId}/feedback`, { method: 'POST', data: { participant_id: participantId, comment, ratings } });

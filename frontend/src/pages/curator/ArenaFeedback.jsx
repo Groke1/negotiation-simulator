@@ -6,11 +6,20 @@ import {
   getCompetencyClusters,
   getArenaFeedback,
   getArenaMessages,
-  getArenaSession
+  getArenaSession,
+  getSemanticActions
 } from '../../api';
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from '../../components/UI';
 import { formatDelta, formatNumber } from '../../app/format';
 import { sortMessagesChronologically } from '../../app/messages';
+import { semanticActionLabel } from '../../app/presentation';
+import PublicScenarioViewer from '../../components/PublicScenarioViewer';
+
+const messageText = (message) => {
+  const content = message?.content || {};
+  if (content.subject && content.body) return `${content.subject}\n\n${content.body}`;
+  return content.text || content.body || content.transcript || (content.media_id ? 'Голосовое сообщение' : message?.text || '');
+};
 
 export default function ArenaFeedback() {
   const { sessionId } = useParams();
@@ -26,6 +35,7 @@ export default function ArenaFeedback() {
   const messages = useQuery({ queryKey: ['arena-messages', sessionId], queryFn: ({ signal }) => getArenaMessages(sessionId, signal) });
   const feedback = useQuery({ queryKey: ['arena-feedback', sessionId], queryFn: ({ signal }) => getArenaFeedback(sessionId, signal) });
   const clusters = useQuery({ queryKey: ['competency-clusters'], queryFn: ({ signal }) => getCompetencyClusters(signal), staleTime: 3600000 });
+  const actions = useQuery({ queryKey: ['semantic-actions'], queryFn: ({ signal }) => getSemanticActions(signal), staleTime: 3600000 });
 
   const participants = session.data?.participants || [];
   const activeParticipant = selectedParticipant || participants[0]?.user_id || '';
@@ -51,8 +61,9 @@ export default function ArenaFeedback() {
     }
   }
 
-  if (session.isLoading || messages.isLoading || feedback.isLoading || clusters.isLoading) return <LoadingState />;
-  if (session.error || messages.error || feedback.error || clusters.error) return <ErrorState error={session.error || messages.error || feedback.error || clusters.error} retry={() => { session.refetch(); messages.refetch(); feedback.refetch(); clusters.refetch(); }} />;
+  if (session.isLoading || messages.isLoading || feedback.isLoading || clusters.isLoading || actions.isLoading) return <LoadingState />;
+  if (session.error || messages.error || feedback.error || clusters.error || actions.error) return <ErrorState error={session.error || messages.error || feedback.error || clusters.error || actions.error} retry={() => { session.refetch(); messages.refetch(); feedback.refetch(); clusters.refetch(); actions.refetch(); }} />;
+  const actionNames = new Map((actions.data || []).map((action) => [action.code, semanticActionLabel(action)]));
 
   return (
     <div className="page">
@@ -64,6 +75,7 @@ export default function ArenaFeedback() {
         </div>
         <div>
           <button className="secondary" type="button" onClick={() => navigate('/curator/arenas')}>К Arena</button>
+          <PublicScenarioViewer scenario={session.data?.scenario} label="О сценарии" />
         </div>
       </header>
 
@@ -73,13 +85,15 @@ export default function ArenaFeedback() {
           <StatusBadge value={session.data?.status} />
           {messages.data.length ? (
             <div className="chat-stream inline-chat">
-              {sortMessagesChronologically(messages.data).map((message) => (
-                <div key={message.message_id} className="bubble">
+              {sortMessagesChronologically(messages.data).map((message) => {
+                const codes = [message.semantic_action_code, ...(message.semantic_annotations || []).map((item) => item.semantic_action_code)].filter(Boolean);
+                return <div key={message.message_id} className="bubble">
                   <small>{message.sender_id === activeParticipant ? 'Выбранный участник' : 'Другой участник'}</small>
-                  {message.text}
+                  <div className="message-content">{messageText(message)}</div>
                   <time className="message-time">{message.created_at ? new Date(message.created_at).toLocaleString('ru-RU') : ''}</time>
-                </div>
-              ))}
+                  {codes.length ? <div className="message-semantic-report"><span>Семантическая метка:</span><div className="semantic-code-list">{[...new Set(codes)].map((code) => <span key={code}>{actionNames.get(code) || code}</span>)}</div></div> : null}
+                </div>;
+              })}
             </div>
           ) : <EmptyState title="Сообщений нет" />}
         </section>

@@ -32,12 +32,13 @@ type LearningArenaFeedback struct {
 }
 
 type LearningArenaMessage struct {
-	ID                 pgtype.UUID        `json:"id"`
-	SessionID          pgtype.UUID        `json:"session_id"`
-	SenderID           pgtype.UUID        `json:"sender_id"`
-	Text               string             `json:"text"`
-	SemanticActionCode string             `json:"semantic_action_code"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	ID                  pgtype.UUID        `json:"id"`
+	SessionID           pgtype.UUID        `json:"session_id"`
+	SenderID            pgtype.UUID        `json:"sender_id"`
+	Content             []byte             `json:"content"`
+	SemanticActionCode  pgtype.Text        `json:"semantic_action_code"`
+	SemanticAnnotations []byte             `json:"semantic_annotations"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 }
 
 type LearningArenaSession struct {

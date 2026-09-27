@@ -6,7 +6,7 @@ CREATE TABLE learning.arena_assignments (
     scenario_id UUID NOT NULL REFERENCES scenarios.scenarios(id),
     created_by UUID NOT NULL REFERENCES users.users(id),
     participants JSONB NOT NULL,
-    channel TEXT NOT NULL DEFAULT 'chat' CHECK(channel IN ('chat','voice')),
+    channel TEXT NOT NULL DEFAULT 'chat' CHECK(channel IN ('chat','email','voice_message')),
     scheduled_at TIMESTAMPTZ NOT NULL,
     status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled','in_progress','completed','cancelled')),
     session_id UUID NULL,
@@ -29,8 +29,9 @@ CREATE TABLE learning.arena_messages (
     id UUID PRIMARY KEY,
     session_id UUID NOT NULL REFERENCES learning.arena_sessions(id) ON DELETE CASCADE,
     sender_id UUID NOT NULL REFERENCES users.users(id),
-    text TEXT NOT NULL,
-    semantic_action_code TEXT NOT NULL,
+    content JSONB NOT NULL,
+    semantic_action_code TEXT NULL,
+    semantic_annotations JSONB NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

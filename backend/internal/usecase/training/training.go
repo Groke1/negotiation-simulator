@@ -1065,7 +1065,19 @@ func virtualPartnerClusterResults(assessment entity.TrainingAssessment, targetCl
 	targets := stringSet(targetClusterIDs)
 	results := make([]entity.TrainingClusterResult, 0, len(assessment.ClusterAssessments))
 	for _, item := range assessment.ClusterAssessments {
-		if !targets[item.ClusterID] || item.Status != "ASSESSED" {
+		if !targets[item.ClusterID] {
+			continue
+		}
+		if item.Status == "NOT_OBSERVED" {
+			results = append(results, entity.TrainingClusterResult{
+				ClusterID:      item.ClusterID,
+				Score:          0,
+				EvidenceWeight: 0,
+				Comment:        strings.TrimSpace(item.Comment),
+			})
+			continue
+		}
+		if item.Status != "ASSESSED" {
 			continue
 		}
 		evidenceStrength := virtualPartnerEvidenceStrength(len(item.EvidenceEpisodes))

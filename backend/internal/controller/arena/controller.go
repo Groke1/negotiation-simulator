@@ -2,6 +2,7 @@ package arena
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ type Service interface {
 	Join(ctx context.Context, claims entity.AccessClaims, assignmentID string) (*entity.ArenaSession, error)
 	GetSession(ctx context.Context, claims entity.AccessClaims, sessionID string) (*entity.ArenaSession, error)
 	ListMessages(ctx context.Context, claims entity.AccessClaims, sessionID string) ([]entity.ArenaMessage, error)
-	SendMessage(ctx context.Context, claims entity.AccessClaims, sessionID, text, code string) (*entity.ArenaMessage, error)
+	SendMessage(ctx context.Context, claims entity.AccessClaims, params entity.CreateArenaMessage) (*entity.ArenaMessage, error)
 	Complete(ctx context.Context, claims entity.AccessClaims, sessionID string) error
 	ListFeedback(ctx context.Context, claims entity.AccessClaims, sessionID string) ([]entity.ArenaFeedback, error)
 	CreateFeedback(ctx context.Context, claims entity.AccessClaims, sessionID, participantID, comment string, ratings []entity.ArenaFeedbackRating) (*entity.ArenaFeedback, error)
@@ -50,6 +51,7 @@ func (c *Controller) InitRoutes(r chi.Router) {
 	r.Post("/arena/assignments/{arena_assignment_id}/join", c.Join)
 	r.Get("/arena/sessions/{arena_session_id}", c.GetSession)
 	r.Get("/arena/sessions/{arena_session_id}/messages", c.ListMessages)
+	r.Post("/arena/sessions/{arena_session_id}/messages", c.SendMessage)
 	r.Post("/arena/sessions/{arena_session_id}/complete", c.Complete)
 	r.Get("/arena/sessions/{arena_session_id}/feedback", c.ListFeedback)
 	r.Post("/arena/sessions/{arena_session_id}/feedback", c.CreateFeedback)
@@ -125,7 +127,7 @@ func (c *Controller) Join(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, joinArenaResponse{ArenaSessionID: session.ID, Status: session.Status, Participants: session.Joined, WebsocketPath: "/ws/arena/sessions/" + session.ID, Preparation: arenaPreparation{ScenarioID: session.ScenarioID, Title: session.ScenarioTitle}})
+	pkghttpx.WriteJSON(w, http.StatusOK, joinArenaResponse{ArenaSessionID: session.ID, Status: session.Status, Participants: session.Joined, WebsocketPath: "/ws/arena/sessions/" + session.ID, Scenario: session.Scenario, Preparation: arenaPreparationFromSession(session, claims.UserID)})
 }
 
 func (c *Controller) GetSession(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +154,29 @@ func (c *Controller) ListMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkghttpx.WriteJSON(w, http.StatusOK, messageListResponse{Messages: messages})
+}
+
+func (c *Controller) SendMessage(w http.ResponseWriter, r *http.Request) {
+	claims, id, ok := claimsAndID(w, r, "arena_session_id")
+	if !ok {
+		return
+	}
+	var req sendMessageRequest
+	if err := pkghttpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	params, ok := arenaMessageParams(id, req.MessageID, req.Content, req.SemanticActionCode, req.SemanticAnnotations)
+	if !ok {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	msg, err := c.service.SendMessage(r.Context(), claims, params)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusCreated, msg)
 }
 
 func (c *Controller) Complete(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +276,7 @@ func (c *Controller) UserHistoryDetails(w http.ResponseWriter, r *http.Request) 
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, sessionDetailsResponse{Session: *session, Messages: messages, Feedback: feedback, Media: []any{}})
+	pkghttpx.WriteJSON(w, http.StatusOK, sessionDetailsResponse{Session: *session, Scenario: session.Scenario, Messages: messages, Feedback: feedback, Media: []any{}})
 }
 
 func (c *Controller) WebSocket(w http.ResponseWriter, r *http.Request) {
@@ -287,17 +312,84 @@ func (c *Controller) WebSocket(w http.ResponseWriter, r *http.Request) {
 		if err := conn.ReadJSON(&req); err != nil {
 			return
 		}
-		if req.Type != "message.send" || strings.TrimSpace(req.Text) == "" || strings.TrimSpace(req.SemanticActionCode) == "" {
+		if req.Type != "message.send" {
 			_ = conn.WriteJSON(map[string]any{"type": "error", "code": string(httpx.ErrInvalidRequest), "message": httpx.ErrInvalidRequest.Message()})
 			continue
 		}
-		msg, err := c.service.SendMessage(r.Context(), *claims, sessionID, req.Text, req.SemanticActionCode)
+		content := req.Content
+		if len(content) == 0 && strings.TrimSpace(req.Text) != "" {
+			content = chatContent(strings.TrimSpace(req.Text))
+		}
+		params, ok := arenaMessageParams(sessionID, req.MessageID, content, req.SemanticActionCode, req.SemanticAnnotations)
+		if !ok {
+			_ = conn.WriteJSON(map[string]any{"type": "error", "code": string(httpx.ErrInvalidRequest), "message": httpx.ErrInvalidRequest.Message()})
+			continue
+		}
+		msg, err := c.service.SendMessage(r.Context(), *claims, params)
 		if err != nil {
 			_ = conn.WriteJSON(map[string]any{"type": "error", "code": string(httpx.ErrorCodeFromError(err)), "message": httpx.ErrorCodeFromError(err).Message()})
 			continue
 		}
 		c.hub.broadcast(sessionID, map[string]any{"type": "message.created", "message": msg})
 	}
+}
+
+func arenaMessageParams(sessionID, messageID string, content json.RawMessage, semanticActionCode *string, semanticAnnotations json.RawMessage) (entity.CreateArenaMessage, bool) {
+	id, err := entity.NormalizeUUID(strings.TrimSpace(messageID))
+	if err != nil || len(content) == 0 || !json.Valid(content) {
+		return entity.CreateArenaMessage{}, false
+	}
+	code := trimOptionalString(semanticActionCode)
+	return entity.CreateArenaMessage{ID: id, SessionID: sessionID, Content: content, SemanticActionCode: code, SemanticAnnotations: semanticAnnotations}, true
+}
+
+func trimOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func chatContent(text string) json.RawMessage {
+	raw, _ := json.Marshal(map[string]string{"type": "chat", "text": text})
+	return raw
+}
+
+func arenaPreparationFromSession(session *entity.ArenaSession, userID string) arenaPreparation {
+	if session.Scenario == nil {
+		return arenaPreparation{ScenarioID: session.ScenarioID, Title: session.ScenarioTitle}
+	}
+	my := entity.ScenarioRole{}
+	if session.MyRole != nil {
+		my = *session.MyRole
+	}
+	opponent := entity.PublicScenarioRole{}
+	if session.OpponentRole != nil {
+		opponent = *session.OpponentRole
+	}
+	return arenaPreparation{
+		ScenarioID:      session.Scenario.ScenarioID,
+		Title:           session.Scenario.Title,
+		Description:     session.Scenario.Description,
+		ExpandedContext: session.Scenario.ExpandedContext,
+		MyRole:          scenarioRolePrivate{ID: my.ID, Name: my.Name, Description: my.Description, Goal: my.Goal, Interests: my.Interests, Constraints: my.Constraints, PrivateInformation: my.PrivateInformation},
+		OpponentRole:    scenarioRoleVisible{ID: opponent.ID, Name: opponent.Name, Description: opponent.Description, Goal: opponent.Goal, Interests: opponent.Interests, Constraints: opponent.Constraints},
+		Roles:           session.Scenario.Roles,
+		Blocks:          session.Scenario.Blocks,
+	}
+}
+
+func sessionParticipantRole(participants []entity.ArenaSessionParticipant, userID string) string {
+	for _, participant := range participants {
+		if participant.UserID == userID {
+			return participant.ScenarioRoleID
+		}
+	}
+	return ""
 }
 
 func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err error) {
