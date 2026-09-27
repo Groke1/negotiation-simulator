@@ -62,7 +62,12 @@ export default function ScenarioView() {
   const changeDraft = useCallback((next) => { if (!readOnly) { setDraft((current) => typeof next === 'function' ? next(current) : next); setDirty(true); } }, [readOnly]);
   const updateBlock = (block) => changeDraft((current) => ({ ...current, blocks: current.blocks.map((item) => item.id === block.id ? block : item) }));
   const payload = useCallback(() => ({ ...draft, blocks: draft.blocks.map((block) => { const clean = { ...block }; delete clean.position; return clean; }) }), [draft]);
-  const save = useCallback(async () => { setSaving(true); setSaveError(''); try { const saved = await updateScenario(scenarioId, payload()); client.setQueryData(['scenario', scenarioId], saved); setDraft(editable(saved)); setDirty(false); await client.invalidateQueries({ queryKey: ['scenarios'] }); } catch (error) { setSaveError(error.message); } finally { setSaving(false); } }, [client, payload, scenarioId]);
+  const save = useCallback(async () => { if (!dirty || readOnly || saving) return; setSaving(true); setSaveError(''); try { const saved = await updateScenario(scenarioId, payload()); client.setQueryData(['scenario', scenarioId], saved); setDraft(editable(saved)); setDirty(false); await client.invalidateQueries({ queryKey: ['scenarios'] }); } catch (error) { setSaveError(error.message); } finally { setSaving(false); } }, [client, dirty, payload, readOnly, saving, scenarioId]);
+  useEffect(() => {
+    if (!dirty || readOnly || saving) return undefined;
+    const timer = window.setTimeout(() => { save(); }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [dirty, readOnly, save, saving]);
   async function validate() { setSaveError(''); try { setValidation(await validateScenario(scenarioId)); } catch (error) { setSaveError(error.message); } }
   async function publish() { if (!window.confirm('После публикации сценарий станет неизменяемым. Продолжить?')) return; setSaving(true); setSaveError(''); try { const response = await publishScenario(scenarioId); client.setQueryData(['scenario', scenarioId], response.scenario || response); setValidation(null); setDirty(false); await client.invalidateQueries({ queryKey: ['scenarios'] }); } catch (error) { if (error.status === 422) setValidation(error.details?.validation || error.details); else setSaveError(error.message); } finally { setSaving(false); } }
   async function archive() { if (!window.confirm('Архивировать сценарий?')) return; setSaving(true); try { const result = await archiveScenario(scenarioId); client.setQueryData(['scenario', scenarioId], result.scenario || result); await client.invalidateQueries({ queryKey: ['scenarios'] }); } catch (error) { setSaveError(error.message); } finally { setSaving(false); } }

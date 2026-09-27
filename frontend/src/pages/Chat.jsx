@@ -16,10 +16,12 @@ export default function Chat() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const streamRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
   const [text, setText] = useState('');
   const [action, setAction] = useState('');
   const [partnerAction, setPartnerAction] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [typing, setTyping] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState('');
   const sessionQuery = useQuery({ queryKey: ['training-session', sessionId], queryFn: ({ signal }) => getTrainingSession(sessionId, signal) });
@@ -39,6 +41,8 @@ export default function Chat() {
     const stream = streamRef.current;
     if (stream) stream.scrollTop = stream.scrollHeight;
   }, [orderedMessages.length, currentIncoming?.message_id]);
+
+  useEffect(() => () => window.clearTimeout(typingTimeoutRef.current), []);
 
   async function refresh() { await client.invalidateQueries({ queryKey: ['training-session', sessionId] }); }
   async function submitPartnerClassification() {
@@ -60,6 +64,7 @@ export default function Chat() {
     if (!text.trim() || !action) return;
     setSubmitting(true);
     setError('');
+    if (session?.mode === 'virtual_partner') setTyping(true);
     try {
       const result = await sendTrainingMessage(sessionId, { message_id: createId(), content: { type: 'chat', text: text.trim() }, semantic_action_code: action });
       setText('');
@@ -70,6 +75,10 @@ export default function Chat() {
       setError(requestError.message);
     } finally {
       setSubmitting(false);
+      if (session?.mode === 'virtual_partner') {
+        window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = window.setTimeout(() => setTyping(false), 700);
+      }
     }
   }
   async function chooseDeterministic(option) {
@@ -98,6 +107,7 @@ export default function Chat() {
     <section className="chat-stream" ref={streamRef}>
       {orderedMessages.map((message) => <div key={message.message_id} className={`bubble ${message.author === 'learner' ? 'mine' : ''}`}><small>{message.author === 'learner' ? 'Вы' : 'Собеседник'}</small>{contentText(message)}<time className="message-time">{time(message.created_at)}</time>{message.author === 'learner' && message.semantic_action_code && <div className="message-semantic-report"><span>Выбранная метка:</span><strong>{actionNames.get(message.semantic_action_code) || message.semantic_action_code}</strong></div>}{message.classification && <p className={message.classification.correct ? 'feedback good' : 'feedback bad'}>{message.classification.correct ? 'Действие распознано верно' : `Правильная метка: ${actionNames.get(message.classification.expected_semantic_action_code) || message.classification.expected_semantic_action_code}`}</p>}{message.message_id === unclassified?.message_id && <div className="opponent-classifier"><SemanticActionPicker actions={availableActions} value={partnerAction} onChange={setPartnerAction} disabled={submitting} result={feedback?.messageId === message.message_id ? feedback : null} label="Какое действие совершил собеседник?" /><button type="button" onClick={submitPartnerClassification} disabled={!partnerAction || submitting}>{submitting ? 'Проверяем…' : 'Проверить'}</button></div>}</div>)}
       {deterministic && currentIncoming && !currentIncomingInHistory && <div className="bubble"><small>Собеседник</small>{currentIncoming.text}</div>}
+      {!deterministic && typing && <div className="bubble typing-bubble" aria-live="polite"><small>Собеседник</small><span>печатает<span className="typing-dots">…</span></span></div>}
       {error && <p className="error">{error}</p>}
     </section>
     <footer className="chat-compose">{deterministic ? <><SemanticActionPicker actions={availableActions} value={action} onChange={setAction} disabled={submitting} result={feedback} label="Какое действие вы совершаете?" /><div className="form-grid" style={{ marginTop: 12 }}>{session.current_node?.available_actions?.map((option) => <button className="secondary" type="button" key={option.action_id} disabled={!action || submitting} onClick={() => chooseDeterministic(option)}>{option.text}</button>)}</div></> : !unclassified && <><textarea rows="3" value={text} onChange={(event) => setText(event.target.value)} placeholder="Ваше сообщение…" disabled={submitting} /><footer><SemanticActionPicker actions={availableActions} value={action} onChange={setAction} disabled={submitting} label="Какое действие вы совершаете?" /><button type="button" onClick={send} disabled={!text.trim() || !action || submitting}>{submitting ? 'Отправляем…' : 'Отправить'}</button></footer></>}</footer>
