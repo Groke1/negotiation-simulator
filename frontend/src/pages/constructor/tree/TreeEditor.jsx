@@ -22,14 +22,13 @@ export default function TreeEditor({
   const styledEdges = useMemo(() => edges.map(e => ({
     ...e,
     animated: false,
+    label: '',             
+    labelStyle: {},         
+    labelBgStyle: {},       
     style: {
       stroke: e.data?.transition?.forbidden ? '#ef7c86' : '#a78bfa',
       strokeWidth: 2
     },
-    labelStyle: { fontSize: 11, fill: '#aaa3b8', fontWeight: 600 },
-    labelBgStyle: { fill: '#191722', fillOpacity: 0.95 },
-    labelBgPadding: [4, 2],
-    labelBgBorderRadius: 4,
     markerEnd: {
       type: MarkerType.ArrowClosed,
       color: e.data?.transition?.forbidden ? '#ef7c86' : '#a78bfa'
