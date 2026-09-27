@@ -64,11 +64,12 @@ func (q *Queries) CompleteTrainingSession(ctx context.Context, arg CompleteTrain
 
 const createTrainingMessage = `-- name: CreateTrainingMessage :one
 INSERT INTO learning.training_messages (
-    id, session_id, author, content, semantic_action_code, semantic_annotations, expected_action_code, classification
+    id, session_id, author, content, semantic_action_code, semantic_annotations, expected_action_code, classification, created_at
 )
 VALUES (
     $1, $2, $3, $4,
-    $5, $6, $7, $8
+    $5, $6, $7, $8,
+    clock_timestamp()
 )
 RETURNING id, session_id, author, content, semantic_action_code, semantic_annotations, expected_action_code, classification, created_at
 `

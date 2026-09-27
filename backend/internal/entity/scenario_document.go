@@ -59,10 +59,16 @@ type PublicScenarioRole struct {
 }
 
 type PublicScenarioBlock struct {
-	ID          string `json:"id"`
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ID          string                     `json:"id"`
+	Type        string                     `json:"type"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description"`
+	Transitions []PublicScenarioTransition `json:"transitions"`
+}
+
+type PublicScenarioTransition struct {
+	ID            string `json:"id"`
+	TargetBlockID string `json:"target_block_id"`
 }
 
 type ScenarioBlock struct {
@@ -201,6 +207,7 @@ func PublicScenarioInfoFromDocument(doc ScenarioDocument) PublicScenarioInfo {
 			Type:        block.Type,
 			Name:        block.Name,
 			Description: block.Description,
+			Transitions: publicScenarioTransitions(block.Transitions),
 		})
 	}
 	return PublicScenarioInfo{
@@ -223,9 +230,21 @@ func PublicScenarioBlockByID(doc ScenarioDocument, blockID string) *PublicScenar
 			Type:        block.Type,
 			Name:        block.Name,
 			Description: block.Description,
+			Transitions: publicScenarioTransitions(block.Transitions),
 		}
 	}
 	return nil
+}
+
+func publicScenarioTransitions(transitions []ScenarioTransition) []PublicScenarioTransition {
+	items := make([]PublicScenarioTransition, 0, len(transitions))
+	for _, transition := range transitions {
+		if transition.Forbidden {
+			continue
+		}
+		items = append(items, PublicScenarioTransition{ID: transition.ID, TargetBlockID: transition.TargetBlockID})
+	}
+	return items
 }
 
 func NormalizeScenarioBlocks(blocks []ScenarioBlock) {

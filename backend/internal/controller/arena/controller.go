@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -299,6 +300,7 @@ func (c *Controller) WebSocket(w http.ResponseWriter, r *http.Request) {
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
 		Subprotocols:    []string{"arena-v1"},
+		CheckOrigin:     checkWebSocketOrigin,
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -468,6 +470,36 @@ func tokenFromWebSocketRequest(r *http.Request) string {
 		}
 	}
 	return ""
+}
+
+func checkWebSocketOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	originHost := strings.ToLower(parsed.Hostname())
+	requestHost := strings.ToLower(hostnameOnly(r.Host))
+	if originHost == requestHost {
+		return true
+	}
+	switch originHost {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
+}
+
+func hostnameOnly(host string) string {
+	parsed, err := url.Parse("//" + host)
+	if err != nil || parsed.Hostname() == "" {
+		return host
+	}
+	return parsed.Hostname()
 }
 
 type hub struct {

@@ -178,7 +178,7 @@ export default function CuratorArena() {
             <label className="field">{participantB?.name || 'Участник 2'}<select value={roleBId} onChange={(event) => changeRoleB(event.target.value)}>{roles.map((role) => <option key={role.id} value={role.id} disabled={role.id === roleAId}>{role.name}</option>)}</select></label>
           </div>
         )}
-        <label className="field">Дата и время<input type="datetime-local" required value={schedule} onChange={(event) => setSchedule(event.target.value)} /></label>
+        <label className="field arena-schedule">Дата и время<input type="datetime-local" required value={schedule} onChange={(event) => setSchedule(event.target.value)} /></label>
         <label className="field">Канал<select value={channel} onChange={(event) => setChannel(event.target.value)}><option value="chat">Чат</option></select></label>
         {error && <p className="error">{error}</p>}
         <button disabled={saving}>{saving ? 'Создаём…' : 'Создать Arena'}</button>

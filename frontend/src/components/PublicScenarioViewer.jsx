@@ -1,6 +1,5 @@
 import { useState } from 'react';
-
-const blockTypeLabel = (type) => ({ start: 'Начало', end: 'Завершение', regular: 'Состояние переговоров' }[type] || 'Состояние переговоров');
+import PublicScenarioGraph from './PublicScenarioGraph';
 
 function RoleCard({ role, mine = false, opponent = false }) {
   if (!role) return null;
@@ -17,10 +16,7 @@ function RoleCard({ role, mine = false, opponent = false }) {
   </article>;
 }
 
-/**
- * Displays only the public scenario projection returned by training/Arena APIs.
- * The backend deliberately withholds transitions and another role's private data.
- */
+/** Displays only the public scenario projection returned by training/Arena APIs. */
 export default function PublicScenarioViewer({ scenario, preparation, currentBlock, label = 'О сценарии' }) {
   const [open, setOpen] = useState(false);
   const publicScenario = scenario || preparation;
@@ -52,12 +48,8 @@ export default function PublicScenarioViewer({ scenario, preparation, currentBlo
         </section>
 
         <section className="public-scenario-section">
-          <div className="public-scenario-heading"><div><span className="eyebrow">Схема блоков</span><h3>Состояния сценария</h3></div><p>Показаны доступные участнику сведения о каждом состоянии.</p></div>
-          {blocks.length ? <div className="public-block-map">{blocks.map((block, index) => <article key={block.id} className={`public-block ${block.id === currentBlockId ? 'current' : ''}`}>
-            <span>{block.id === currentBlockId ? 'Текущее состояние' : `${index + 1}. ${blockTypeLabel(block.type)}`}</span>
-            <strong>{block.name || 'Состояние без названия'}</strong>
-            {block.description && <p>{block.description}</p>}
-          </article>)}</div> : <p className="muted">Публичная схема блоков пока не передана.</p>}
+          <div className="public-scenario-heading"><div><span className="eyebrow">Схема блоков</span><h3>Состояния сценария</h3></div><p>Стрелки показывают доступные переходы между состояниями.</p></div>
+          {blocks.length ? <PublicScenarioGraph blocks={blocks} currentBlockId={currentBlockId} /> : <p className="muted">Публичная схема блоков пока не передана.</p>}
         </section>
       </section>
     </div>}

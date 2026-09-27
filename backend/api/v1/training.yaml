@@ -580,6 +580,7 @@ components:
         - type
         - name
         - description
+        - transitions
       properties:
         id:
           type: string
@@ -591,7 +592,27 @@ components:
           type: string
         description:
           type: string
-      description: Публичное описание блока без transitions, rules, constraints и deterministic_dialogue.
+        transitions:
+          type: array
+          description: Публичные рёбра графа сценария. Содержат только целевой блок, без условий, весов и методических комментариев.
+          items:
+            $ref: '#/components/schemas/PublicScenarioTransition'
+      description: Публичное описание блока без rules, constraints, deterministic_dialogue и другой служебной информации.
+    PublicScenarioTransition:
+      type: object
+      required:
+        - id
+        - target_block_id
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID перехода в сценарии.
+        target_block_id:
+          type: string
+          format: uuid
+          description: ID блока, в который ведёт переход.
+      description: Публичное ребро графа сценария.
     PublicScenarioInfo:
       type: object
       required:

@@ -56,11 +56,12 @@ WHERE learning.assignments.id = (
 
 -- name: CreateTrainingMessage :one
 INSERT INTO learning.training_messages (
-    id, session_id, author, content, semantic_action_code, semantic_annotations, expected_action_code, classification
+    id, session_id, author, content, semantic_action_code, semantic_annotations, expected_action_code, classification, created_at
 )
 VALUES (
     sqlc.arg(id), sqlc.arg(session_id), sqlc.arg(author), sqlc.arg(content),
-    sqlc.narg(semantic_action_code), sqlc.narg(semantic_annotations), sqlc.narg(expected_action_code), sqlc.narg(classification)
+    sqlc.narg(semantic_action_code), sqlc.narg(semantic_annotations), sqlc.narg(expected_action_code), sqlc.narg(classification),
+    clock_timestamp()
 )
 RETURNING *;
 

@@ -30,7 +30,7 @@ CREATE TABLE learning.training_messages (
     semantic_annotations JSONB NULL,
     expected_action_code TEXT NULL,
     classification JSONB NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 
 CREATE INDEX idx_learning_training_messages_session ON learning.training_messages(session_id, created_at);
