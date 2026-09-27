@@ -23,9 +23,10 @@ function levelFor(item) {
 }
 
 const clusterLabel = (id, clusterNames) => clusterNames.get(id) || 'Компетенция';
+const asArray = (value) => Array.isArray(value) ? value : [];
 
 export function SemanticCodes({ codes = [], actionNames }) {
-  const uniqueCodes = [...new Set(codes.filter(Boolean))];
+  const uniqueCodes = [...new Set(asArray(codes).filter(Boolean))];
   if (!uniqueCodes.length) return null;
   return <div className="semantic-code-list">
     {uniqueCodes.map((code) => <span key={code}><i aria-hidden="true">◆</i>{actionNames.get(code) || code}</span>)}
@@ -33,7 +34,7 @@ export function SemanticCodes({ codes = [], actionNames }) {
 }
 
 function ClusterLinks({ ids = [], clusterNames }) {
-  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  const uniqueIds = [...new Set(asArray(ids).filter(Boolean))];
   if (!uniqueIds.length) return null;
   return <div className="report-cluster-links">
     <span>Связанные компетенции</span>
@@ -59,9 +60,10 @@ export function MessageFeedbackPanel({ feedback, actionNames, clusterNames }) {
 }
 
 function ReferenceButton({ messageIds = [], onOpenMessages }) {
-  if (!messageIds.length || !onOpenMessages) return null;
-  return <button className="report-reference" type="button" onClick={() => onOpenMessages(messageIds)}>
-    {messageIds.length === 1 ? 'Открыть реплику' : `Открыть реплики (${messageIds.length})`} →
+  const ids = asArray(messageIds);
+  if (!ids.length || !onOpenMessages) return null;
+  return <button className="report-reference" type="button" onClick={() => onOpenMessages(ids)}>
+    {ids.length === 1 ? 'Открыть реплику' : `Открыть реплики (${ids.length})`} →
   </button>;
 }
 
@@ -70,13 +72,13 @@ export function ReportHighlights({ highlights, clusterNames, onOpenMessages }) {
     { key: 'strengths', title: 'Что получилось', className: 'strength' },
     { key: 'improvements', title: 'Зоны роста', className: 'improvement' }
   ];
-  const hasHighlights = groups.some(({ key }) => highlights?.[key]?.length);
+  const hasHighlights = groups.some(({ key }) => asArray(highlights?.[key]).length);
   if (!hasHighlights) return null;
 
   return <section className="report-highlights">
     {groups.map(({ key, title, className }) => <section key={key} className={`report-highlight-group ${className}`}>
       <h2>{title}</h2>
-      {highlights?.[key]?.length ? highlights[key].map((item, index) => <article key={`${item.title}-${index}`} className="report-highlight">
+      {asArray(highlights?.[key]).length ? asArray(highlights?.[key]).map((item, index) => <article key={`${item.title}-${index}`} className="report-highlight">
         <span className="report-highlight-icon" aria-hidden="true">{className === 'strength' ? '✦' : '↗'}</span>
         <div><h3>{item.title}</h3><p>{item.description}</p><ClusterLinks ids={item.cluster_ids} clusterNames={clusterNames} /><ReferenceButton messageIds={item.message_ids} onOpenMessages={onOpenMessages} /></div>
       </article>) : <p className="muted">Пока не выделено.</p>}
@@ -85,9 +87,10 @@ export function ReportHighlights({ highlights, clusterNames, onOpenMessages }) {
 }
 
 export function CompetencyCards({ competencies = [], clusterNames, actionNames, onOpenMessages }) {
-  if (!competencies.length) return <p className="muted">Данных по компетенциям пока нет.</p>;
+  const items = asArray(competencies);
+  if (!items.length) return <p className="muted">Данных по компетенциям пока нет.</p>;
   return <div className="competency-report-grid">
-    {competencies.map((competency) => {
+    {items.map((competency) => {
       const level = levelFor(competency);
       const score = Math.max(0, Math.min(100, Number(competency.score) || 0));
       const presentation = levelPresentation[level];
@@ -105,9 +108,10 @@ export function CompetencyCards({ competencies = [], clusterNames, actionNames, 
 }
 
 export function TrainingTimeline({ timeline = [], actionNames, onOpenMessages }) {
-  if (!timeline.length) return <p className="muted">Ход диалога пока не сформирован.</p>;
+  const items = asArray(timeline);
+  if (!items.length) return <p className="muted">Ход диалога пока не сформирован.</p>;
   return <ol className="training-timeline">
-    {timeline.map((item, index) => {
+    {items.map((item, index) => {
       const outcome = outcomePresentation[item.outcome] || outcomePresentation.neutral;
       return <li key={`${item.order}-${index}`} className={item.outcome || 'neutral'}>
         <span className="timeline-order">{item.order || index + 1}</span>
