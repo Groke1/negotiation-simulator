@@ -34,7 +34,7 @@ export default function Chat() {
   const deterministic = session?.mode === 'deterministic';
   const currentIncoming = session?.current_node?.incoming_message;
   const orderedMessages = useMemo(() => mergeMessages(session?.messages, optimisticMessages), [optimisticMessages, session?.messages]);
-  const canClassifyPartner = session?.mode === 'virtual_partner';
+  const canClassifyPartner = session?.mode === 'virtual_partner' || session?.mode === 'deterministic';
   const unclassified = canClassifyPartner ? orderedMessages.filter((message) => message.author === 'virtual_partner' && !message.classification).at(-1) : null;
   const currentIncomingInHistory = Boolean(currentIncoming) && orderedMessages.some((message) => message.author === 'virtual_partner' && (message.message_id === currentIncoming.message_id || contentText(message) === currentIncoming.text));
   const isFinished = session?.is_end || session?.status === 'completed';
@@ -117,6 +117,6 @@ export default function Chat() {
       {!deterministic && typing && <div className="bubble typing-bubble" aria-live="polite"><small>Собеседник</small><span>печатает<span className="typing-dots">…</span></span></div>}
       {error && <p className="error">{error}</p>}
     </section>
-    <footer className="chat-compose">{deterministic ? <><SemanticActionPicker actions={availableActions} value={action} onChange={setAction} disabled={submitting} result={feedback} label="Какое действие вы совершаете?" /><div className="form-grid" style={{ marginTop: 12 }}>{session.current_node?.available_actions?.map((option) => <button className="secondary" type="button" key={option.action_id} disabled={!action || submitting} onClick={() => chooseDeterministic(option)}>{option.text}</button>)}</div></> : !unclassified && <><textarea rows="3" value={text} onChange={(event) => setText(event.target.value)} placeholder="Ваше сообщение…" disabled={submitting} /><footer><SemanticActionPicker actions={availableActions} value={action} onChange={setAction} disabled={submitting} label="Какое действие вы совершаете?" /><button type="button" onClick={send} disabled={!text.trim() || !action || submitting}>{submitting ? 'Отправляем…' : 'Отправить'}</button></footer></>}</footer>
+    <footer className="chat-compose">{deterministic ? !unclassified && <><SemanticActionPicker actions={availableActions} value={action} onChange={setAction} disabled={submitting} result={feedback} label="Какое действие вы совершаете?" /><div className="form-grid" style={{ marginTop: 12 }}>{session.current_node?.available_actions?.map((option) => <button className="secondary" type="button" key={option.action_id} disabled={!action || submitting} onClick={() => chooseDeterministic(option)}>{option.text}</button>)}</div></> : !unclassified && <><textarea rows="3" value={text} onChange={(event) => setText(event.target.value)} placeholder="Ваше сообщение…" disabled={submitting} /><footer><SemanticActionPicker actions={availableActions} value={action} onChange={setAction} disabled={submitting} label="Какое действие вы совершаете?" /><button type="button" onClick={send} disabled={!text.trim() || !action || submitting}>{submitting ? 'Отправляем…' : 'Отправить'}</button></footer></>}</footer>
   </div>;
 }

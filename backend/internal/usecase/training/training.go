@@ -311,7 +311,7 @@ func (s *Service) ClassifyMessage(ctx context.Context, claims entity.AccessClaim
 	if err != nil {
 		return nil, err
 	}
-	if msg.Author != "virtual_partner" || msg.ExpectedActionCode == nil {
+	if msg.Author == "learner" || msg.ExpectedActionCode == nil {
 		return nil, entity.ErrMessageNotClassifiable
 	}
 	if len(msg.Classification) > 0 {
@@ -991,23 +991,25 @@ type trainingAnalysisExtras struct {
 func analysisJSON(sessionID string, score float64, outcome json.RawMessage, doc entity.ScenarioDocument, messages []entity.TrainingMessage, results []entity.TrainingClusterResult, changes []entity.ProfileClusterChange, extras *trainingAnalysisExtras) json.RawMessage {
 	timeline := analysisTimeline(doc, messages, extras)
 	messageFeedback := analysisMessageFeedback(messages, extras)
+	opponentClassifications := analysisOpponentClassifications(messages)
 	highlights := analysisHighlights(messageFeedback, results, extras)
 	process := legacyProcessFromTimeline(timeline, extras)
 	competencies := analysisCompetencies(messages, results, extras)
 	strengths := legacyNotesFromHighlights(highlights.Strengths, "Сильная сторона")
 	improvements := legacyNotesFromHighlights(highlights.Improvements, "Зона роста")
 	raw, _ := json.Marshal(map[string]any{
-		"session_id":       sessionID,
-		"score":            floorScore(score),
-		"result":           json.RawMessage(outcome),
-		"timeline":         timeline,
-		"message_feedback": messageFeedback,
-		"highlights":       highlights,
-		"process":          process,
-		"strengths":        strengths,
-		"improvements":     improvements,
-		"competencies":     competencies,
-		"profile_change":   map[string]any{"changes": changes},
+		"session_id":               sessionID,
+		"score":                    floorScore(score),
+		"result":                   json.RawMessage(outcome),
+		"timeline":                 timeline,
+		"message_feedback":         messageFeedback,
+		"opponent_classifications": opponentClassifications,
+		"highlights":               highlights,
+		"process":                  process,
+		"strengths":                strengths,
+		"improvements":             improvements,
+		"competencies":             competencies,
+		"profile_change":           map[string]any{"changes": changes},
 	})
 	return raw
 }
@@ -1121,6 +1123,30 @@ func analysisMessageFeedback(messages []entity.TrainingMessage, extras *training
 			"strengths":            strengths,
 			"improvements":         improvements,
 			"related_cluster_ids":  assessmentClusterIDs(event.AssessmentEvents),
+		})
+	}
+	return items
+}
+
+func analysisOpponentClassifications(messages []entity.TrainingMessage) []map[string]any {
+	items := []map[string]any{}
+	for _, message := range messages {
+		if message.Author == "learner" || len(message.Classification) == 0 {
+			continue
+		}
+		var classification struct {
+			SelectedSemanticActionCode string `json:"selected_semantic_action_code"`
+			ExpectedSemanticActionCode string `json:"expected_semantic_action_code"`
+			Correct                    bool   `json:"correct"`
+		}
+		if json.Unmarshal(message.Classification, &classification) != nil || classification.SelectedSemanticActionCode == "" || classification.ExpectedSemanticActionCode == "" {
+			continue
+		}
+		items = append(items, map[string]any{
+			"message_id":                    message.ID,
+			"selected_semantic_action_code": classification.SelectedSemanticActionCode,
+			"expected_semantic_action_code": classification.ExpectedSemanticActionCode,
+			"correct":                       classification.Correct,
 		})
 	}
 	return items

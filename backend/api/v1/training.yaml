@@ -269,15 +269,15 @@ paths:
     post:
       tags:
         - Training Classification
-      summary: Проверить semantic action входящей реплики AI
+      summary: Проверить semantic action входящей реплики оппонента
       description: 'Пользователь выбирает semantic action, которым, по его мнению, является конкретное сообщение
 
-        virtual_partner. Backend сравнивает выбор с ожидаемым кодом и только после ответа пользователя
+        оппонента в deterministic или virtual_partner training. Backend сравнивает выбор с ожидаемым кодом и только после ответа пользователя
 
         сообщает правильный semantic action. Одна реплика классифицируется пользователем один раз.
 
         '
-      operationId: classifyVirtualPartnerMessage
+      operationId: classifyOpponentMessage
       security:
         - bearerAuth: []
       requestBody:
@@ -855,7 +855,7 @@ components:
           $ref: '#/components/schemas/TrainingMessageContent'
         semantic_action_code:
           type: string
-          description: 'Разметка learner для chat/voice_message. У сообщения virtual_partner отсутствует до
+          description: 'Разметка learner для chat/voice_message. У сообщения оппонента отсутствует до
 
             отдельной проверки пользователем и не раскрывает ожидаемый ответ заранее.
 
@@ -869,7 +869,7 @@ components:
           oneOf:
             - $ref: '#/components/schemas/StoredPartnerClassification'
             - type: 'null'
-          description: Результат уже выполненной пользователем классификации входящего AI-сообщения.
+          description: Результат уже выполненной пользователем классификации входящего сообщения оппонента.
         created_at:
           type: string
           format: date-time
@@ -1184,6 +1184,26 @@ components:
           type: string
         correct:
           type: boolean
+    OpponentMessageClassification:
+      type: object
+      required:
+        - message_id
+        - selected_semantic_action_code
+        - expected_semantic_action_code
+        - correct
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        selected_semantic_action_code:
+          type: string
+          description: Код, выбранный пользователем.
+        expected_semantic_action_code:
+          type: string
+          description: Правильный код входящего сообщения оппонента.
+        correct:
+          type: boolean
+          description: Совпал ли выбор пользователя с ожидаемой semantic action.
     Outcome:
       type: object
       description: Фактический результат переговоров; не является оценкой переговорной компетентности.
@@ -1445,6 +1465,7 @@ components:
         - result
         - timeline
         - message_feedback
+        - opponent_classifications
         - highlights
         - process
         - strengths
@@ -1471,6 +1492,11 @@ components:
           description: Feedback по конкретным сообщениям learner, пригодный для подсветки диалога.
           items:
             $ref: '#/components/schemas/TrainingMessageFeedback'
+        opponent_classifications:
+          type: array
+          description: Попытки пользователя угадать semantic action входящих сообщений оппонента.
+          items:
+            $ref: '#/components/schemas/OpponentMessageClassification'
         highlights:
           $ref: '#/components/schemas/TrainingHighlights'
         process:
