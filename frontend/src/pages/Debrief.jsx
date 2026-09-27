@@ -39,7 +39,7 @@ function SemanticReport({ message, actionNames }) {
   const isPartnerClassification = message.author === 'virtual_partner' && Boolean(classification);
   if (!selected && !annotations.length) return null;
   return <div className="message-semantic-report">
-    {selected && <p><span>{isPartnerClassification ? 'Ваш вариант действия собеседника:' : 'Метка сообщения:'}</span> <strong>{actionNames.get(selected) || selected}</strong></p>}
+    {selected && <p><span>{isPartnerClassification ? 'Ваш вариант действия собеседника:' : 'Ваш вариант:'}</span> <strong>{actionNames.get(selected) || selected}</strong></p>}
     {annotations.length ? <div><span>Метки фрагментов:</span><SemanticCodes codes={annotations.map((item) => item.semantic_action_code)} actionNames={actionNames} /></div> : null}
     {classification ? <p className={classification.correct ? 'feedback good' : 'feedback bad'}>{classification.correct ? '✓ Метка определена верно' : <>Не совпало. Правильная метка: <strong>{actionNames.get(expected) || expected}</strong></>}</p> : null}
   </div>;

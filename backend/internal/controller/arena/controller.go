@@ -215,6 +215,7 @@ func (c *Controller) Complete(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
+	c.hub.broadcast(id, map[string]any{"type": "arena.completed", "arena_session_id": id, "completed_by": claims.UserID})
 	w.WriteHeader(http.StatusNoContent)
 }
 

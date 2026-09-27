@@ -42,12 +42,12 @@ paths:
             schema:
               $ref: '#/components/schemas/AIGenerationOptions'
       responses:
-        '200':
-          description: Сгенерированный expanded_context, не сохранённый в БД.
+        '202':
+          description: Запрос на генерацию создан. Результат нужно получить через GET /scenarios/{scenario_id}/ai/requests/{request_id}.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExpandContextResponse'
+                $ref: '#/components/schemas/AIGenerationRequest'
         '400':
           $ref: '#/components/responses/InvalidRequest'
         '401':
@@ -94,12 +94,12 @@ paths:
             schema:
               $ref: '#/components/schemas/AIGenerationOptions'
       responses:
-        '200':
-          description: Сгенерированный draft proposal и его in-memory validation.
+        '202':
+          description: Запрос на генерацию создан. Результат нужно получить через GET /scenarios/{scenario_id}/ai/requests/{request_id}.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenerateScenarioDraftResponse'
+                $ref: '#/components/schemas/AIGenerationRequest'
         '400':
           $ref: '#/components/responses/InvalidRequest'
         '401':
@@ -144,12 +144,12 @@ paths:
             schema:
               $ref: '#/components/schemas/AIGenerationOptions'
       responses:
-        '200':
-          description: Предложение содержимого блока и результат in-memory validation.
+        '202':
+          description: Запрос на генерацию создан. Результат нужно получить через GET /scenarios/{scenario_id}/ai/requests/{request_id}.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenerateBlockResponse'
+                $ref: '#/components/schemas/AIGenerationRequest'
         '400':
           $ref: '#/components/responses/InvalidRequest'
         '401':
@@ -198,12 +198,12 @@ paths:
             schema:
               $ref: '#/components/schemas/GenerateDialogueRequest'
       responses:
-        '200':
-          description: Предложение deterministic_dialogue и результат in-memory validation.
+        '202':
+          description: Запрос на генерацию создан. Результат нужно получить через GET /scenarios/{scenario_id}/ai/requests/{request_id}.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenerateDialogueResponse'
+                $ref: '#/components/schemas/AIGenerationRequest'
         '400':
           $ref: '#/components/responses/InvalidRequest'
         '401':
@@ -222,6 +222,38 @@ paths:
           $ref: '#/components/responses/AIProviderUnavailable'
         '504':
           $ref: '#/components/responses/AIGenerationTimeout'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /scenarios/{scenario_id}/ai/requests/{request_id}:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+      - $ref: '#/components/parameters/RequestId'
+    get:
+      tags: [Scenario AI]
+      summary: Получить статус и результат AI generation request
+      description: |
+        Возвращает состояние асинхронной генерации. Пока `status` равен `pending` или `running`,
+        поле `result` отсутствует. При `succeeded` поле `result` содержит payload соответствующего
+        типа генерации; при `failed` заполнены `error_code` и `error_message`.
+      operationId: getAIGenerationRequest
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Текущее состояние generation request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIGenerationRequest'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/MethodistRequired'
+        '404':
+          $ref: '#/components/responses/GenerationRequestNotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -249,8 +281,70 @@ components:
       schema:
         type: string
         format: uuid
+    RequestId:
+      name: request_id
+      in: path
+      required: true
+      description: UUID request-а, полученный из POST генерации.
+      schema:
+        type: string
+        format: uuid
 
   schemas:
+    AIGenerationStatus:
+      type: string
+      enum: [pending, running, succeeded, failed]
+
+    AIGenerationKind:
+      type: string
+      enum: [expand_context, generate_draft, generate_block, generate_dialogue]
+
+    AIGenerationRequest:
+      type: object
+      required:
+        - request_id
+        - scenario_id
+        - kind
+        - status
+        - created_at
+        - updated_at
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string
+          format: uuid
+        block_id:
+          type: string
+          format: uuid
+        learner_role_id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/AIGenerationKind'
+        status:
+          $ref: '#/components/schemas/AIGenerationStatus'
+        result:
+          oneOf:
+            - $ref: '#/components/schemas/ExpandContextResponse'
+            - $ref: '#/components/schemas/GenerateScenarioDraftResponse'
+            - $ref: '#/components/schemas/GenerateBlockResponse'
+            - $ref: '#/components/schemas/GenerateDialogueResponse'
+          description: Заполнено только при status=succeeded.
+        error_code:
+          type: string
+          description: Заполнено только при status=failed.
+        error_message:
+          type: string
+          description: Заполнено только при status=failed.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
     AIGenerationOptions:
       type: object
       properties:
@@ -321,8 +415,7 @@ components:
         - name
         - description
         - role_goals
-        - action_rules
-        - constraints
+        - role_behaviors
       description: |
         AI proposal только содержательных полей существующего блока. Поля id/type/transitions/
         deterministic_dialogue намеренно отсутствуют, чтобы локальная перегенерация не меняла граф.
@@ -343,29 +436,19 @@ components:
           type: string
           format: uuid
           description: Одна из двух существующих ролей Scenario.
-        lead_probability:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: Предложенная интенсивность ведущей роли.
         role_goals:
           type: array
           maxItems: 2
           items:
             $ref: './scenarios.yaml#/components/schemas/BlockRoleGoal'
-        behavior:
-          type: string
-          maxLength: 10000
-          description: Инструкция по поведению virtual partner в этом состоянии.
-        action_rules:
+        role_behaviors:
           type: array
+          maxItems: 2
           items:
-            $ref: './scenarios.yaml#/components/schemas/SemanticActionRule'
-        constraints:
-          type: array
-          items:
-            type: string
-            maxLength: 5000
+            $ref: './scenarios.yaml#/components/schemas/BlockRoleBehavior'
+        result:
+          $ref: './scenarios.yaml#/components/schemas/ScenarioEndResult'
+          description: Заполняется при генерации содержимого end-блока.
 
     GenerateBlockResponse:
       type: object
@@ -501,6 +584,18 @@ components:
               items:
                 type: string
 
+    AIGenerationRequestNotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            code:
+              type: string
+              const: AI_GENERATION_REQUEST_NOT_FOUND
+            message:
+              type: string
+              const: AI generation request not found
+
     AIGenerationFailedError:
       allOf:
         - $ref: '#/components/schemas/ErrorBase'
@@ -591,6 +686,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/GenerationContextIncompleteError'
+    GenerationRequestNotFound:
+      description: Generation request не найден или не принадлежит текущему пользователю.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AIGenerationRequestNotFoundError'
     AIGenerationFailed:
       description: AI ответил ошибкой либо вернул JSON, не проходящий ожидаемую structured schema.
       content:

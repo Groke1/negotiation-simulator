@@ -153,11 +153,17 @@ components:
       name: arena.completed
       payload:
         type: object
-        required: [type]
+        required: [type, arena_session_id, completed_by]
         properties:
           type:
             type: string
             const: arena.completed
+          arena_session_id:
+            type: string
+            format: uuid
+          completed_by:
+            type: string
+            format: uuid
     ErrorMessage:
       name: error
       payload:

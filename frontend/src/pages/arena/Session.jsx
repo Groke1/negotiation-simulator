@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { classifyArenaMessage, completeArena, getArenaMessages, getSemanticActions, getToken, joinArena, sendArenaMessage } from '../../api';
+import { classifyArenaMessage, completeArena, getArenaMessages, getOrganizationUsers, getSemanticActions, getToken, joinArena, sendArenaMessage } from '../../api';
 import { webSocketUrl } from '../../api/client';
 import { useAuth } from '../../app/AuthContext';
 import { ErrorState, LoadingState, SemanticActionPicker } from '../../components/UI';
@@ -31,13 +31,16 @@ export default function ArenaSession() {
   const [status, setStatus] = useState('Подключаемся…');
   const [error, setError] = useState('');
   const [finishing, setFinishing] = useState(false);
+  const [completedBy, setCompletedBy] = useState('');
   const streamRef = useRef(null);
   const socket = useRef(null);
   const retry = useRef(null);
   const joining = useQuery({ queryKey: ['arena-join', assignmentId], queryFn: () => joinArena(assignmentId), retry: false });
   const actions = useQuery({ queryKey: ['semantic-actions'], queryFn: ({ signal }) => getSemanticActions(signal), staleTime: 60 * 60 * 1000 });
+  const organizationUsers = useQuery({ queryKey: ['organization-users', 'arena-chat'], queryFn: ({ signal }) => getOrganizationUsers({}, signal), staleTime: 5 * 60 * 1000 });
   const joined = joining.data;
   const actionNames = useMemo(() => new Map((actions.data || []).map((item) => [item.code, semanticActionLabel(item)])), [actions.data]);
+  const participantNames = useMemo(() => new Map((organizationUsers.data || []).map((user) => [user.id, user.username || user.name || user.email])), [organizationUsers.data]);
   const unclassified = messages.filter((message) => message.sender_id !== me?.id && !message.classification).at(-1);
 
   useEffect(() => {
@@ -61,7 +64,12 @@ export default function ArenaSession() {
           if (item.type === 'message.created') setMessages((current) => mergeMessages(current, [item.message]));
           if (item.type === 'participant.joined') setStatus('Оба участника в сети');
           if (item.type === 'participant.left') setStatus('Собеседник временно отключился');
-          if (item.type === 'arena.completed') navigate(`/learner/arenas/${joined.arena_session_id}`);
+          if (item.type === 'arena.completed') {
+            setCompletedBy(item.completed_by || 'other');
+            setStatus(item.completed_by === me?.id ? 'Arena завершена вами' : 'Arena завершена другим участником');
+            ws.close();
+            navigate(`/learner/arenas/${joined.arena_session_id}`);
+          }
           if (item.type === 'error') setError(item.message || 'Сервер временно не принял сообщение.');
         };
         ws.onclose = () => {
@@ -84,10 +92,10 @@ export default function ArenaSession() {
       window.clearTimeout(retry.current);
       socket.current?.close();
     };
-  }, [joined, navigate]);
+  }, [joined, me?.id, navigate]);
 
   async function send() {
-    if (!text.trim() || !action) return;
+    if (!text.trim() || !action || completedBy) return;
     const message = { message_id: createId(), content: { type: 'chat', text: text.trim() }, semantic_action_code: action };
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: 'message.send', ...message }));
     else if (joined?.arena_session_id) {
@@ -141,9 +149,9 @@ export default function ArenaSession() {
     </header>
     <section className="chat-stream" ref={streamRef}>
       {joined?.preparation && <div className="panel"><strong>{joined.preparation.my_role.name}</strong><p>{joined.preparation.expanded_context}</p></div>}
-      {messages.map((message) => { const mine = message.sender_id === me?.id; const pendingClassification = message.message_id === unclassified?.message_id; const classifying = classifyingMessageId === message.message_id; return <div className={`bubble ${mine ? 'mine' : ''}`} key={message.message_id}><small>{mine ? 'Вы' : 'Собеседник'}</small><div className="message-content">{messageText(message)}</div><time className="message-time">{messageTime(message.created_at)}</time><ArenaMessageSemanticReport message={message} mine={mine} actionNames={actionNames} />{pendingClassification && <div className="opponent-classifier"><p className="opponent-classifier-hint">Определите действие собеседника, чтобы продолжить переговоры.</p><SemanticActionPicker actions={actions.data || []} value={partnerAction} onChange={setPartnerAction} disabled={Boolean(classifyingMessageId)} label="Какое действие совершил собеседник?" /><button type="button" onClick={() => classifyOpponentMessage(message)} disabled={!partnerAction || Boolean(classifyingMessageId)}>{classifying ? 'Проверяем…' : 'Проверить'}</button></div>}</div>; })}
+      {messages.map((message) => { const mine = message.sender_id === me?.id; const pendingClassification = message.message_id === unclassified?.message_id; const classifying = classifyingMessageId === message.message_id; return <div className={`bubble ${mine ? 'mine' : ''}`} key={message.message_id}><small>{participantNames.get(message.sender_id) || (mine ? (me?.username || me?.email || 'Вы') : 'Собеседник')}</small><div className="message-content">{messageText(message)}</div><time className="message-time">{messageTime(message.created_at)}</time><ArenaMessageSemanticReport message={message} mine={mine} actionNames={actionNames} />{pendingClassification && <div className="opponent-classifier"><p className="opponent-classifier-hint">Определите действие собеседника, чтобы продолжить переговоры.</p><SemanticActionPicker actions={actions.data || []} value={partnerAction} onChange={setPartnerAction} disabled={Boolean(classifyingMessageId)} label="Какое действие совершил собеседник?" /><button type="button" onClick={() => classifyOpponentMessage(message)} disabled={!partnerAction || Boolean(classifyingMessageId)}>{classifying ? 'Проверяем…' : 'Проверить'}</button></div>}</div>; })}
       {error && <p className="error">{error}</p>}
     </section>
-    <footer className="chat-compose">{!unclassified && <><textarea rows="3" value={text} onChange={(event) => setText(event.target.value)} placeholder="Сообщение партнёру…" /><footer><SemanticActionPicker actions={actions.data || []} value={action} onChange={setAction} label="Метка сообщения" /><button type="button" onClick={send} disabled={!text.trim() || !action || (!connected && !joined?.arena_session_id)}>Отправить</button></footer></>}</footer>
+    <footer className="chat-compose">{!completedBy && !unclassified && <><textarea rows="3" value={text} onChange={(event) => setText(event.target.value)} placeholder="Сообщение партнёру…" /><footer><SemanticActionPicker actions={actions.data || []} value={action} onChange={setAction} label="Какое действие вы совершаете?" /><button type="button" onClick={send} disabled={!text.trim() || !action || (!connected && !joined?.arena_session_id)}>Отправить</button></footer></>}</footer>
   </div>;
 }

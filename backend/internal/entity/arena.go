@@ -65,6 +65,7 @@ type ArenaSession struct {
 	CreatedBy     string                    `json:"created_by"`
 	StartedAt     *time.Time                `json:"started_at"`
 	CompletedAt   *time.Time                `json:"completed_at"`
+	CompletedBy   *string                   `json:"completed_by,omitempty"`
 }
 
 type ArenaSessionParticipant struct {
@@ -135,6 +136,7 @@ type UserArenaHistoryItem struct {
 	ScheduledAt       time.Time          `json:"scheduled_at"`
 	StartedAt         *time.Time         `json:"started_at"`
 	CompletedAt       *time.Time         `json:"completed_at"`
+	CompletedBy       *string            `json:"completed_by,omitempty"`
 	Status            ArenaSessionStatus `json:"status"`
 	HasFeedback       bool               `json:"has_feedback"`
 }

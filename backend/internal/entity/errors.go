@@ -68,6 +68,7 @@ var (
 	ErrAIGenerationContextIncomplete = errors.New("ai generation context incomplete")
 	ErrAIGenerationFailed            = errors.New("ai generation failed")
 	ErrAIInvalidStructuredOutput     = errors.New("ai invalid structured output")
+	ErrAIGenerationRequestNotFound   = errors.New("ai generation request not found")
 	ErrAIProviderUnavailable         = errors.New("ai provider unavailable")
 	ErrAIGenerationTimeout           = errors.New("ai generation timeout")
 )

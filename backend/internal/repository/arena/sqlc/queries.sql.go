@@ -24,13 +24,18 @@ func (q *Queries) CompleteArenaAssignment(ctx context.Context, id pgtype.UUID) e
 
 const completeArenaSession = `-- name: CompleteArenaSession :one
 UPDATE learning.arena_sessions
-SET status = 'completed', completed_at = NOW()
-WHERE id = $1
-RETURNING id, assignment_id, status, joined, started_at, completed_at
+SET status = 'completed', completed_at = NOW(), completed_by = $1
+WHERE id = $2 AND status <> 'completed'
+RETURNING id, assignment_id, status, joined, started_at, completed_at, completed_by
 `
 
-func (q *Queries) CompleteArenaSession(ctx context.Context, id pgtype.UUID) (LearningArenaSession, error) {
-	row := q.db.QueryRow(ctx, completeArenaSession, id)
+type CompleteArenaSessionParams struct {
+	CompletedBy pgtype.UUID `json:"completed_by"`
+	ID          pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) CompleteArenaSession(ctx context.Context, arg CompleteArenaSessionParams) (LearningArenaSession, error) {
+	row := q.db.QueryRow(ctx, completeArenaSession, arg.CompletedBy, arg.ID)
 	var i LearningArenaSession
 	err := row.Scan(
 		&i.ID,
@@ -39,6 +44,7 @@ func (q *Queries) CompleteArenaSession(ctx context.Context, id pgtype.UUID) (Lea
 		&i.Joined,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.CompletedBy,
 	)
 	return i, err
 }
@@ -197,7 +203,7 @@ const createArenaSession = `-- name: CreateArenaSession :one
 INSERT INTO learning.arena_sessions (id, assignment_id)
 VALUES ($1, $2)
 ON CONFLICT (assignment_id) DO UPDATE SET assignment_id = EXCLUDED.assignment_id
-RETURNING id, assignment_id, status, joined, started_at, completed_at
+RETURNING id, assignment_id, status, joined, started_at, completed_at, completed_by
 `
 
 type CreateArenaSessionParams struct {
@@ -215,6 +221,7 @@ func (q *Queries) CreateArenaSession(ctx context.Context, arg CreateArenaSession
 		&i.Joined,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.CompletedBy,
 	)
 	return i, err
 }
@@ -284,7 +291,7 @@ func (q *Queries) GetArenaMessage(ctx context.Context, arg GetArenaMessageParams
 }
 
 const getArenaSession = `-- name: GetArenaSession :one
-SELECT s.id, s.assignment_id, s.status, s.joined, s.started_at, s.completed_at,
+SELECT s.id, s.assignment_id, s.status, s.joined, s.started_at, s.completed_at, s.completed_by,
        aa.scenario_id, sc.title AS scenario_title, aa.participants, aa.channel, aa.scheduled_at, aa.created_by
 FROM learning.arena_sessions s
 JOIN learning.arena_assignments aa ON aa.id = s.assignment_id
@@ -299,6 +306,7 @@ type GetArenaSessionRow struct {
 	Joined        []byte             `json:"joined"`
 	StartedAt     pgtype.Timestamptz `json:"started_at"`
 	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
+	CompletedBy   pgtype.UUID        `json:"completed_by"`
 	ScenarioID    pgtype.UUID        `json:"scenario_id"`
 	ScenarioTitle string             `json:"scenario_title"`
 	Participants  []byte             `json:"participants"`
@@ -317,6 +325,7 @@ func (q *Queries) GetArenaSession(ctx context.Context, id pgtype.UUID) (GetArena
 		&i.Joined,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.CompletedBy,
 		&i.ScenarioID,
 		&i.ScenarioTitle,
 		&i.Participants,
@@ -538,7 +547,7 @@ func (q *Queries) ListUserArenaAssignments(ctx context.Context, arg ListUserAren
 
 const listUserArenaHistory = `-- name: ListUserArenaHistory :many
 SELECT s.id AS arena_session_id, aa.id AS arena_assignment_id, aa.scenario_id, sc.title AS scenario_title,
-       aa.scheduled_at, s.started_at, s.completed_at, s.status,
+       aa.scheduled_at, s.started_at, s.completed_at, s.completed_by, s.status,
        EXISTS (SELECT 1 FROM learning.arena_feedback af WHERE af.session_id = s.id AND af.participant_id = $1) AS has_feedback
 FROM learning.arena_sessions s
 JOIN learning.arena_assignments aa ON aa.id = s.assignment_id
@@ -563,6 +572,7 @@ type ListUserArenaHistoryRow struct {
 	ScheduledAt       pgtype.Timestamptz `json:"scheduled_at"`
 	StartedAt         pgtype.Timestamptz `json:"started_at"`
 	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	CompletedBy       pgtype.UUID        `json:"completed_by"`
 	Status            string             `json:"status"`
 	HasFeedback       bool               `json:"has_feedback"`
 }
@@ -589,6 +599,7 @@ func (q *Queries) ListUserArenaHistory(ctx context.Context, arg ListUserArenaHis
 			&i.ScheduledAt,
 			&i.StartedAt,
 			&i.CompletedAt,
+			&i.CompletedBy,
 			&i.Status,
 			&i.HasFeedback,
 		); err != nil {
@@ -636,7 +647,7 @@ const updateArenaSessionJoin = `-- name: UpdateArenaSessionJoin :one
 UPDATE learning.arena_sessions
 SET joined = $1, status = $2, started_at = COALESCE(started_at, $3)
 WHERE id = $4
-RETURNING id, assignment_id, status, joined, started_at, completed_at
+RETURNING id, assignment_id, status, joined, started_at, completed_at, completed_by
 `
 
 type UpdateArenaSessionJoinParams struct {
@@ -661,6 +672,7 @@ func (q *Queries) UpdateArenaSessionJoin(ctx context.Context, arg UpdateArenaSes
 		&i.Joined,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.CompletedBy,
 	)
 	return i, err
 }

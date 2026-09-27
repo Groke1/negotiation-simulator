@@ -3,6 +3,7 @@ const annotationCodes = (annotations) => (Array.isArray(annotations) ? annotatio
 function SemanticCodes({ codes, actionNames }) {
   const uniqueCodes = [...new Set(codes.filter(Boolean))];
   if (!uniqueCodes.length) return null;
+  if (uniqueCodes.length === 1) return <strong>{actionNames.get(uniqueCodes[0]) || uniqueCodes[0]}</strong>;
   return <div className="semantic-code-list">{uniqueCodes.map((code) => <span key={code}>{actionNames.get(code) || code}</span>)}</div>;
 }
 
@@ -16,7 +17,7 @@ export default function ArenaMessageSemanticReport({ message, mine, actionNames 
 
   if (!classification && (!showAuthoredMark || !ownCodes.some(Boolean))) return null;
   return <div className="message-semantic-report partner-classification-result">
-    {showAuthoredMark && ownCodes.some(Boolean) && <><span>Метка сообщения:</span><SemanticCodes codes={ownCodes} actionNames={actionNames} /></>}
-    {!mine && classification && <><p><span>Ваш вариант:</span></p><SemanticCodes codes={selectedCodes} actionNames={actionNames} /><div className={classification.correct ? 'feedback good' : 'feedback bad'}>{classification.correct ? '✓ Действие распознано верно' : <><span>Не совпало. Правильная метка:</span><SemanticCodes codes={expectedCodes} actionNames={actionNames} /></>}</div></>}
+    {showAuthoredMark && ownCodes.some(Boolean) && <p><span>Ваш вариант:</span> <SemanticCodes codes={ownCodes} actionNames={actionNames} /></p>}
+    {!mine && classification && <><p><span>Ваш вариант:</span> <SemanticCodes codes={selectedCodes} actionNames={actionNames} /></p><p className={classification.correct ? 'feedback good' : 'feedback bad'}>{classification.correct ? '✓ Действие распознано верно' : <>Не совпало. Правильная метка: <SemanticCodes codes={expectedCodes} actionNames={actionNames} /></>}</p></>}
   </div>;
 }

@@ -79,6 +79,7 @@ const (
 	ErrAIGenerationContextIncomplete ErrorCode = "AI_GENERATION_CONTEXT_INCOMPLETE"
 	ErrAIGenerationFailed            ErrorCode = "AI_GENERATION_FAILED"
 	ErrAIInvalidStructuredOutput     ErrorCode = "AI_INVALID_STRUCTURED_OUTPUT"
+	ErrAIGenerationRequestNotFound   ErrorCode = "AI_GENERATION_REQUEST_NOT_FOUND"
 	ErrAIProviderUnavailable         ErrorCode = "AI_PROVIDER_UNAVAILABLE"
 	ErrAIGenerationTimeout           ErrorCode = "AI_GENERATION_TIMEOUT"
 )
@@ -208,6 +209,8 @@ func (e ErrorCode) Message() string {
 		return "AI generation failed"
 	case ErrAIInvalidStructuredOutput:
 		return "AI returned invalid structured output"
+	case ErrAIGenerationRequestNotFound:
+		return "AI generation request not found"
 	case ErrAIProviderUnavailable:
 		return "AI provider is unavailable"
 	case ErrAIGenerationTimeout:
@@ -337,6 +340,8 @@ func ErrorCodeFromError(err error) ErrorCode {
 		return ErrAIGenerationFailed
 	case errors.Is(err, entity.ErrAIInvalidStructuredOutput):
 		return ErrAIInvalidStructuredOutput
+	case errors.Is(err, entity.ErrAIGenerationRequestNotFound):
+		return ErrAIGenerationRequestNotFound
 	case errors.Is(err, entity.ErrAIProviderUnavailable):
 		return ErrAIProviderUnavailable
 	case errors.Is(err, entity.ErrAIGenerationTimeout):

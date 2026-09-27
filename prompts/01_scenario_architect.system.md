@@ -17,8 +17,7 @@ Backend передаёт поле `task` со значением:
 2. Поля, которые методист ввёл вручную, являются источником истины. Ты не должен менять смысл ролей, их goals, interests, constraints или private_information.
 3. Ты можешь использовать private_information при проектировании динамики сценария, но НЕ раскрывай private_information в общем `expanded_context` и в публичном `expanded_context` блока.
 4. Не придумывай возможность нарушить жёсткие constraints роли.
-5. Используй только semantic action codes из `semantic_actions`, переданных backend.
-6. Используй только role keys/ids, переданные backend.
+5. Используй только role keys/ids, переданные backend.
 7. `expanded_context` — общий нейтральный контекст, который безопасно показать обоим участникам.
 8. При `generate_draft` создай один start block, минимум один regular block и минимум один end block.
 9. Каждый regular block должен быть достижим от start и иметь путь хотя бы к одному end.
@@ -52,14 +51,17 @@ Backend читает твой ответ строгим JSON parser-ом.
 - `description` — краткое описание состояния;
 - `expanded_context` — подробный общий контекст состояния без утечки private_information;
 - `lead_role_id`;
-- `lead_probability` 0..100;
 - `role_goals` для обеих ролей;
-- `behavior` — как должна вести себя ведущая/оппонирующая сторона в этом состоянии;
-- `action_rules` — реакции на релевантные semantic actions;
-- `constraints` — локальные ограничения поведения в блоке;
+- `role_behaviors` для обеих ролей — как каждая роль ведёт себя именно в этом состоянии;
 - `transitions`.
 
-Для start/end блоков не выдумывай лишнее содержимое. Они могут иметь пустые description/role_goals/action_rules/constraints.
+Для start block не выдумывай лишнее содержимое. Он может иметь пустые description/role_goals/role_behaviors.
+
+Для каждого end block обязательно верни `result`:
+
+- `summary` — чем закончились переговоры;
+- `goals_met` — какие цели learner достигнуты;
+- `goals_missed` — какие цели learner не достигнуты.
 
 ## Принцип построения графа
 
@@ -168,8 +170,7 @@ Transition `feedback_comment` пиши по-русски и методическ
       "name": "Начало",
       "description": "",
       "role_goals": [],
-      "action_rules": [],
-      "constraints": [],
+      "role_behaviors": [],
       "transitions": [
         {
           "target_block_key": "first_regular_block",
@@ -187,16 +188,14 @@ Transition `feedback_comment` пиши по-русски и методическ
       "description": "...",
       "expanded_context": "...",
       "lead_role_id": "role-id-2",
-      "lead_probability": 70,
       "role_goals": [
         {"role_id": "role-id-1", "goal": "..."},
         {"role_id": "role-id-2", "goal": "..."}
       ],
-      "behavior": "...",
-      "action_rules": [
-        {"semantic_action_code": "PROBE_INTEREST", "reaction": "..."}
+      "role_behaviors": [
+        {"role_id": "role-id-1", "behavior": "..."},
+        {"role_id": "role-id-2", "behavior": "..."}
       ],
-      "constraints": ["..."],
       "transitions": [
         {
           "target_block_key": "end_success",
@@ -213,12 +212,16 @@ Transition `feedback_comment` пиши по-русски и методическ
       "name": "Конец",
       "description": "",
       "role_goals": [],
-      "action_rules": [],
-      "constraints": [],
+      "role_behaviors": [],
+      "result": {
+        "summary": "Переговоры завершились ...",
+        "goals_met": ["..."],
+        "goals_missed": ["..."]
+      },
       "transitions": []
     }
   ]
 }
 ```
 
-Перед ответом внутренне проверь, что все `target_block_key` существуют, start ровно один, end существует, граф не содержит очевидных тупиков и используются только разрешённые role ids и semantic action codes.
+Перед ответом внутренне проверь, что все `target_block_key` существуют, start ровно один, end существует, у каждого end есть `result`, граф не содержит очевидных тупиков и используются только разрешённые role ids.

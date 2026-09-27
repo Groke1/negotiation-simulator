@@ -3,8 +3,10 @@ package scenario
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/ai"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
@@ -12,6 +14,224 @@ import (
 
 type aiGenerator interface {
 	GenerateJSON(ctx context.Context, role ai.Role, input any, output any, validate func() error) error
+}
+
+type aiGenerationRunner func(ctx context.Context) (json.RawMessage, error)
+
+func (s *scenarioService) StartExpandContext(ctx context.Context, claims entity.AccessClaims, scenarioID string, options entity.AIGenerationOptions) (*entity.AIGenerationRequest, error) {
+	if err := s.ensureGenerationRequestAllowed(ctx, claims, scenarioID, ""); err != nil {
+		return nil, err
+	}
+	return s.startAIGenerationRequest(claims, scenarioID, "", "", entity.AIGenerationKindExpandContext, func(ctx context.Context) (json.RawMessage, error) {
+		expanded, err := s.ExpandContext(ctx, claims, scenarioID, options)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"expanded_context": expanded})
+	})
+}
+
+func (s *scenarioService) StartGenerateDraft(ctx context.Context, claims entity.AccessClaims, scenarioID string, options entity.AIGenerationOptions) (*entity.AIGenerationRequest, error) {
+	if err := s.ensureGenerationRequestAllowed(ctx, claims, scenarioID, ""); err != nil {
+		return nil, err
+	}
+	return s.startAIGenerationRequest(claims, scenarioID, "", "", entity.AIGenerationKindGenerateDraft, func(ctx context.Context) (json.RawMessage, error) {
+		proposal, validation, err := s.GenerateDraft(ctx, claims, scenarioID, options)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"proposal": map[string]any{"expanded_context": proposal.ExpandedContext, "blocks": blocksForGenerationAPI(proposal.Blocks)}, "validation": validation})
+	})
+}
+
+func (s *scenarioService) StartGenerateBlock(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID string, options entity.AIGenerationOptions) (*entity.AIGenerationRequest, error) {
+	if err := s.ensureGenerationRequestAllowed(ctx, claims, scenarioID, blockID); err != nil {
+		return nil, err
+	}
+	return s.startAIGenerationRequest(claims, scenarioID, blockID, "", entity.AIGenerationKindGenerateBlock, func(ctx context.Context) (json.RawMessage, error) {
+		proposal, validation, err := s.GenerateBlock(ctx, claims, scenarioID, blockID, options)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"block_id": blockID, "proposal": blockProposalForGenerationAPI(*proposal), "validation": validation})
+	})
+}
+
+func (s *scenarioService) StartGenerateDialogue(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID, learnerRoleID string, options entity.AIGenerationOptions) (*entity.AIGenerationRequest, error) {
+	if err := s.ensureGenerationRequestAllowed(ctx, claims, scenarioID, blockID); err != nil {
+		return nil, err
+	}
+	return s.startAIGenerationRequest(claims, scenarioID, blockID, learnerRoleID, entity.AIGenerationKindGenerateDialogue, func(ctx context.Context) (json.RawMessage, error) {
+		dialogue, validation, err := s.GenerateDialogue(ctx, claims, scenarioID, blockID, learnerRoleID, options)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"block_id": blockID, "learner_role_id": learnerRoleID, "proposal": dialogue, "validation": validation})
+	})
+}
+
+func (s *scenarioService) GetAIGenerationRequest(ctx context.Context, claims entity.AccessClaims, scenarioID, requestID string) (*entity.AIGenerationRequest, error) {
+	if err := requireMethodist(claims); err != nil {
+		return nil, err
+	}
+	scenario, err := s.scenarioRepository.GetScenarioByID(ctx, scenarioID)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureOwnedBy(claims.UserID, scenario); err != nil {
+		return nil, err
+	}
+	s.generationMu.RLock()
+	job, ok := s.generationRequests[requestID]
+	s.generationMu.RUnlock()
+	if !ok || job.ScenarioID != scenarioID || job.UserID != claims.UserID {
+		return nil, entity.ErrAIGenerationRequestNotFound
+	}
+	return cloneAIGenerationRequest(job), nil
+}
+
+func (s *scenarioService) ensureGenerationRequestAllowed(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID string) error {
+	if err := requireMethodist(claims); err != nil {
+		return err
+	}
+	scenario, err := s.scenarioRepository.GetScenarioByID(ctx, scenarioID)
+	if err != nil {
+		return err
+	}
+	if err := ensureOwnedBy(claims.UserID, scenario); err != nil {
+		return err
+	}
+	if scenario.Status != entity.ScenarioStatusDraft {
+		return entity.ErrScenarioNotDraft
+	}
+	if blockID == "" {
+		return nil
+	}
+	doc := entity.ScenarioDocumentFromScenario(*scenario)
+	if _, _, ok := findBlock(doc.Blocks, blockID); !ok {
+		return entity.ErrBlockNotFound
+	}
+	return nil
+}
+
+func (s *scenarioService) startAIGenerationRequest(claims entity.AccessClaims, scenarioID, blockID, learnerRoleID string, kind entity.AIGenerationKind, runner aiGenerationRunner) (*entity.AIGenerationRequest, error) {
+	id, err := entity.NewUUID()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	job := &entity.AIGenerationRequest{ID: id, ScenarioID: scenarioID, UserID: claims.UserID, BlockID: blockID, LearnerRoleID: learnerRoleID, Kind: kind, Status: entity.AIGenerationStatusPending, CreatedAt: now, UpdatedAt: now}
+	s.generationMu.Lock()
+	s.generationRequests[id] = job
+	s.generationMu.Unlock()
+	response := cloneAIGenerationRequest(job)
+	go s.runAIGenerationRequest(id, runner)
+	return response, nil
+}
+
+func (s *scenarioService) runAIGenerationRequest(id string, runner aiGenerationRunner) {
+	s.updateAIGenerationRequest(id, func(job *entity.AIGenerationRequest) {
+		job.Status = entity.AIGenerationStatusRunning
+	})
+	result, err := runner(context.Background())
+	s.updateAIGenerationRequest(id, func(job *entity.AIGenerationRequest) {
+		if err != nil {
+			job.Status = entity.AIGenerationStatusFailed
+			job.ErrorCode = aiGenerationJobErrorCode(err)
+			job.ErrorMessage = err.Error()
+			job.Result = nil
+			return
+		}
+		job.Status = entity.AIGenerationStatusSucceeded
+		job.Result = result
+		job.ErrorCode = ""
+		job.ErrorMessage = ""
+	})
+}
+
+func (s *scenarioService) updateAIGenerationRequest(id string, update func(*entity.AIGenerationRequest)) {
+	s.generationMu.Lock()
+	defer s.generationMu.Unlock()
+	job := s.generationRequests[id]
+	if job == nil {
+		return
+	}
+	update(job)
+	job.UpdatedAt = time.Now()
+}
+
+func cloneAIGenerationRequest(job *entity.AIGenerationRequest) *entity.AIGenerationRequest {
+	if job == nil {
+		return nil
+	}
+	clone := *job
+	if len(job.Result) > 0 {
+		clone.Result = append(json.RawMessage(nil), job.Result...)
+	}
+	return &clone
+}
+
+func aiGenerationJobErrorCode(err error) string {
+	switch {
+	case errors.Is(err, entity.ErrAIGenerationContextIncomplete):
+		return "AI_GENERATION_CONTEXT_INCOMPLETE"
+	case errors.Is(err, entity.ErrAIInvalidStructuredOutput):
+		return "AI_INVALID_STRUCTURED_OUTPUT"
+	case errors.Is(err, entity.ErrAIProviderUnavailable):
+		return "AI_PROVIDER_UNAVAILABLE"
+	case errors.Is(err, entity.ErrAIGenerationTimeout):
+		return "AI_GENERATION_TIMEOUT"
+	default:
+		return "AI_GENERATION_FAILED"
+	}
+}
+
+func blocksForGenerationAPI(blocks []entity.ScenarioBlock) []map[string]any {
+	items := make([]map[string]any, 0, len(blocks))
+	for _, block := range blocks {
+		item := map[string]any{
+			"id":             block.ID,
+			"type":           block.Type,
+			"name":           block.Name,
+			"description":    block.Description,
+			"role_goals":     block.RoleGoals,
+			"role_behaviors": block.RoleBehaviors,
+			"transitions":    block.Transitions,
+		}
+		if strings.TrimSpace(block.ExpandedContext) != "" {
+			item["expanded_context"] = block.ExpandedContext
+		}
+		if strings.TrimSpace(block.LeadRoleID) != "" {
+			item["lead_role_id"] = block.LeadRoleID
+		}
+		if block.Result != nil {
+			item["result"] = block.Result
+		}
+		if block.DeterministicDialogue != nil {
+			item["deterministic_dialogue"] = block.DeterministicDialogue
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func blockProposalForGenerationAPI(block entity.BlockContentProposal) map[string]any {
+	item := map[string]any{
+		"name":           block.Name,
+		"description":    block.Description,
+		"role_goals":     block.RoleGoals,
+		"role_behaviors": block.RoleBehaviors,
+	}
+	if strings.TrimSpace(block.ExpandedContext) != "" {
+		item["expanded_context"] = block.ExpandedContext
+	}
+	if strings.TrimSpace(block.LeadRoleID) != "" {
+		item["lead_role_id"] = block.LeadRoleID
+	}
+	if block.Result != nil {
+		item["result"] = block.Result
+	}
+	return item
 }
 
 func (s *scenarioService) ExpandContext(ctx context.Context, claims entity.AccessClaims, scenarioID string, options entity.AIGenerationOptions) (string, error) {
@@ -80,24 +300,27 @@ func (s *scenarioService) GenerateBlock(ctx context.Context, claims entity.Acces
 		return nil, nil, entity.ErrBlockNotFound
 	}
 	var output struct {
-		Block entity.BlockContentProposal `json:"block"`
+		Block blockContentOutput `json:"block"`
 	}
 	input := map[string]any{"task": "generate_block", "difficulty": doc.Difficulty, "scenario": scenarioAIInput(doc), "roles": doc.Roles, "block": block, "neighbors": blockNeighbors(doc.Blocks, blockID), "semantic_actions": actions, "instructions": options.Instructions}
 	if err := s.ai.GenerateJSON(ctx, ai.RoleBlockDesigner, input, &output, func() error {
-		return validateBlockProposal(output.Block, doc, actions)
+		proposal := output.Block.toProposal()
+		if block.Type == "end" && (proposal.Result == nil || strings.TrimSpace(proposal.Result.Summary) == "") {
+			return fmt.Errorf("end block result is required")
+		}
+		return validateBlockProposal(proposal, doc, actions)
 	}); err != nil {
 		return nil, nil, err
 	}
+	proposal := output.Block.toProposal()
 	blocks := append([]entity.ScenarioBlock(nil), doc.Blocks...)
-	blocks[index].Name = output.Block.Name
-	blocks[index].Description = output.Block.Description
-	blocks[index].ExpandedContext = output.Block.ExpandedContext
-	blocks[index].LeadRoleID = output.Block.LeadRoleID
-	blocks[index].LeadProbability = output.Block.LeadProbability
-	blocks[index].RoleGoals = output.Block.RoleGoals
-	blocks[index].Behavior = output.Block.Behavior
-	blocks[index].ActionRules = output.Block.ActionRules
-	blocks[index].Constraints = output.Block.Constraints
+	blocks[index].Name = proposal.Name
+	blocks[index].Description = proposal.Description
+	blocks[index].ExpandedContext = proposal.ExpandedContext
+	blocks[index].LeadRoleID = proposal.LeadRoleID
+	blocks[index].RoleGoals = proposal.RoleGoals
+	blocks[index].RoleBehaviors = proposal.RoleBehaviors
+	blocks[index].Result = proposal.Result
 	copyScenario := *scenario
 	nodes, _ := json.Marshal(blocks)
 	copyScenario.Nodes = nodes
@@ -105,7 +328,7 @@ func (s *scenarioService) GenerateBlock(ctx context.Context, claims entity.Acces
 	if err != nil {
 		return nil, nil, err
 	}
-	return &output.Block, validation, nil
+	return &proposal, validation, nil
 }
 
 func (s *scenarioService) GenerateDialogue(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID, learnerRoleID string, options entity.AIGenerationOptions) (*entity.DeterministicDialogue, *entity.ScenarioValidation, error) {
@@ -210,13 +433,32 @@ type architectBlockOutput struct {
 	Description     string                      `json:"description"`
 	ExpandedContext string                      `json:"expanded_context"`
 	LeadRoleID      string                      `json:"lead_role_id"`
-	LeadProbability int                         `json:"lead_probability"`
 	RoleGoals       []entity.BlockRoleGoal      `json:"role_goals"`
-	Behavior        string                      `json:"behavior"`
-	ActionRules     []entity.SemanticActionRule `json:"action_rules"`
-	Constraints     []string                    `json:"constraints"`
+	RoleBehaviors   []entity.BlockRoleBehavior  `json:"role_behaviors"`
 	Result          *entity.ScenarioEndResult   `json:"result"`
 	Transitions     []architectTransitionOutput `json:"transitions"`
+}
+
+type blockContentOutput struct {
+	Name            string                     `json:"name"`
+	Description     string                     `json:"description"`
+	ExpandedContext string                     `json:"expanded_context"`
+	LeadRoleID      string                     `json:"lead_role_id"`
+	RoleGoals       []entity.BlockRoleGoal     `json:"role_goals"`
+	RoleBehaviors   []entity.BlockRoleBehavior `json:"role_behaviors"`
+	Result          *entity.ScenarioEndResult  `json:"result"`
+}
+
+func (b blockContentOutput) toProposal() entity.BlockContentProposal {
+	return entity.BlockContentProposal{
+		Name:            b.Name,
+		Description:     b.Description,
+		ExpandedContext: b.ExpandedContext,
+		LeadRoleID:      b.LeadRoleID,
+		RoleGoals:       b.RoleGoals,
+		RoleBehaviors:   b.RoleBehaviors,
+		Result:          b.Result,
+	}
 }
 
 type architectTransitionOutput struct {
@@ -254,12 +496,11 @@ type localReplyOption struct {
 	TransitionID       string                                `json:"transition_id"`
 }
 
-func validateArchitectDraft(output architectDraftOutput, doc entity.ScenarioDocument, actions []entity.SemanticActionDefinition) error {
+func validateArchitectDraft(output architectDraftOutput, doc entity.ScenarioDocument, _ []entity.SemanticActionDefinition) error {
 	if strings.TrimSpace(output.ExpandedContext) == "" || len(output.Blocks) == 0 {
 		return fmt.Errorf("empty draft")
 	}
 	roleIDs := roleIDSet(doc)
-	actionCodes := actionCodeSet(actions)
 	keys := map[string]bool{}
 	starts, ends := 0, 0
 	for _, block := range output.Blocks {
@@ -272,14 +513,22 @@ func validateArchitectDraft(output architectDraftOutput, doc entity.ScenarioDocu
 		}
 		if block.Type == "end" {
 			ends++
+			if block.Result == nil || strings.TrimSpace(block.Result.Summary) == "" {
+				return fmt.Errorf("end block result is required")
+			}
 		}
 		if block.LeadRoleID != "" && !roleIDs[block.LeadRoleID] {
 			return fmt.Errorf("unknown lead role")
 		}
-		for _, rule := range block.ActionRules {
-			if !actionCodes[rule.SemanticActionCode] {
-				return fmt.Errorf("unknown semantic action")
+		seenBehaviors := map[string]bool{}
+		for _, behavior := range block.RoleBehaviors {
+			if !roleIDs[behavior.RoleID] {
+				return fmt.Errorf("unknown behavior role")
 			}
+			if seenBehaviors[behavior.RoleID] {
+				return fmt.Errorf("duplicate behavior role")
+			}
+			seenBehaviors[behavior.RoleID] = true
 		}
 	}
 	if starts != 1 || ends < 1 {
@@ -321,11 +570,8 @@ func normalizeArchitectBlocks(input []architectBlockOutput) ([]entity.ScenarioBl
 			Description:     block.Description,
 			ExpandedContext: block.ExpandedContext,
 			LeadRoleID:      block.LeadRoleID,
-			LeadProbability: block.LeadProbability,
 			RoleGoals:       block.RoleGoals,
-			Behavior:        block.Behavior,
-			ActionRules:     block.ActionRules,
-			Constraints:     block.Constraints,
+			RoleBehaviors:   block.RoleBehaviors,
 			Result:          block.Result,
 			Transitions:     transitions,
 		})
@@ -333,18 +579,23 @@ func normalizeArchitectBlocks(input []architectBlockOutput) ([]entity.ScenarioBl
 	return blocks, nil
 }
 
-func validateBlockProposal(block entity.BlockContentProposal, doc entity.ScenarioDocument, actions []entity.SemanticActionDefinition) error {
+func validateBlockProposal(block entity.BlockContentProposal, doc entity.ScenarioDocument, _ []entity.SemanticActionDefinition) error {
 	if strings.TrimSpace(block.Name) == "" {
 		return fmt.Errorf("name is empty")
 	}
 	if block.LeadRoleID != "" && !roleIDSet(doc)[block.LeadRoleID] {
 		return fmt.Errorf("unknown lead role")
 	}
-	codes := actionCodeSet(actions)
-	for _, rule := range block.ActionRules {
-		if !codes[rule.SemanticActionCode] {
-			return fmt.Errorf("unknown semantic action")
+	roles := roleIDSet(doc)
+	seenBehaviors := map[string]bool{}
+	for _, behavior := range block.RoleBehaviors {
+		if !roles[behavior.RoleID] {
+			return fmt.Errorf("unknown behavior role")
 		}
+		if seenBehaviors[behavior.RoleID] {
+			return fmt.Errorf("duplicate behavior role")
+		}
+		seenBehaviors[behavior.RoleID] = true
 	}
 	return nil
 }

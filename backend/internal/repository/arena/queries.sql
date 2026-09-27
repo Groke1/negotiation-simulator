@@ -38,7 +38,7 @@ WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: GetArenaSession :one
-SELECT s.id, s.assignment_id, s.status, s.joined, s.started_at, s.completed_at,
+SELECT s.id, s.assignment_id, s.status, s.joined, s.started_at, s.completed_at, s.completed_by,
        aa.scenario_id, sc.title AS scenario_title, aa.participants, aa.channel, aa.scheduled_at, aa.created_by
 FROM learning.arena_sessions s
 JOIN learning.arena_assignments aa ON aa.id = s.assignment_id
@@ -53,8 +53,8 @@ RETURNING *;
 
 -- name: CompleteArenaSession :one
 UPDATE learning.arena_sessions
-SET status = 'completed', completed_at = NOW()
-WHERE id = sqlc.arg(id)
+SET status = 'completed', completed_at = NOW(), completed_by = sqlc.arg(completed_by)
+WHERE id = sqlc.arg(id) AND status <> 'completed'
 RETURNING *;
 
 -- name: CompleteArenaAssignment :exec
@@ -99,7 +99,7 @@ ORDER BY created_at, id;
 
 -- name: ListUserArenaHistory :many
 SELECT s.id AS arena_session_id, aa.id AS arena_assignment_id, aa.scenario_id, sc.title AS scenario_title,
-       aa.scheduled_at, s.started_at, s.completed_at, s.status,
+       aa.scheduled_at, s.started_at, s.completed_at, s.completed_by, s.status,
        EXISTS (SELECT 1 FROM learning.arena_feedback af WHERE af.session_id = s.id AND af.participant_id = sqlc.arg(user_id)) AS has_feedback
 FROM learning.arena_sessions s
 JOIN learning.arena_assignments aa ON aa.id = s.assignment_id

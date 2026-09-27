@@ -29,10 +29,11 @@ type Service interface {
 	AddFavorite(ctx context.Context, claims entity.AccessClaims, scenarioID string) error
 	RemoveFavorite(ctx context.Context, claims entity.AccessClaims, scenarioID string) error
 	GetPersonalStats(ctx context.Context, userID, scenarioID string) (*entity.ScenarioPersonalStats, error)
-	ExpandContext(ctx context.Context, claims entity.AccessClaims, scenarioID string, options entity.AIGenerationOptions) (string, error)
-	GenerateDraft(ctx context.Context, claims entity.AccessClaims, scenarioID string, options entity.AIGenerationOptions) (*entity.ScenarioDraftProposal, *entity.ScenarioValidation, error)
-	GenerateBlock(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID string, options entity.AIGenerationOptions) (*entity.BlockContentProposal, *entity.ScenarioValidation, error)
-	GenerateDialogue(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID, learnerRoleID string, options entity.AIGenerationOptions) (*entity.DeterministicDialogue, *entity.ScenarioValidation, error)
+	StartExpandContext(ctx context.Context, claims entity.AccessClaims, scenarioID string, options entity.AIGenerationOptions) (*entity.AIGenerationRequest, error)
+	StartGenerateDraft(ctx context.Context, claims entity.AccessClaims, scenarioID string, options entity.AIGenerationOptions) (*entity.AIGenerationRequest, error)
+	StartGenerateBlock(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID string, options entity.AIGenerationOptions) (*entity.AIGenerationRequest, error)
+	StartGenerateDialogue(ctx context.Context, claims entity.AccessClaims, scenarioID, blockID, learnerRoleID string, options entity.AIGenerationOptions) (*entity.AIGenerationRequest, error)
+	GetAIGenerationRequest(ctx context.Context, claims entity.AccessClaims, scenarioID, requestID string) (*entity.AIGenerationRequest, error)
 }
 
 type Controller struct {
@@ -61,6 +62,7 @@ func (c *Controller) InitRoutes(router chi.Router) {
 			r.Delete("/favorite", c.RemoveFavorite)
 			r.Post("/ai/expand-context", c.AIExpandContext)
 			r.Post("/ai/generate-draft", c.AIGenerateDraft)
+			r.Get("/ai/requests/{request_id}", c.GetAIGenerationRequest)
 			r.Post("/blocks/{block_id}/ai/generate", c.AIGenerateBlock)
 			r.Post("/blocks/{block_id}/ai/generate-dialogue", c.AIGenerateDialogue)
 		})
@@ -304,12 +306,12 @@ func (c *Controller) AIExpandContext(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	expanded, err := c.service.ExpandContext(r.Context(), claims, scenarioID, options)
+	request, err := c.service.StartExpandContext(r.Context(), claims, scenarioID, options)
 	if err != nil {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, expandContextResponse{ExpandedContext: expanded})
+	pkghttpx.WriteJSON(w, http.StatusAccepted, request)
 }
 
 func (c *Controller) AIGenerateDraft(w http.ResponseWriter, r *http.Request) {
@@ -321,12 +323,12 @@ func (c *Controller) AIGenerateDraft(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	proposal, validation, err := c.service.GenerateDraft(r.Context(), claims, scenarioID, options)
+	request, err := c.service.StartGenerateDraft(r.Context(), claims, scenarioID, options)
 	if err != nil {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, generateScenarioDraftResponse{Proposal: scenarioDraftProposalResponse{ExpandedContext: proposal.ExpandedContext, Blocks: proposal.Blocks}, Validation: validation})
+	pkghttpx.WriteJSON(w, http.StatusAccepted, request)
 }
 
 func (c *Controller) AIGenerateBlock(w http.ResponseWriter, r *http.Request) {
@@ -338,12 +340,12 @@ func (c *Controller) AIGenerateBlock(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	proposal, validation, err := c.service.GenerateBlock(r.Context(), claims, scenarioID, blockID, options)
+	request, err := c.service.StartGenerateBlock(r.Context(), claims, scenarioID, blockID, options)
 	if err != nil {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, generateBlockResponse{BlockID: blockID, Proposal: *proposal, Validation: validation})
+	pkghttpx.WriteJSON(w, http.StatusAccepted, request)
 }
 
 func (c *Controller) AIGenerateDialogue(w http.ResponseWriter, r *http.Request) {
@@ -356,12 +358,30 @@ func (c *Controller) AIGenerateDialogue(w http.ResponseWriter, r *http.Request) 
 		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
 		return
 	}
-	dialogue, validation, err := c.service.GenerateDialogue(r.Context(), claims, scenarioID, blockID, strings.TrimSpace(req.LearnerRoleID), entity.AIGenerationOptions{Instructions: strings.TrimSpace(req.Instructions)})
+	request, err := c.service.StartGenerateDialogue(r.Context(), claims, scenarioID, blockID, strings.TrimSpace(req.LearnerRoleID), entity.AIGenerationOptions{Instructions: strings.TrimSpace(req.Instructions)})
 	if err != nil {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, generateDialogueResponse{BlockID: blockID, LearnerRoleID: strings.TrimSpace(req.LearnerRoleID), Proposal: *dialogue, Validation: validation})
+	pkghttpx.WriteJSON(w, http.StatusAccepted, request)
+}
+
+func (c *Controller) GetAIGenerationRequest(w http.ResponseWriter, r *http.Request) {
+	claims, scenarioID, ok := claimsAndScenarioID(w, r)
+	if !ok {
+		return
+	}
+	requestID, err := entity.NormalizeUUID(chi.URLParam(r, "request_id"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	request, err := c.service.GetAIGenerationRequest(r.Context(), claims, scenarioID, requestID)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, request)
 }
 
 func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err error) {
@@ -374,7 +394,7 @@ func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusUnauthorized
 	case httpx.ErrMethodistRoleRequired, httpx.ErrScenarioNotOwned:
 		status = http.StatusForbidden
-	case httpx.ErrScenarioNotFound:
+	case httpx.ErrScenarioNotFound, httpx.ErrAIGenerationRequestNotFound:
 		status = http.StatusNotFound
 	case httpx.ErrBlockNotFound:
 		status = http.StatusNotFound
@@ -592,13 +612,33 @@ func scenarioToResponse(s entity.Scenario, userID string) scenarioResponse {
 		SupportedChannels: doc.SupportedChannels,
 		TargetClusterIDs:  doc.TargetClusterIDs,
 		Roles:             doc.Roles,
-		Blocks:            doc.Blocks,
+		Blocks:            scenarioBlocksToResponse(doc.Blocks),
 		CreatedBy:         stringPtrValue(s.CreatedBy),
 		IsOwnedByMe:       s.CreatedBy != nil && *s.CreatedBy == userID,
 		CreatedAt:         doc.CreatedAt,
 		UpdatedAt:         doc.UpdatedAt,
 		PublishedAt:       doc.PublishedAt,
 	}
+}
+
+func scenarioBlocksToResponse(blocks []entity.ScenarioBlock) []scenarioBlockResponse {
+	items := make([]scenarioBlockResponse, 0, len(blocks))
+	for _, block := range blocks {
+		items = append(items, scenarioBlockResponse{
+			ID:                    block.ID,
+			Type:                  block.Type,
+			Name:                  block.Name,
+			Description:           block.Description,
+			ExpandedContext:       block.ExpandedContext,
+			LeadRoleID:            block.LeadRoleID,
+			RoleGoals:             block.RoleGoals,
+			RoleBehaviors:         block.RoleBehaviors,
+			Result:                block.Result,
+			DeterministicDialogue: block.DeterministicDialogue,
+			Transitions:           block.Transitions,
+		})
+	}
+	return items
 }
 
 func stringPtrValue(value *string) string {

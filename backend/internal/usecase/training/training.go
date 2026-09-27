@@ -158,10 +158,10 @@ func (s *Service) SubmitAction(ctx context.Context, claims entity.AccessClaims, 
 		if !ok {
 			return nil, entity.ErrInvalidTrainingState
 		}
-		if target.Type == "end" {
-			terminal = true
-		} else if target.DeterministicDialogue != nil && target.DeterministicDialogue.LearnerRoleID == session.ScenarioRoleID && target.DeterministicDialogue.StartNodeID != "" {
+		if target.DeterministicDialogue != nil && target.DeterministicDialogue.LearnerRoleID == session.ScenarioRoleID && target.DeterministicDialogue.StartNodeID != "" {
 			state.CurrentNodeID = target.DeterministicDialogue.StartNodeID
+		} else if target.Type == "end" {
+			terminal = true
 		} else {
 			return nil, entity.ErrInvalidTrainingState
 		}
@@ -337,9 +337,12 @@ func (s *Service) GetAnalysis(ctx context.Context, claims entity.AccessClaims, s
 func (s *Service) completeSessionInTx(ctx context.Context, session *entity.TrainingSession, doc entity.ScenarioDocument, state trainingState, messages []entity.TrainingMessage, assessment *entity.TrainingAssessment) (*entity.TrainingCompletion, error) {
 	clusterResults := deterministicClusterResults(messages)
 	extras := (*trainingAnalysisExtras)(nil)
-	if session.Mode == entity.TrainingModeVirtualPartner && assessment != nil {
-		clusterResults = virtualPartnerClusterResults(*assessment, doc.TargetClusterIDs)
-		extras = analysisExtrasFromAssessment(*assessment)
+	if session.Mode == entity.TrainingModeVirtualPartner {
+		if assessment != nil {
+			clusterResults = virtualPartnerClusterResults(*assessment, doc.TargetClusterIDs)
+			extras = analysisExtrasFromAssessment(*assessment)
+		}
+		clusterResults = ensureTerminatedVirtualPartnerResults(doc, state, clusterResults)
 	}
 	score := overallTrainingScore(clusterResults)
 	outcome := outcomeJSON(doc, state)
@@ -576,7 +579,7 @@ func (s *Service) generateVirtualPartnerRuntime(ctx context.Context, session *en
 		"channel":             session.Channel,
 		"difficulty":          doc.Difficulty,
 		"scenario":            map[string]any{"expanded_context": doc.ExpandedContext},
-		"current_block":       blockForVirtualPartnerRuntimeAI(doc, current),
+		"current_block":       blockForVirtualPartnerRuntimeAI(doc, current, partnerRole.ID),
 		"partner_role":        privateRoleForRuntimeAI(partnerRole),
 		"learner_role_public": publicRole(learnerRole),
 		"runtime_state":       map[string]any{"turn_number": state.TurnNumber, "patience": state.Patience},
@@ -1383,6 +1386,33 @@ func virtualPartnerClusterResults(assessment entity.TrainingAssessment, targetCl
 	return results
 }
 
+func ensureTerminatedVirtualPartnerResults(doc entity.ScenarioDocument, state trainingState, results []entity.TrainingClusterResult) []entity.TrainingClusterResult {
+	block, ok := blockByID(doc.Blocks, state.BlockID)
+	if ok && block.Type == "end" {
+		return results
+	}
+	hasWeightedEvidence := false
+	for _, result := range results {
+		if result.EvidenceWeight > 0 {
+			hasWeightedEvidence = true
+			break
+		}
+	}
+	if hasWeightedEvidence || len(doc.TargetClusterIDs) == 0 {
+		return results
+	}
+	items := make([]entity.TrainingClusterResult, 0, len(doc.TargetClusterIDs))
+	for _, clusterID := range doc.TargetClusterIDs {
+		items = append(items, entity.TrainingClusterResult{
+			ClusterID:      clusterID,
+			Score:          20,
+			EvidenceWeight: 0.3,
+			Comment:        "Тренировка завершилась досрочно: поведение участника сорвало переговоры до достижения финального состояния.",
+		})
+	}
+	return items
+}
+
 func virtualPartnerEvidenceStrength(episodes int) float64 {
 	switch {
 	case episodes <= 0:
@@ -1467,19 +1497,32 @@ func blockForRuntimeAI(block entity.ScenarioBlock) map[string]any {
 		"expanded_context": block.ExpandedContext,
 		"lead_role_id":     block.LeadRoleID,
 		"role_goals":       block.RoleGoals,
+		"role_behaviors":   block.RoleBehaviors,
 		"behavior":         block.Behavior,
 		"action_rules":     block.ActionRules,
 		"constraints":      block.Constraints,
 	}
 }
 
-func blockForVirtualPartnerRuntimeAI(doc entity.ScenarioDocument, block entity.ScenarioBlock) map[string]any {
+func blockForVirtualPartnerRuntimeAI(doc entity.ScenarioDocument, block entity.ScenarioBlock, partnerRoleID string) map[string]any {
 	return map[string]any{
-		"name":        block.Name,
-		"description": block.Description,
-		"role_goals":  block.RoleGoals,
-		"transitions": transitionsForRuntimeAI(doc, block),
+		"name":             block.Name,
+		"description":      block.Description,
+		"expanded_context": block.ExpandedContext,
+		"lead_role_id":     block.LeadRoleID,
+		"role_goals":       block.RoleGoals,
+		"role_behavior":    roleBehaviorForRuntimeAI(block, partnerRoleID),
+		"transitions":      transitionsForRuntimeAI(doc, block),
 	}
+}
+
+func roleBehaviorForRuntimeAI(block entity.ScenarioBlock, roleID string) string {
+	for _, behavior := range block.RoleBehaviors {
+		if behavior.RoleID == roleID {
+			return strings.TrimSpace(behavior.Behavior)
+		}
+	}
+	return strings.TrimSpace(block.Behavior)
 }
 
 func privateRoleForRuntimeAI(role entity.ScenarioRole) map[string]any {

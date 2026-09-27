@@ -59,7 +59,7 @@ type scenarioResponse struct {
 	SupportedChannels []string                  `json:"supported_channels"`
 	TargetClusterIDs  []string                  `json:"target_cluster_ids"`
 	Roles             []entity.ScenarioRole     `json:"roles"`
-	Blocks            []entity.ScenarioBlock    `json:"blocks"`
+	Blocks            []scenarioBlockResponse   `json:"blocks"`
 	CreatedBy         string                    `json:"created_by_methodist_id"`
 	IsOwnedByMe       bool                      `json:"is_owned_by_me"`
 	CreatedAt         time.Time                 `json:"created_at"`
@@ -115,8 +115,22 @@ type expandContextResponse struct {
 }
 
 type scenarioDraftProposalResponse struct {
-	ExpandedContext string                 `json:"expanded_context"`
-	Blocks          []entity.ScenarioBlock `json:"blocks"`
+	ExpandedContext string                  `json:"expanded_context"`
+	Blocks          []scenarioBlockResponse `json:"blocks"`
+}
+
+type scenarioBlockResponse struct {
+	ID                    string                        `json:"id"`
+	Type                  string                        `json:"type"`
+	Name                  string                        `json:"name"`
+	Description           string                        `json:"description"`
+	ExpandedContext       string                        `json:"expanded_context,omitempty"`
+	LeadRoleID            string                        `json:"lead_role_id,omitempty"`
+	RoleGoals             []entity.BlockRoleGoal        `json:"role_goals"`
+	RoleBehaviors         []entity.BlockRoleBehavior    `json:"role_behaviors"`
+	Result                *entity.ScenarioEndResult     `json:"result,omitempty"`
+	DeterministicDialogue *entity.DeterministicDialogue `json:"deterministic_dialogue,omitempty"`
+	Transitions           []entity.ScenarioTransition   `json:"transitions"`
 }
 
 type generateScenarioDraftResponse struct {

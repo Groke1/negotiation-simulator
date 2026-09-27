@@ -990,6 +990,12 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        completed_by:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+          description: ID участника, который завершил Arena, если сессия уже завершена.
     ChatContent:
       type: object
       required:
@@ -1303,6 +1309,12 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        completed_by:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+          description: ID участника, который завершил Arena, если сессия уже завершена.
         status:
           $ref: '#/components/schemas/ArenaSessionStatus'
         has_feedback:

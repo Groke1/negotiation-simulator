@@ -998,8 +998,7 @@ components:
         - name
         - description
         - role_goals
-        - action_rules
-        - constraints
+        - role_behaviors
         - transitions
       properties:
         id:
@@ -1036,49 +1035,18 @@ components:
             отсутствие значения приводит к warning при validate.
 
             '
-        lead_probability:
-          type: integer
-          minimum: 0
-          maximum: 100
-          default: 50
-          description: 'Вероятность/интенсивность ведущей роли в процентах. Используется runtime-логикой
-
-            как настройка поведения, а не как гарантированная математическая вероятность.
-
-            '
         role_goals:
           type: array
           maxItems: 2
           description: Локальные цели каждой роли именно в данном состоянии переговоров.
           items:
             $ref: '#/components/schemas/BlockRoleGoal'
-        behavior:
-          type: string
-          maxLength: 10000
-          description: 'Инструкция о характере поведения в блоке. В virtual_partner может использоваться
-
-            при формировании поведения AI-партнёра.
-
-            '
-        action_rules:
+        role_behaviors:
           type: array
-          description: 'Правила реакции блока на семантические действия. Наличие правила означает,
-
-            что действие релевантно данному состоянию и может быть показано frontend как доступная кнопка.
-
-            '
+          maxItems: 2
+          description: Инструкции по поведению каждой роли в этом блоке. В virtual_partner runtime backend передаёт AI только поведение роли партнёра.
           items:
-            $ref: '#/components/schemas/SemanticActionRule'
-        constraints:
-          type: array
-          description: 'Ограничения поведения внутри блока. В отличие от `ScenarioRole.constraints`, это список
-
-            отдельных правил конкретного состояния, как в текущем прототипе конструктора.
-
-            '
-          items:
-            type: string
-            maxLength: 5000
+            $ref: '#/components/schemas/BlockRoleBehavior'
         result:
           allOf:
             - $ref: '#/components/schemas/ScenarioEndResult'
@@ -1145,6 +1113,20 @@ components:
           type: string
           maxLength: 5000
           description: Что эта роль стремится сделать или получить именно в текущем блоке.
+    BlockRoleBehavior:
+      type: object
+      required:
+        - role_id
+        - behavior
+      properties:
+        role_id:
+          type: string
+          format: uuid
+          description: Идентификатор одной из двух ролей сценария.
+        behavior:
+          type: string
+          maxLength: 10000
+          description: Как эта роль должна вести себя именно в текущем блоке.
     SemanticActionRule:
       type: object
       required:

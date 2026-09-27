@@ -22,7 +22,8 @@ CREATE TABLE learning.arena_sessions (
     status TEXT NOT NULL DEFAULT 'waiting_for_participants' CHECK(status IN ('waiting_for_participants','in_progress','completed','cancelled')),
     joined JSONB NOT NULL DEFAULT '[]'::jsonb,
     started_at TIMESTAMPTZ NULL,
-    completed_at TIMESTAMPTZ NULL
+    completed_at TIMESTAMPTZ NULL,
+    completed_by UUID NULL REFERENCES users.users(id)
 );
 
 CREATE TABLE learning.arena_messages (

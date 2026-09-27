@@ -34,6 +34,7 @@ export const generateScenarioContext = (scenarioId, instructions) => request(`/s
 export const generateScenarioDraft = (scenarioId, instructions) => request(`/scenarios/${scenarioId}/ai/generate-draft`, { method: 'POST', data: { instructions } });
 export const generateScenarioBlock = (scenarioId, blockId, instructions) => request(`/scenarios/${scenarioId}/blocks/${blockId}/ai/generate`, { method: 'POST', data: { instructions } });
 export const generateDialogue = (scenarioId, blockId, learner_role_id, instructions) => request(`/scenarios/${scenarioId}/blocks/${blockId}/ai/generate-dialogue`, { method: 'POST', data: { learner_role_id, instructions } });
+export const getAIGenerationRequest = (scenarioId, requestId, signal) => request(`/scenarios/${scenarioId}/ai/requests/${requestId}`, { signal });
 
 export const startTrainingSession = (payload) => request('/training/sessions', { method: 'POST', data: payload });
 export const getTrainingSessions = (signal) => request('/training/sessions', { signal }).then((data) => data.sessions || []);

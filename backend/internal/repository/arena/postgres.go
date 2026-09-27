@@ -146,7 +146,7 @@ func (r *Repository) UpdateJoin(ctx context.Context, sessionID string, joined []
 	return r.GetSession(ctx, pgxconv.UUIDToString(row.ID))
 }
 
-func (r *Repository) CompleteSession(ctx context.Context, sessionID string, assignmentID string) error {
+func (r *Repository) CompleteSession(ctx context.Context, sessionID string, assignmentID string, completedBy string) error {
 	pgSessionID, err := pgxconv.StringToUUID(sessionID)
 	if err != nil {
 		return entity.ErrInvalidRequest
@@ -155,7 +155,14 @@ func (r *Repository) CompleteSession(ctx context.Context, sessionID string, assi
 	if err != nil {
 		return entity.ErrInvalidRequest
 	}
-	if _, err := r.getQueries(ctx).CompleteArenaSession(ctx, pgSessionID); err != nil {
+	pgCompletedBy, err := pgxconv.StringToUUID(completedBy)
+	if err != nil {
+		return entity.ErrInvalidRequest
+	}
+	if _, err := r.getQueries(ctx).CompleteArenaSession(ctx, sqlc.CompleteArenaSessionParams{ID: pgSessionID, CompletedBy: pgCompletedBy}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return entity.ErrInvalidArenaState
+		}
 		return err
 	}
 	return r.getQueries(ctx).CompleteArenaAssignment(ctx, pgAssignmentID)
@@ -317,7 +324,7 @@ func (r *Repository) ListUserHistory(ctx context.Context, userID string, limit, 
 	}
 	items := make([]entity.UserArenaHistoryItem, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, entity.UserArenaHistoryItem{ArenaSessionID: pgxconv.UUIDToString(row.ArenaSessionID), ArenaAssignmentID: pgxconv.UUIDToString(row.ArenaAssignmentID), ScenarioID: pgxconv.UUIDToString(row.ScenarioID), ScenarioTitle: row.ScenarioTitle, ScheduledAt: row.ScheduledAt.Time, StartedAt: pgxconv.TimestamptzToTime(row.StartedAt), CompletedAt: pgxconv.TimestamptzToTime(row.CompletedAt), Status: entity.ArenaSessionStatus(row.Status), HasFeedback: row.HasFeedback})
+		items = append(items, entity.UserArenaHistoryItem{ArenaSessionID: pgxconv.UUIDToString(row.ArenaSessionID), ArenaAssignmentID: pgxconv.UUIDToString(row.ArenaAssignmentID), ScenarioID: pgxconv.UUIDToString(row.ScenarioID), ScenarioTitle: row.ScenarioTitle, ScheduledAt: row.ScheduledAt.Time, StartedAt: pgxconv.TimestamptzToTime(row.StartedAt), CompletedAt: pgxconv.TimestamptzToTime(row.CompletedAt), CompletedBy: pgxconv.PgUUIDtoString(row.CompletedBy), Status: entity.ArenaSessionStatus(row.Status), HasFeedback: row.HasFeedback})
 	}
 	return items, nil
 }
@@ -366,7 +373,7 @@ func sessionFromGet(row sqlc.GetArenaSessionRow) *entity.ArenaSession {
 		}
 		sessionParticipants = append(sessionParticipants, item)
 	}
-	return &entity.ArenaSession{ID: pgxconv.UUIDToString(row.ID), AssignmentID: pgxconv.UUIDToString(row.AssignmentID), ScenarioID: pgxconv.UUIDToString(row.ScenarioID), ScenarioTitle: row.ScenarioTitle, Channel: row.Channel, Status: entity.ArenaSessionStatus(row.Status), ScheduledAt: row.ScheduledAt.Time, Participants: sessionParticipants, Joined: joined, CreatedBy: pgxconv.UUIDToString(row.CreatedBy), StartedAt: pgxconv.TimestamptzToTime(row.StartedAt), CompletedAt: pgxconv.TimestamptzToTime(row.CompletedAt)}
+	return &entity.ArenaSession{ID: pgxconv.UUIDToString(row.ID), AssignmentID: pgxconv.UUIDToString(row.AssignmentID), ScenarioID: pgxconv.UUIDToString(row.ScenarioID), ScenarioTitle: row.ScenarioTitle, Channel: row.Channel, Status: entity.ArenaSessionStatus(row.Status), ScheduledAt: row.ScheduledAt.Time, Participants: sessionParticipants, Joined: joined, CreatedBy: pgxconv.UUIDToString(row.CreatedBy), StartedAt: pgxconv.TimestamptzToTime(row.StartedAt), CompletedAt: pgxconv.TimestamptzToTime(row.CompletedAt), CompletedBy: pgxconv.PgUUIDtoString(row.CompletedBy)}
 }
 
 func messageFromSQL(row sqlc.LearningArenaMessage) *entity.ArenaMessage {

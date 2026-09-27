@@ -17,7 +17,7 @@ type repository interface {
 	CreateSession(ctx context.Context, assignmentID string) (*entity.ArenaSession, error)
 	GetSession(ctx context.Context, id string) (*entity.ArenaSession, error)
 	UpdateJoin(ctx context.Context, sessionID string, joined []entity.ArenaSessionParticipant, status entity.ArenaSessionStatus, startedAt *time.Time) (*entity.ArenaSession, error)
-	CompleteSession(ctx context.Context, sessionID string, assignmentID string) error
+	CompleteSession(ctx context.Context, sessionID string, assignmentID string, completedBy string) error
 	CreateMessage(ctx context.Context, params entity.CreateArenaMessage) (*entity.ArenaMessage, error)
 	ListMessages(ctx context.Context, sessionID, viewerID string) ([]entity.ArenaMessage, error)
 	GetMessage(ctx context.Context, sessionID, messageID string) (*entity.ArenaMessage, error)
@@ -221,7 +221,7 @@ func (s *Service) Complete(ctx context.Context, claims entity.AccessClaims, sess
 	if session.Status != entity.ArenaSessionInProgress {
 		return entity.ErrInvalidArenaState
 	}
-	return s.repository.CompleteSession(ctx, session.ID, session.AssignmentID)
+	return s.repository.CompleteSession(ctx, session.ID, session.AssignmentID, claims.UserID)
 }
 
 func (s *Service) ListFeedback(ctx context.Context, claims entity.AccessClaims, sessionID string) ([]entity.ArenaFeedback, error) {

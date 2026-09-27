@@ -12,7 +12,7 @@ import (
 
 type Querier interface {
 	CompleteArenaAssignment(ctx context.Context, id pgtype.UUID) error
-	CompleteArenaSession(ctx context.Context, id pgtype.UUID) (LearningArenaSession, error)
+	CompleteArenaSession(ctx context.Context, arg CompleteArenaSessionParams) (LearningArenaSession, error)
 	CreateArenaAssignment(ctx context.Context, arg CreateArenaAssignmentParams) (LearningArenaAssignment, error)
 	CreateArenaFeedback(ctx context.Context, arg CreateArenaFeedbackParams) (LearningArenaFeedback, error)
 	CreateArenaMessage(ctx context.Context, arg CreateArenaMessageParams) (LearningArenaMessage, error)

@@ -57,4 +57,5 @@ type LearningArenaSession struct {
 	Joined       []byte             `json:"joined"`
 	StartedAt    pgtype.Timestamptz `json:"started_at"`
 	CompletedAt  pgtype.Timestamptz `json:"completed_at"`
+	CompletedBy  pgtype.UUID        `json:"completed_by"`
 }

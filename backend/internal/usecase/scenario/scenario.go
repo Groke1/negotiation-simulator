@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"encoding/json"
+	"sync"
 
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 )
@@ -38,10 +39,12 @@ type scenarioService struct {
 	userRepository     userRepository
 	transactor         transactor
 	ai                 aiGenerator
+	generationMu       sync.RWMutex
+	generationRequests map[string]*entity.AIGenerationRequest
 }
 
 func NewScenarioService(scenarioRepository scenarioRepository, profileRepository profileRepository, userRepository userRepository, transactor transactor, ai aiGenerator) *scenarioService {
-	return &scenarioService{scenarioRepository: scenarioRepository, profileRepository: profileRepository, userRepository: userRepository, transactor: transactor, ai: ai}
+	return &scenarioService{scenarioRepository: scenarioRepository, profileRepository: profileRepository, userRepository: userRepository, transactor: transactor, ai: ai, generationRequests: map[string]*entity.AIGenerationRequest{}}
 }
 
 func (s *scenarioService) ListCompetencyClusters(ctx context.Context) ([]entity.CompetencyCluster, error) {
@@ -408,10 +411,13 @@ func validateScenario(s *entity.Scenario) (*entity.ScenarioValidation, error) {
 			id := block.ID
 			issues = append(issues, validationIssue("error", "NON_END_BLOCK_RESULT_UNEXPECTED", "Результат переговоров можно задавать только в финальном блоке.", "block", &id))
 		}
-		if !containsString(doc.SupportedRuntimes, "deterministic") || block.Type == "start" || block.Type == "end" {
+		if !containsString(doc.SupportedRuntimes, "deterministic") || block.Type == "start" {
 			continue
 		}
 		if block.DeterministicDialogue == nil || len(block.DeterministicDialogue.Nodes) == 0 {
+			if block.Type == "end" {
+				continue
+			}
 			id := block.ID
 			issues = append(issues, validationIssue("error", "MISSING_DIALOGUE_NODES", "Для детерминированного режима блок должен содержать дерево реплик.", "block", &id))
 			continue

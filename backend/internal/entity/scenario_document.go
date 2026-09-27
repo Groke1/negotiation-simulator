@@ -81,6 +81,7 @@ type ScenarioBlock struct {
 	LeadProbability       int                    `json:"lead_probability"`
 	RoleGoals             []BlockRoleGoal        `json:"role_goals"`
 	Behavior              string                 `json:"behavior"`
+	RoleBehaviors         []BlockRoleBehavior    `json:"role_behaviors"`
 	ActionRules           []SemanticActionRule   `json:"action_rules"`
 	Constraints           []string               `json:"constraints"`
 	Result                *ScenarioEndResult     `json:"result,omitempty"`
@@ -97,6 +98,11 @@ type ScenarioEndResult struct {
 type BlockRoleGoal struct {
 	RoleID string `json:"role_id"`
 	Goal   string `json:"goal"`
+}
+
+type BlockRoleBehavior struct {
+	RoleID   string `json:"role_id"`
+	Behavior string `json:"behavior"`
 }
 
 type SemanticActionRule struct {
@@ -254,6 +260,9 @@ func NormalizeScenarioBlocks(blocks []ScenarioBlock) {
 		}
 		if blocks[i].ActionRules == nil {
 			blocks[i].ActionRules = []SemanticActionRule{}
+		}
+		if blocks[i].RoleBehaviors == nil {
+			blocks[i].RoleBehaviors = []BlockRoleBehavior{}
 		}
 		if blocks[i].Constraints == nil {
 			blocks[i].Constraints = []string{}

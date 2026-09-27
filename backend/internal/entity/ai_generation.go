@@ -1,7 +1,45 @@
 package entity
 
+import (
+	"encoding/json"
+	"time"
+)
+
 type AIGenerationOptions struct {
 	Instructions string
+}
+
+type AIGenerationStatus string
+
+const (
+	AIGenerationStatusPending   AIGenerationStatus = "pending"
+	AIGenerationStatusRunning   AIGenerationStatus = "running"
+	AIGenerationStatusSucceeded AIGenerationStatus = "succeeded"
+	AIGenerationStatusFailed    AIGenerationStatus = "failed"
+)
+
+type AIGenerationKind string
+
+const (
+	AIGenerationKindExpandContext    AIGenerationKind = "expand_context"
+	AIGenerationKindGenerateDraft    AIGenerationKind = "generate_draft"
+	AIGenerationKindGenerateBlock    AIGenerationKind = "generate_block"
+	AIGenerationKindGenerateDialogue AIGenerationKind = "generate_dialogue"
+)
+
+type AIGenerationRequest struct {
+	ID            string             `json:"request_id"`
+	ScenarioID    string             `json:"scenario_id"`
+	UserID        string             `json:"-"`
+	BlockID       string             `json:"block_id,omitempty"`
+	LearnerRoleID string             `json:"learner_role_id,omitempty"`
+	Kind          AIGenerationKind   `json:"kind"`
+	Status        AIGenerationStatus `json:"status"`
+	Result        json.RawMessage    `json:"result,omitempty"`
+	ErrorCode     string             `json:"error_code,omitempty"`
+	ErrorMessage  string             `json:"error_message,omitempty"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
 }
 
 type ScenarioDraftProposal struct {
@@ -17,6 +55,8 @@ type BlockContentProposal struct {
 	LeadProbability int                  `json:"lead_probability"`
 	RoleGoals       []BlockRoleGoal      `json:"role_goals"`
 	Behavior        string               `json:"behavior"`
+	RoleBehaviors   []BlockRoleBehavior  `json:"role_behaviors"`
+	Result          *ScenarioEndResult   `json:"result,omitempty"`
 	ActionRules     []SemanticActionRule `json:"action_rules"`
 	Constraints     []string             `json:"constraints"`
 }

@@ -7,6 +7,7 @@ import {
   getArenaFeedback,
   getArenaHistoryDetail,
   getArenaSession,
+  getOrganizationUsers,
   getSemanticActions
 } from '../../api';
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from '../../components/UI';
@@ -39,6 +40,7 @@ export default function ArenaFeedback() {
   const feedback = useQuery({ queryKey: ['arena-feedback', sessionId], queryFn: ({ signal }) => getArenaFeedback(sessionId, signal) });
   const clusters = useQuery({ queryKey: ['competency-clusters'], queryFn: ({ signal }) => getCompetencyClusters(signal), staleTime: 3600000 });
   const actions = useQuery({ queryKey: ['semantic-actions'], queryFn: ({ signal }) => getSemanticActions(signal), staleTime: 3600000 });
+  const organizationUsers = useQuery({ queryKey: ['organization-users', 'curator-arena'], queryFn: ({ signal }) => getOrganizationUsers({}, signal), staleTime: 5 * 60 * 1000 });
 
   const feedbackByParticipant = useMemo(() => new Map((feedback.data || []).map((item) => [item.participant_id, item])), [feedback.data]);
   const currentFeedback = feedbackByParticipant.get(activeParticipant);
@@ -65,6 +67,7 @@ export default function ArenaFeedback() {
   if (session.isLoading || messages.isLoading || feedback.isLoading || clusters.isLoading || actions.isLoading) return <LoadingState />;
   if (session.error || messages.error || feedback.error || clusters.error || actions.error) return <ErrorState error={session.error || messages.error || feedback.error || clusters.error || actions.error} retry={() => { session.refetch(); messages.refetch(); feedback.refetch(); clusters.refetch(); actions.refetch(); }} />;
   const actionNames = new Map((actions.data || []).map((action) => [action.code, semanticActionLabel(action)]));
+  const participantNames = new Map((organizationUsers.data || []).map((user) => [user.id, user.username || user.name || user.email]));
 
   return (
     <div className="page">
@@ -88,7 +91,7 @@ export default function ArenaFeedback() {
             <div className="chat-stream inline-chat">
               {sortMessagesChronologically(messages.data.messages).map((message) => {
                 return <div key={message.message_id} className="bubble">
-                  <small>{message.sender_id === activeParticipant ? 'Выбранный участник' : 'Другой участник'}</small>
+                  <small>{participantNames.get(message.sender_id) || (message.sender_id === activeParticipant ? 'Участник 1' : 'Участник 2')}</small>
                   <div className="message-content">{messageText(message)}</div>
                   <time className="message-time">{message.created_at ? new Date(message.created_at).toLocaleString('ru-RU') : ''}</time>
                   <ArenaMessageSemanticReport message={message} mine={message.sender_id === activeParticipant} actionNames={actionNames} />
@@ -96,6 +99,7 @@ export default function ArenaFeedback() {
               })}
             </div>
           ) : <EmptyState title="Сообщений нет" />}
+          {session.data?.completed_by && <p className="system-chat-event">Arena завершил {participantNames.get(session.data.completed_by) || (session.data.completed_by === activeParticipant ? 'участник 1' : 'участник 2')}.</p>}
         </section>
 
         <section className="card">
