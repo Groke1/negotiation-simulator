@@ -26,6 +26,7 @@ type Service interface {
 	GetSession(ctx context.Context, claims entity.AccessClaims, sessionID string) (*entity.ArenaSession, error)
 	ListMessages(ctx context.Context, claims entity.AccessClaims, sessionID string) ([]entity.ArenaMessage, error)
 	SendMessage(ctx context.Context, claims entity.AccessClaims, params entity.CreateArenaMessage) (*entity.ArenaMessage, error)
+	ClassifyMessage(ctx context.Context, claims entity.AccessClaims, params entity.ClassifyArenaMessage) (*entity.ArenaMessageClassification, error)
 	Complete(ctx context.Context, claims entity.AccessClaims, sessionID string) error
 	ListFeedback(ctx context.Context, claims entity.AccessClaims, sessionID string) ([]entity.ArenaFeedback, error)
 	CreateFeedback(ctx context.Context, claims entity.AccessClaims, sessionID, participantID, comment string, ratings []entity.ArenaFeedbackRating) (*entity.ArenaFeedback, error)
@@ -53,6 +54,7 @@ func (c *Controller) InitRoutes(r chi.Router) {
 	r.Get("/arena/sessions/{arena_session_id}", c.GetSession)
 	r.Get("/arena/sessions/{arena_session_id}/messages", c.ListMessages)
 	r.Post("/arena/sessions/{arena_session_id}/messages", c.SendMessage)
+	r.Post("/arena/sessions/{arena_session_id}/messages/{message_id}/classification", c.ClassifyMessage)
 	r.Post("/arena/sessions/{arena_session_id}/complete", c.Complete)
 	r.Get("/arena/sessions/{arena_session_id}/feedback", c.ListFeedback)
 	r.Post("/arena/sessions/{arena_session_id}/feedback", c.CreateFeedback)
@@ -178,6 +180,30 @@ func (c *Controller) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkghttpx.WriteJSON(w, http.StatusCreated, msg)
+}
+
+func (c *Controller) ClassifyMessage(w http.ResponseWriter, r *http.Request) {
+	claims, sessionID, ok := claimsAndID(w, r, "arena_session_id")
+	if !ok {
+		return
+	}
+	messageID, err := entity.NormalizeUUID(chi.URLParam(r, "message_id"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	var req classifyMessageRequest
+	if err := pkghttpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	params := entity.ClassifyArenaMessage{SessionID: sessionID, MessageID: messageID, SemanticActionCode: trimOptionalString(req.SemanticActionCode), SemanticAnnotations: req.SemanticAnnotations}
+	classification, err := c.service.ClassifyMessage(r.Context(), claims, params)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, classification)
 }
 
 func (c *Controller) Complete(w http.ResponseWriter, r *http.Request) {
@@ -402,11 +428,11 @@ func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusBadRequest
 	case httpx.ErrCuratorRoleRequired, httpx.ErrArenaAccessDenied, httpx.ErrArenaFeedbackForbidden:
 		status = http.StatusForbidden
-	case httpx.ErrArenaAssignmentNotFound, httpx.ErrArenaSessionNotFound, httpx.ErrScenarioNotFound, httpx.ErrUserNotFound:
+	case httpx.ErrArenaAssignmentNotFound, httpx.ErrArenaSessionNotFound, httpx.ErrArenaMessageNotFound, httpx.ErrScenarioNotFound, httpx.ErrUserNotFound:
 		status = http.StatusNotFound
-	case httpx.ErrArenaJoinNotAllowed, httpx.ErrInvalidArenaState, httpx.ErrArenaFeedbackConflict, httpx.ErrScenarioNotAvailable:
+	case httpx.ErrArenaJoinNotAllowed, httpx.ErrInvalidArenaState, httpx.ErrArenaFeedbackConflict, httpx.ErrScenarioNotAvailable, httpx.ErrMessageAlreadyClassified:
 		status = http.StatusConflict
-	case httpx.ErrArenaFeedbackParticipantInvalid:
+	case httpx.ErrArenaFeedbackParticipantInvalid, httpx.ErrMessageNotClassifiable:
 		status = http.StatusUnprocessableEntity
 	}
 	if status == http.StatusInternalServerError {

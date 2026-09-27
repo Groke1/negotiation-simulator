@@ -68,10 +68,23 @@ VALUES (sqlc.arg(id), sqlc.arg(session_id), sqlc.arg(sender_id), sqlc.arg(conten
 RETURNING *;
 
 -- name: ListArenaMessages :many
+SELECT m.id, m.session_id, m.sender_id, m.content, m.semantic_action_code, m.semantic_annotations, m.created_at,
+       c.classification
+FROM learning.arena_messages m
+LEFT JOIN learning.arena_message_classifications c
+       ON c.message_id = m.id AND c.classifier_id = sqlc.arg(viewer_id)
+WHERE m.session_id = sqlc.arg(session_id)
+ORDER BY m.created_at, m.id;
+
+-- name: GetArenaMessage :one
 SELECT *
 FROM learning.arena_messages
-WHERE session_id = sqlc.arg(session_id)
-ORDER BY created_at, id;
+WHERE id = sqlc.arg(id) AND session_id = sqlc.arg(session_id);
+
+-- name: CreateArenaMessageClassification :one
+INSERT INTO learning.arena_message_classifications (message_id, classifier_id, selected_semantic_action_code, selected_semantic_annotations, classification)
+VALUES (sqlc.arg(message_id), sqlc.arg(classifier_id), sqlc.narg(selected_semantic_action_code), sqlc.narg(selected_semantic_annotations), sqlc.arg(classification))
+RETURNING *;
 
 -- name: CreateArenaFeedback :one
 INSERT INTO learning.arena_feedback (id, session_id, participant_id, curator_id, comment, ratings, profile_change)

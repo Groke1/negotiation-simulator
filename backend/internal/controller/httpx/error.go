@@ -59,6 +59,7 @@ const (
 
 	ErrArenaAssignmentNotFound         ErrorCode = "ARENA_ASSIGNMENT_NOT_FOUND"
 	ErrArenaSessionNotFound            ErrorCode = "ARENA_SESSION_NOT_FOUND"
+	ErrArenaMessageNotFound            ErrorCode = "ARENA_MESSAGE_NOT_FOUND"
 	ErrArenaAccessDenied               ErrorCode = "ARENA_ACCESS_DENIED"
 	ErrArenaJoinNotAllowed             ErrorCode = "ARENA_JOIN_NOT_ALLOWED"
 	ErrInvalidArenaState               ErrorCode = "INVALID_ARENA_STATE"
@@ -169,6 +170,8 @@ func (e ErrorCode) Message() string {
 		return "Arena assignment not found"
 	case ErrArenaSessionNotFound:
 		return "Arena session not found"
+	case ErrArenaMessageNotFound:
+		return "Arena message not found"
 	case ErrArenaAccessDenied:
 		return "Access to this arena is denied"
 	case ErrArenaJoinNotAllowed:
@@ -296,6 +299,8 @@ func ErrorCodeFromError(err error) ErrorCode {
 		return ErrArenaAssignmentNotFound
 	case errors.Is(err, entity.ErrArenaSessionNotFound):
 		return ErrArenaSessionNotFound
+	case errors.Is(err, entity.ErrArenaMessageNotFound):
+		return ErrArenaMessageNotFound
 	case errors.Is(err, entity.ErrArenaAccessDenied):
 		return ErrArenaAccessDenied
 	case errors.Is(err, entity.ErrArenaJoinNotAllowed):

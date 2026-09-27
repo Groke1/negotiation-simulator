@@ -8,7 +8,7 @@ import './user-popover.css';
 const NAV = {
   learner: [['/learner', 'Главная'], ['/learner/training', 'Тренировки'], ['/learner/arenas', 'Арены'], ['/learner/history', 'История'], ['/learner/profile', 'Профиль']],
   methodist: [['/methodist/scenarios', 'Сценарии']],
-  curator: [['/curator/team', 'Команда'], ['/curator/assignments', 'Назначения'], ['/curator/arenas', 'Арены'], ['/curator/history', 'История'], ['/curator/analytics', 'Аналитика']],
+  curator: [['/curator/team', 'Команда'], ['/curator/assignments', 'Назначения'], ['/curator/arenas', 'Арены'], ['/curator/history', 'История']],
 };
 export default function AppShell() {
   const { me, setRole, signOut } = useAuth(); const navigate = useNavigate(); const location = useLocation(); const [open, setOpen] = useState(false); const [userOpen, setUserOpen] = useState(false); const [switching, setSwitching] = useState(false);

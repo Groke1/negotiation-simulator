@@ -80,6 +80,7 @@ type ArenaMessage struct {
 	Content             json.RawMessage `json:"content"`
 	SemanticActionCode  *string         `json:"semantic_action_code,omitempty"`
 	SemanticAnnotations json.RawMessage `json:"semantic_annotations,omitempty"`
+	Classification      json.RawMessage `json:"classification"`
 	CreatedAt           time.Time       `json:"created_at"`
 }
 
@@ -90,6 +91,23 @@ type CreateArenaMessage struct {
 	Content             json.RawMessage
 	SemanticActionCode  *string
 	SemanticAnnotations json.RawMessage
+}
+
+type ClassifyArenaMessage struct {
+	SessionID           string
+	MessageID           string
+	ClassifierID        string
+	SemanticActionCode  *string
+	SemanticAnnotations json.RawMessage
+}
+
+type ArenaMessageClassification struct {
+	MessageID                   string          `json:"message_id"`
+	SelectedSemanticActionCode  *string         `json:"selected_semantic_action_code,omitempty"`
+	ExpectedSemanticActionCode  *string         `json:"expected_semantic_action_code,omitempty"`
+	SelectedSemanticAnnotations json.RawMessage `json:"selected_semantic_annotations,omitempty"`
+	ExpectedSemanticAnnotations json.RawMessage `json:"expected_semantic_annotations,omitempty"`
+	Correct                     bool            `json:"correct"`
 }
 
 type ArenaFeedbackRating struct {

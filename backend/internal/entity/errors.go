@@ -48,6 +48,7 @@ var (
 	ErrAssignmentConflict                = errors.New("assignment conflict")
 	ErrArenaAssignmentNotFound           = errors.New("arena assignment not found")
 	ErrArenaSessionNotFound              = errors.New("arena session not found")
+	ErrArenaMessageNotFound              = errors.New("arena message not found")
 	ErrArenaAccessDenied                 = errors.New("arena access denied")
 	ErrArenaJoinNotAllowed               = errors.New("arena join not allowed")
 	ErrInvalidArenaState                 = errors.New("invalid arena state")

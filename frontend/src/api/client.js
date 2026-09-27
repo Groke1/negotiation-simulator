@@ -12,6 +12,9 @@ const ERROR_MESSAGES = {
   ORGANIZATION_REQUIRED: 'Сначала выберите организацию.',
   ASSIGNMENT_CONFLICT: 'У ученика уже есть активное назначение этого сценария.',
   ARENA_JOIN_NOT_ALLOWED: 'Сейчас к этой Arena нельзя подключиться.',
+  ARENA_MESSAGE_NOT_FOUND: 'Сообщение Arena не найдено.',
+  MESSAGE_ALREADY_CLASSIFIED: 'Эта реплика уже размечена.',
+  MESSAGE_NOT_CLASSIFIABLE: 'Эту реплику нельзя разметить.',
   ARENA_FEEDBACK_CONFLICT: 'Feedback этому участнику уже отправлен.',
   TRAINING_ANALYSIS_NOT_READY: 'Итоговый разбор тренировки ещё готовится.',
 };

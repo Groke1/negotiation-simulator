@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { completeArena, getArenaMessages, getSemanticActions, getToken, joinArena, sendArenaMessage } from '../../api';
+import { classifyArenaMessage, completeArena, getArenaMessages, getSemanticActions, getToken, joinArena, sendArenaMessage } from '../../api';
 import { webSocketUrl } from '../../api/client';
 import { useAuth } from '../../app/AuthContext';
 import { ErrorState, LoadingState, SemanticActionPicker } from '../../components/UI';
@@ -9,6 +9,7 @@ import { createId } from '../../app/id';
 import { sortMessagesChronologically } from '../../app/messages';
 import { semanticActionLabel } from '../../app/presentation';
 import PublicScenarioViewer from '../../components/PublicScenarioViewer';
+import ArenaMessageSemanticReport from '../../components/ArenaMessageSemanticReport';
 
 const mergeMessages = (current, incoming) => sortMessagesChronologically(Array.from(new Map([...current, ...incoming].map((message) => [message.message_id, message])).values()));
 const messageTime = (value) => value ? new Date(value).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -18,12 +19,6 @@ const messageText = (message) => {
   return content.text || content.body || content.transcript || (content.media_id ? 'Голосовое сообщение' : message?.text || '');
 };
 
-function ArenaSemanticLabel({ message, actionNames }) {
-  const codes = [message.semantic_action_code, ...(message.semantic_annotations || []).map((item) => item.semantic_action_code)].filter(Boolean);
-  if (!codes.length) return null;
-  return <div className="message-semantic-report"><span>Семантическая метка:</span><div className="semantic-code-list">{[...new Set(codes)].map((code) => <span key={code}>{actionNames.get(code) || code}</span>)}</div></div>;
-}
-
 export default function ArenaSession() {
   const { assignmentId } = useParams();
   const { me } = useAuth();
@@ -31,6 +26,8 @@ export default function ArenaSession() {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [action, setAction] = useState('');
+  const [partnerAction, setPartnerAction] = useState('');
+  const [classifyingMessageId, setClassifyingMessageId] = useState('');
   const [status, setStatus] = useState('Подключаемся…');
   const [error, setError] = useState('');
   const [finishing, setFinishing] = useState(false);
@@ -41,6 +38,7 @@ export default function ArenaSession() {
   const actions = useQuery({ queryKey: ['semantic-actions'], queryFn: ({ signal }) => getSemanticActions(signal), staleTime: 60 * 60 * 1000 });
   const joined = joining.data;
   const actionNames = useMemo(() => new Map((actions.data || []).map((item) => [item.code, semanticActionLabel(item)])), [actions.data]);
+  const unclassified = messages.filter((message) => message.sender_id !== me?.id && !message.classification).at(-1);
 
   useEffect(() => {
     const stream = streamRef.current;
@@ -103,6 +101,21 @@ export default function ArenaSession() {
     setAction('');
   }
 
+  async function classifyOpponentMessage(message) {
+    if (!message || !partnerAction || !joined?.arena_session_id) return;
+    setClassifyingMessageId(message.message_id);
+    setError('');
+    try {
+      const classification = await classifyArenaMessage(joined.arena_session_id, message.message_id, { semantic_action_code: partnerAction });
+      setMessages((current) => current.map((item) => item.message_id === message.message_id ? { ...item, classification } : item));
+      setPartnerAction('');
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setClassifyingMessageId('');
+    }
+  }
+
   async function finish() {
     if (!joined?.arena_session_id) return;
     setFinishing(true);
@@ -128,9 +141,9 @@ export default function ArenaSession() {
     </header>
     <section className="chat-stream" ref={streamRef}>
       {joined?.preparation && <div className="panel"><strong>{joined.preparation.my_role.name}</strong><p>{joined.preparation.expanded_context}</p></div>}
-      {messages.map((message) => <div className={`bubble ${message.sender_id === me?.id ? 'mine' : ''}`} key={message.message_id}><small>{message.sender_id === me?.id ? 'Вы' : 'Собеседник'}</small><div className="message-content">{messageText(message)}</div><time className="message-time">{messageTime(message.created_at)}</time><ArenaSemanticLabel message={message} actionNames={actionNames} /></div>)}
+      {messages.map((message) => { const mine = message.sender_id === me?.id; const pendingClassification = message.message_id === unclassified?.message_id; const classifying = classifyingMessageId === message.message_id; return <div className={`bubble ${mine ? 'mine' : ''}`} key={message.message_id}><small>{mine ? 'Вы' : 'Собеседник'}</small><div className="message-content">{messageText(message)}</div><time className="message-time">{messageTime(message.created_at)}</time><ArenaMessageSemanticReport message={message} mine={mine} actionNames={actionNames} />{pendingClassification && <div className="opponent-classifier"><p className="opponent-classifier-hint">Определите действие собеседника, чтобы продолжить переговоры.</p><SemanticActionPicker actions={actions.data || []} value={partnerAction} onChange={setPartnerAction} disabled={Boolean(classifyingMessageId)} label="Какое действие совершил собеседник?" /><button type="button" onClick={() => classifyOpponentMessage(message)} disabled={!partnerAction || Boolean(classifyingMessageId)}>{classifying ? 'Проверяем…' : 'Проверить'}</button></div>}</div>; })}
       {error && <p className="error">{error}</p>}
     </section>
-    <footer className="chat-compose"><textarea rows="3" value={text} onChange={(event) => setText(event.target.value)} placeholder="Сообщение партнёру…" /><footer><SemanticActionPicker actions={actions.data} value={action} onChange={setAction} label="Семантическая метка сообщения" /><button type="button" onClick={send} disabled={!text.trim() || !action || (!connected && !joined?.arena_session_id)}>Отправить</button></footer></footer>
+    <footer className="chat-compose">{!unclassified && <><textarea rows="3" value={text} onChange={(event) => setText(event.target.value)} placeholder="Сообщение партнёру…" /><footer><SemanticActionPicker actions={actions.data || []} value={action} onChange={setAction} label="Метка сообщения" /><button type="button" onClick={send} disabled={!text.trim() || !action || (!connected && !joined?.arena_session_id)}>Отправить</button></footer></>}</footer>
   </div>;
 }

@@ -40,6 +40,13 @@ type aiService interface {
 	GenerateJSON(ctx context.Context, role ai.Role, input any, output any, validate func() error) error
 }
 
+const (
+	virtualPartnerPatienceMin       = 0
+	virtualPartnerPatienceThreshold = 100
+	virtualPartnerPatienceDeltaMin  = -5
+	virtualPartnerPatienceDeltaMax  = 40
+)
+
 type Service struct {
 	repository         repository
 	scenarioRepository scenarioRepository
@@ -253,6 +260,10 @@ func (s *Service) SendMessage(ctx context.Context, claims entity.AccessClaims, s
 	if err != nil {
 		return nil, err
 	}
+	nextState.Patience = clampVirtualPartnerPatience(nextState.Patience + runtime.PatienceDelta)
+	if nextState.Patience >= virtualPartnerPatienceThreshold {
+		status = entity.TrainingStatusCompleted
+	}
 	var learner *entity.TrainingMessage
 	var partner *entity.TrainingMessage
 	err = s.transactor.WithTx(ctx, func(txCtx context.Context) error {
@@ -415,6 +426,7 @@ type trainingState struct {
 	TurnNumber    int      `json:"turn_number"`
 	ShortSummary  string   `json:"short_summary"`
 	RevealedFacts []string `json:"revealed_facts"`
+	Patience      int      `json:"patience"`
 }
 
 func initialState(doc entity.ScenarioDocument, mode entity.TrainingMode, learnerRoleID string) trainingState {
@@ -564,10 +576,10 @@ func (s *Service) generateVirtualPartnerRuntime(ctx context.Context, session *en
 		"channel":             session.Channel,
 		"difficulty":          doc.Difficulty,
 		"scenario":            map[string]any{"expanded_context": doc.ExpandedContext},
-		"current_block":       blockForRuntimeAI(current),
+		"current_block":       blockForVirtualPartnerRuntimeAI(doc, current),
 		"partner_role":        privateRoleForRuntimeAI(partnerRole),
 		"learner_role_public": publicRole(learnerRole),
-		"runtime_state":       map[string]any{"turn_number": state.TurnNumber},
+		"runtime_state":       map[string]any{"turn_number": state.TurnNumber, "patience": state.Patience},
 		"history":             historyForRuntimeAI(history, session.Channel, 8),
 		"learner_message":     map[string]any{"text": learnerText},
 		"semantic_actions":    actions,
@@ -585,6 +597,9 @@ func (s *Service) generateVirtualPartnerRuntime(ctx context.Context, session *en
 		}
 		if _, err := normalizePartnerContent(output.Content, session.Channel); err != nil {
 			return err
+		}
+		if output.PatienceDelta < virtualPartnerPatienceDeltaMin || output.PatienceDelta > virtualPartnerPatienceDeltaMax {
+			return entity.ErrAIInvalidStructuredOutput
 		}
 		return validateVirtualPartnerRuntimeTurn(output, current)
 	})
@@ -665,7 +680,7 @@ func (s *Service) assessVirtualPartnerTraining(ctx context.Context, session *ent
 		"difficulty":         doc.Difficulty,
 		"scenario":           scenarioAssessmentInput(doc),
 		"runtime_state":      state,
-		"messages":           messages,
+		"messages":           messagesForAssessmentAI(messages, session.Channel),
 		"target_cluster_ids": doc.TargetClusterIDs,
 		"outcome":            json.RawMessage(outcomeJSON(doc, state)),
 		"language":           "ru",
@@ -874,6 +889,13 @@ func semanticActionAllowed(actions []entity.SemanticActionDefinition, code strin
 		}
 	}
 	return false
+}
+
+func clampVirtualPartnerPatience(value int) int {
+	if value < virtualPartnerPatienceMin {
+		return virtualPartnerPatienceMin
+	}
+	return value
 }
 
 func publicRole(role entity.ScenarioRole) map[string]any {
@@ -1451,6 +1473,15 @@ func blockForRuntimeAI(block entity.ScenarioBlock) map[string]any {
 	}
 }
 
+func blockForVirtualPartnerRuntimeAI(doc entity.ScenarioDocument, block entity.ScenarioBlock) map[string]any {
+	return map[string]any{
+		"name":        block.Name,
+		"description": block.Description,
+		"role_goals":  block.RoleGoals,
+		"transitions": transitionsForRuntimeAI(doc, block),
+	}
+}
+
 func privateRoleForRuntimeAI(role entity.ScenarioRole) map[string]any {
 	return map[string]any{
 		"id":                  role.ID,
@@ -1496,6 +1527,39 @@ func historyForRuntimeAI(messages []entity.TrainingMessage, channel entity.Train
 		items = append(items, item)
 	}
 	return items
+}
+
+func messagesForAssessmentAI(messages []entity.TrainingMessage, channel entity.TrainingChannel) []map[string]any {
+	items := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		item := map[string]any{
+			"message_id":           message.ID,
+			"id":                   message.ID,
+			"session_id":           message.SessionID,
+			"author":               message.Author,
+			"author_label":         assessmentAuthorLabel(message.Author),
+			"content":              message.Content,
+			"text":                 messageText(message.Content, channel),
+			"semantic_action_code": message.SemanticActionCode,
+			"semantic_annotations": message.SemanticAnnotations,
+			"expected_action_code": message.ExpectedActionCode,
+			"classification":       message.Classification,
+			"created_at":           message.CreatedAt,
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func assessmentAuthorLabel(author string) string {
+	switch author {
+	case "learner":
+		return "ученик"
+	case "virtual_partner":
+		return "виртуальный партнёр"
+	default:
+		return author
+	}
 }
 
 func messageText(raw json.RawMessage, channel entity.TrainingChannel) string {

@@ -196,20 +196,68 @@ func (r *Repository) CreateMessage(ctx context.Context, params entity.CreateAren
 	return messageFromSQL(row), nil
 }
 
-func (r *Repository) ListMessages(ctx context.Context, sessionID string) ([]entity.ArenaMessage, error) {
+func (r *Repository) ListMessages(ctx context.Context, sessionID, viewerID string) ([]entity.ArenaMessage, error) {
 	pgID, err := pgxconv.StringToUUID(sessionID)
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}
-	rows, err := r.getQueries(ctx).ListArenaMessages(ctx, pgID)
+	viewer, err := pgxconv.StringToUUID(viewerID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	rows, err := r.getQueries(ctx).ListArenaMessages(ctx, sqlc.ListArenaMessagesParams{SessionID: pgID, ViewerID: viewer})
 	if err != nil {
 		return nil, err
 	}
 	items := make([]entity.ArenaMessage, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, *messageFromSQL(row))
+		items = append(items, *messageFromList(row))
 	}
 	return items, nil
+}
+
+func (r *Repository) GetMessage(ctx context.Context, sessionID, messageID string) (*entity.ArenaMessage, error) {
+	pgSessionID, err := pgxconv.StringToUUID(sessionID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	pgMessageID, err := pgxconv.StringToUUID(messageID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	row, err := r.getQueries(ctx).GetArenaMessage(ctx, sqlc.GetArenaMessageParams{ID: pgMessageID, SessionID: pgSessionID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, entity.ErrArenaMessageNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return messageFromSQL(row), nil
+}
+
+func (r *Repository) CreateMessageClassification(ctx context.Context, params entity.ClassifyArenaMessage, classification json.RawMessage) (*entity.ArenaMessageClassification, error) {
+	messageID, err := pgxconv.StringToUUID(params.MessageID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	classifierID, err := pgxconv.StringToUUID(params.ClassifierID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	row, err := r.getQueries(ctx).CreateArenaMessageClassification(ctx, sqlc.CreateArenaMessageClassificationParams{
+		MessageID:                   messageID,
+		ClassifierID:                classifierID,
+		SelectedSemanticActionCode:  optionalText(params.SemanticActionCode),
+		SelectedSemanticAnnotations: nullableJSON(params.SemanticAnnotations),
+		Classification:              classification,
+	})
+	if err != nil {
+		if pgErr := new(pgconn.PgError); errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, entity.ErrMessageAlreadyClassified
+		}
+		return nil, err
+	}
+	return classificationFromSQL(row), nil
 }
 
 func (r *Repository) CreateFeedback(ctx context.Context, feedback entity.ArenaFeedback) (*entity.ArenaFeedback, error) {
@@ -325,6 +373,19 @@ func messageFromSQL(row sqlc.LearningArenaMessage) *entity.ArenaMessage {
 	return &entity.ArenaMessage{ID: pgxconv.UUIDToString(row.ID), SessionID: pgxconv.UUIDToString(row.SessionID), SenderID: pgxconv.UUIDToString(row.SenderID), Content: row.Content, SemanticActionCode: pgTextToString(row.SemanticActionCode), SemanticAnnotations: row.SemanticAnnotations, CreatedAt: row.CreatedAt.Time}
 }
 
+func messageFromList(row sqlc.ListArenaMessagesRow) *entity.ArenaMessage {
+	return &entity.ArenaMessage{ID: pgxconv.UUIDToString(row.ID), SessionID: pgxconv.UUIDToString(row.SessionID), SenderID: pgxconv.UUIDToString(row.SenderID), Content: row.Content, SemanticActionCode: pgTextToString(row.SemanticActionCode), SemanticAnnotations: row.SemanticAnnotations, Classification: nullableRaw(row.Classification), CreatedAt: row.CreatedAt.Time}
+}
+
+func classificationFromSQL(row sqlc.LearningArenaMessageClassification) *entity.ArenaMessageClassification {
+	classification := entity.ArenaMessageClassification{}
+	_ = json.Unmarshal(row.Classification, &classification)
+	if classification.MessageID == "" {
+		classification.MessageID = pgxconv.UUIDToString(row.MessageID)
+	}
+	return &classification
+}
+
 func feedbackFromSQL(row sqlc.LearningArenaFeedback) *entity.ArenaFeedback {
 	ratings := []entity.ArenaFeedbackRating{}
 	changes := []entity.ProfileClusterChange{}
@@ -339,6 +400,13 @@ func participantFilter(userID string) []byte {
 }
 
 func nullableJSON(value []byte) []byte {
+	if len(value) == 0 || string(value) == "null" {
+		return nil
+	}
+	return value
+}
+
+func nullableRaw(value []byte) json.RawMessage {
 	if len(value) == 0 || string(value) == "null" {
 		return nil
 	}

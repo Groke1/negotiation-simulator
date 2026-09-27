@@ -19,7 +19,9 @@ type repository interface {
 	UpdateJoin(ctx context.Context, sessionID string, joined []entity.ArenaSessionParticipant, status entity.ArenaSessionStatus, startedAt *time.Time) (*entity.ArenaSession, error)
 	CompleteSession(ctx context.Context, sessionID string, assignmentID string) error
 	CreateMessage(ctx context.Context, params entity.CreateArenaMessage) (*entity.ArenaMessage, error)
-	ListMessages(ctx context.Context, sessionID string) ([]entity.ArenaMessage, error)
+	ListMessages(ctx context.Context, sessionID, viewerID string) ([]entity.ArenaMessage, error)
+	GetMessage(ctx context.Context, sessionID, messageID string) (*entity.ArenaMessage, error)
+	CreateMessageClassification(ctx context.Context, params entity.ClassifyArenaMessage, classification json.RawMessage) (*entity.ArenaMessageClassification, error)
 	CreateFeedback(ctx context.Context, feedback entity.ArenaFeedback) (*entity.ArenaFeedback, error)
 	ListFeedback(ctx context.Context, sessionID string) ([]entity.ArenaFeedback, error)
 	ListUserHistory(ctx context.Context, userID string, limit, offset int32) ([]entity.UserArenaHistoryItem, error)
@@ -161,7 +163,7 @@ func (s *Service) ListMessages(ctx context.Context, claims entity.AccessClaims, 
 	if _, err := s.getSessionForAccess(ctx, claims, sessionID); err != nil {
 		return nil, err
 	}
-	return s.repository.ListMessages(ctx, sessionID)
+	return s.repository.ListMessages(ctx, sessionID, claims.UserID)
 }
 
 func (s *Service) SendMessage(ctx context.Context, claims entity.AccessClaims, params entity.CreateArenaMessage) (*entity.ArenaMessage, error) {
@@ -183,6 +185,32 @@ func (s *Service) SendMessage(ctx context.Context, claims entity.AccessClaims, p
 	}
 	params.SenderID = claims.UserID
 	return s.repository.CreateMessage(ctx, params)
+}
+
+func (s *Service) ClassifyMessage(ctx context.Context, claims entity.AccessClaims, params entity.ClassifyArenaMessage) (*entity.ArenaMessageClassification, error) {
+	session, err := s.getSessionForAccess(ctx, claims, params.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if sessionParticipantRole(session.Participants, claims.UserID) == "" {
+		return nil, entity.ErrArenaAccessDenied
+	}
+	msg, err := s.repository.GetMessage(ctx, session.ID, params.MessageID)
+	if err != nil {
+		return nil, err
+	}
+	if msg.SenderID == claims.UserID {
+		return nil, entity.ErrMessageNotClassifiable
+	}
+	if !semanticMarkingMatchesArenaChannel(params.SemanticActionCode, params.SemanticAnnotations, session.Channel) {
+		return nil, entity.ErrInvalidRequest
+	}
+	if !arenaMessageHasExpectedMarking(msg, session.Channel) {
+		return nil, entity.ErrMessageNotClassifiable
+	}
+	params.ClassifierID = claims.UserID
+	raw := arenaClassificationJSON(params, *msg, session.Channel)
+	return s.repository.CreateMessageClassification(ctx, params, raw)
 }
 
 func (s *Service) Complete(ctx context.Context, claims entity.AccessClaims, sessionID string) error {
@@ -268,7 +296,7 @@ func (s *Service) UserHistoryDetails(ctx context.Context, claims entity.AccessCl
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	messages, err := s.repository.ListMessages(ctx, sessionID)
+	messages, err := s.repository.ListMessages(ctx, sessionID, userID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -357,6 +385,47 @@ func semanticMarkingMatchesArenaChannel(code *string, annotations json.RawMessag
 	default:
 		return false
 	}
+}
+
+func arenaMessageHasExpectedMarking(message *entity.ArenaMessage, channel string) bool {
+	return semanticMarkingMatchesArenaChannel(message.SemanticActionCode, message.SemanticAnnotations, channel)
+}
+
+func arenaClassificationJSON(params entity.ClassifyArenaMessage, message entity.ArenaMessage, channel string) json.RawMessage {
+	correct := false
+	switch channel {
+	case "chat", "voice_message":
+		correct = params.SemanticActionCode != nil && message.SemanticActionCode != nil && strings.TrimSpace(*params.SemanticActionCode) == strings.TrimSpace(*message.SemanticActionCode)
+	case "email":
+		correct = equalJSON(params.SemanticAnnotations, message.SemanticAnnotations)
+	}
+	raw, _ := json.Marshal(entity.ArenaMessageClassification{
+		MessageID:                   message.ID,
+		SelectedSemanticActionCode:  params.SemanticActionCode,
+		ExpectedSemanticActionCode:  message.SemanticActionCode,
+		SelectedSemanticAnnotations: nullableRaw(params.SemanticAnnotations),
+		ExpectedSemanticAnnotations: nullableRaw(message.SemanticAnnotations),
+		Correct:                     correct,
+	})
+	return raw
+}
+
+func equalJSON(left, right json.RawMessage) bool {
+	var l any
+	var r any
+	if json.Unmarshal(left, &l) != nil || json.Unmarshal(right, &r) != nil {
+		return false
+	}
+	lraw, _ := json.Marshal(l)
+	rraw, _ := json.Marshal(r)
+	return string(lraw) == string(rraw)
+}
+
+func nullableRaw(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	return raw
 }
 
 func requireCurator(claims entity.AccessClaims) error {

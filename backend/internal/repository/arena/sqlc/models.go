@@ -41,6 +41,15 @@ type LearningArenaMessage struct {
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 }
 
+type LearningArenaMessageClassification struct {
+	MessageID                   pgtype.UUID        `json:"message_id"`
+	ClassifierID                pgtype.UUID        `json:"classifier_id"`
+	SelectedSemanticActionCode  pgtype.Text        `json:"selected_semantic_action_code"`
+	SelectedSemanticAnnotations []byte             `json:"selected_semantic_annotations"`
+	Classification              []byte             `json:"classification"`
+	CreatedAt                   pgtype.Timestamptz `json:"created_at"`
+}
+
 type LearningArenaSession struct {
 	ID           pgtype.UUID        `json:"id"`
 	AssignmentID pgtype.UUID        `json:"assignment_id"`

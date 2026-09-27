@@ -159,6 +159,40 @@ func (q *Queries) CreateArenaMessage(ctx context.Context, arg CreateArenaMessage
 	return i, err
 }
 
+const createArenaMessageClassification = `-- name: CreateArenaMessageClassification :one
+INSERT INTO learning.arena_message_classifications (message_id, classifier_id, selected_semantic_action_code, selected_semantic_annotations, classification)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING message_id, classifier_id, selected_semantic_action_code, selected_semantic_annotations, classification, created_at
+`
+
+type CreateArenaMessageClassificationParams struct {
+	MessageID                   pgtype.UUID `json:"message_id"`
+	ClassifierID                pgtype.UUID `json:"classifier_id"`
+	SelectedSemanticActionCode  pgtype.Text `json:"selected_semantic_action_code"`
+	SelectedSemanticAnnotations []byte      `json:"selected_semantic_annotations"`
+	Classification              []byte      `json:"classification"`
+}
+
+func (q *Queries) CreateArenaMessageClassification(ctx context.Context, arg CreateArenaMessageClassificationParams) (LearningArenaMessageClassification, error) {
+	row := q.db.QueryRow(ctx, createArenaMessageClassification,
+		arg.MessageID,
+		arg.ClassifierID,
+		arg.SelectedSemanticActionCode,
+		arg.SelectedSemanticAnnotations,
+		arg.Classification,
+	)
+	var i LearningArenaMessageClassification
+	err := row.Scan(
+		&i.MessageID,
+		&i.ClassifierID,
+		&i.SelectedSemanticActionCode,
+		&i.SelectedSemanticAnnotations,
+		&i.Classification,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createArenaSession = `-- name: CreateArenaSession :one
 INSERT INTO learning.arena_sessions (id, assignment_id)
 VALUES ($1, $2)
@@ -219,6 +253,32 @@ func (q *Queries) GetArenaAssignment(ctx context.Context, id pgtype.UUID) (GetAr
 		&i.SessionID,
 		&i.CreatedAt,
 		&i.ScenarioTitle,
+	)
+	return i, err
+}
+
+const getArenaMessage = `-- name: GetArenaMessage :one
+SELECT id, session_id, sender_id, content, semantic_action_code, semantic_annotations, created_at
+FROM learning.arena_messages
+WHERE id = $1 AND session_id = $2
+`
+
+type GetArenaMessageParams struct {
+	ID        pgtype.UUID `json:"id"`
+	SessionID pgtype.UUID `json:"session_id"`
+}
+
+func (q *Queries) GetArenaMessage(ctx context.Context, arg GetArenaMessageParams) (LearningArenaMessage, error) {
+	row := q.db.QueryRow(ctx, getArenaMessage, arg.ID, arg.SessionID)
+	var i LearningArenaMessage
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.SenderID,
+		&i.Content,
+		&i.SemanticActionCode,
+		&i.SemanticAnnotations,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -363,21 +423,40 @@ func (q *Queries) ListArenaFeedback(ctx context.Context, sessionID pgtype.UUID) 
 }
 
 const listArenaMessages = `-- name: ListArenaMessages :many
-SELECT id, session_id, sender_id, content, semantic_action_code, semantic_annotations, created_at
-FROM learning.arena_messages
-WHERE session_id = $1
-ORDER BY created_at, id
+SELECT m.id, m.session_id, m.sender_id, m.content, m.semantic_action_code, m.semantic_annotations, m.created_at,
+       c.classification
+FROM learning.arena_messages m
+LEFT JOIN learning.arena_message_classifications c
+       ON c.message_id = m.id AND c.classifier_id = $1
+WHERE m.session_id = $2
+ORDER BY m.created_at, m.id
 `
 
-func (q *Queries) ListArenaMessages(ctx context.Context, sessionID pgtype.UUID) ([]LearningArenaMessage, error) {
-	rows, err := q.db.Query(ctx, listArenaMessages, sessionID)
+type ListArenaMessagesParams struct {
+	ViewerID  pgtype.UUID `json:"viewer_id"`
+	SessionID pgtype.UUID `json:"session_id"`
+}
+
+type ListArenaMessagesRow struct {
+	ID                  pgtype.UUID        `json:"id"`
+	SessionID           pgtype.UUID        `json:"session_id"`
+	SenderID            pgtype.UUID        `json:"sender_id"`
+	Content             []byte             `json:"content"`
+	SemanticActionCode  pgtype.Text        `json:"semantic_action_code"`
+	SemanticAnnotations []byte             `json:"semantic_annotations"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	Classification      []byte             `json:"classification"`
+}
+
+func (q *Queries) ListArenaMessages(ctx context.Context, arg ListArenaMessagesParams) ([]ListArenaMessagesRow, error) {
+	rows, err := q.db.Query(ctx, listArenaMessages, arg.ViewerID, arg.SessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []LearningArenaMessage
+	var items []ListArenaMessagesRow
 	for rows.Next() {
-		var i LearningArenaMessage
+		var i ListArenaMessagesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.SessionID,
@@ -386,6 +465,7 @@ func (q *Queries) ListArenaMessages(ctx context.Context, sessionID pgtype.UUID) 
 			&i.SemanticActionCode,
 			&i.SemanticAnnotations,
 			&i.CreatedAt,
+			&i.Classification,
 		); err != nil {
 			return nil, err
 		}

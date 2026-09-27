@@ -58,6 +58,7 @@ type VirtualPartnerRuntimeTurn struct {
 	Content                   map[string]any `json:"content"`
 	Decision                  string         `json:"decision"`
 	TransitionID              *string        `json:"transition_id"`
+	PatienceDelta             int            `json:"patience_delta"`
 }
 
 type TrainingStateEvaluation struct {

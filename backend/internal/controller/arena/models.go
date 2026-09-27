@@ -73,6 +73,11 @@ type sendMessageRequest struct {
 	SemanticAnnotations json.RawMessage `json:"semantic_annotations"`
 }
 
+type classifyMessageRequest struct {
+	SemanticActionCode  *string         `json:"semantic_action_code"`
+	SemanticAnnotations json.RawMessage `json:"semantic_annotations"`
+}
+
 type feedbackRequest struct {
 	ParticipantID string                       `json:"participant_id"`
 	Comment       string                       `json:"comment"`

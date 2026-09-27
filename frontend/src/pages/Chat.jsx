@@ -10,18 +10,19 @@ import PublicScenarioViewer from '../components/PublicScenarioViewer';
 
 const contentText = (message) => message?.content?.text || message?.content?.body || message?.content?.transcript || (message?.content?.media_id ? 'Голосовое сообщение' : '');
 const time = (value) => value ? new Date(value).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+const mergeMessages = (current = [], incoming = []) => sortMessagesChronologically(Array.from(new Map([...current, ...incoming].filter(Boolean).map((message) => [message.message_id, message])).values()));
 
 export default function Chat() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const client = useQueryClient();
   const streamRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
   const [text, setText] = useState('');
   const [action, setAction] = useState('');
   const [partnerAction, setPartnerAction] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [typing, setTyping] = useState(false);
+  const [optimisticMessages, setOptimisticMessages] = useState([]);
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState('');
   const sessionQuery = useQuery({ queryKey: ['training-session', sessionId], queryFn: ({ signal }) => getTrainingSession(sessionId, signal) });
@@ -30,7 +31,7 @@ export default function Chat() {
   const actions = actionsQuery.data;
   const availableActions = actions || [];
   const actionNames = useMemo(() => new Map((actions || []).map((item) => [item.code, semanticActionLabel(item)])), [actions]);
-  const orderedMessages = useMemo(() => sortMessagesChronologically(session?.messages), [session?.messages]);
+  const orderedMessages = useMemo(() => mergeMessages(session?.messages, optimisticMessages), [session?.messages, optimisticMessages]);
   const deterministic = session?.mode === 'deterministic';
   const canClassifyPartner = session?.mode === 'virtual_partner';
   const unclassified = canClassifyPartner ? orderedMessages.filter((message) => message.author === 'virtual_partner' && !message.classification).at(-1) : null;
@@ -42,8 +43,6 @@ export default function Chat() {
     const stream = streamRef.current;
     if (stream) stream.scrollTop = stream.scrollHeight;
   }, [orderedMessages.length, currentIncoming?.message_id]);
-
-  useEffect(() => () => window.clearTimeout(typingTimeoutRef.current), []);
 
   async function refresh() { await client.invalidateQueries({ queryKey: ['training-session', sessionId] }); }
   async function submitPartnerClassification() {
@@ -63,23 +62,30 @@ export default function Chat() {
   }
   async function send() {
     if (!text.trim() || !action) return;
+    const messageId = createId();
+    const messageText = text.trim();
+    const selectedAction = action;
+    const optimisticMessage = { message_id: messageId, author: 'learner', content: { type: 'chat', text: messageText }, semantic_action_code: selectedAction, created_at: new Date().toISOString(), pending: true };
     setSubmitting(true);
     setError('');
-    if (session?.mode === 'virtual_partner') setTyping(true);
+    setOptimisticMessages((current) => mergeMessages(current, [optimisticMessage]));
+    setText('');
+    setAction('');
+    setTyping(true);
     try {
-      const result = await sendTrainingMessage(sessionId, { message_id: createId(), content: { type: 'chat', text: text.trim() }, semantic_action_code: action });
-      setText('');
-      setAction('');
+      const result = await sendTrainingMessage(sessionId, { message_id: messageId, content: { type: 'chat', text: messageText }, semantic_action_code: selectedAction });
+      setOptimisticMessages((current) => current.filter((message) => message.message_id !== messageId));
+      client.setQueryData(['training-session', sessionId], (current) => current ? { ...current, status: result.status || current.status, is_end: result.is_end ?? current.is_end, messages: mergeMessages(current.messages, [result.learner_message, result.partner_message]) } : current);
       if (result.is_end) navigate(`/learner/training/${sessionId}/analysis`);
       else await refresh();
     } catch (requestError) {
+      setOptimisticMessages((current) => current.filter((message) => message.message_id !== messageId));
+      setText(messageText);
+      setAction(selectedAction);
       setError(requestError.message);
     } finally {
       setSubmitting(false);
-      if (session?.mode === 'virtual_partner') {
-        window.clearTimeout(typingTimeoutRef.current);
-        typingTimeoutRef.current = window.setTimeout(() => setTyping(false), 700);
-      }
+      setTyping(false);
     }
   }
   async function chooseDeterministic(option) {
@@ -106,7 +112,7 @@ export default function Chat() {
   return <div className="chat-layout">
     <header className="chat-top"><div><span className="eyebrow">Тренировка · {runtimeLabel(session.mode)}</span><h2>{session.preparation?.title || session.scenario_title}</h2><p>{session.current_block ? `Текущее состояние: ${session.current_block.name}` : session.preparation?.partner_role?.name || 'Собеседник'}</p></div><PublicScenarioViewer scenario={session.scenario} preparation={session.preparation} currentBlock={session.current_block} /></header>
     <section className="chat-stream" ref={streamRef}>
-      {orderedMessages.map((message) => <div key={message.message_id} className={`bubble ${message.author === 'learner' ? 'mine' : ''}`}><small>{message.author === 'learner' ? 'Вы' : 'Собеседник'}</small>{contentText(message)}<time className="message-time">{time(message.created_at)}</time>{message.author === 'learner' && message.semantic_action_code && <div className="message-semantic-report"><span>Выбранная метка:</span><strong>{actionNames.get(message.semantic_action_code) || message.semantic_action_code}</strong></div>}{message.classification && <div className="message-semantic-report partner-classification-result"><p><span>Ваш вариант:</span> <strong>{actionNames.get(message.classification.selected_semantic_action_code) || message.classification.selected_semantic_action_code}</strong></p><p className={message.classification.correct ? 'feedback good' : 'feedback bad'}>{message.classification.correct ? '✓ Действие распознано верно' : <>Не совпало. Правильная метка: <strong>{actionNames.get(message.classification.expected_semantic_action_code) || message.classification.expected_semantic_action_code}</strong></>}</p></div>}{message.message_id === unclassified?.message_id && <div className="opponent-classifier"><p className="opponent-classifier-hint">Определите действие собеседника, чтобы продолжить тренировку.</p><SemanticActionPicker actions={availableActions} value={partnerAction} onChange={setPartnerAction} disabled={submitting} result={feedback?.messageId === message.message_id ? feedback : null} label="Какое действие совершил собеседник?" /><button type="button" onClick={submitPartnerClassification} disabled={!partnerAction || submitting}>{submitting ? 'Проверяем…' : 'Проверить'}</button></div>}</div>)}
+      {orderedMessages.map((message) => <div key={message.message_id} className={`bubble ${message.author === 'learner' ? 'mine' : ''} ${message.pending ? 'pending' : ''}`}><small>{message.author === 'learner' ? 'Вы' : 'Собеседник'}</small>{contentText(message)}<time className="message-time">{time(message.created_at)}</time>{message.author === 'learner' && message.semantic_action_code && <div className="message-semantic-report"><span>Метка сообщения:</span><strong>{actionNames.get(message.semantic_action_code) || message.semantic_action_code}</strong></div>}{message.classification && <div className="message-semantic-report partner-classification-result"><p><span>Ваш вариант:</span> <strong>{actionNames.get(message.classification.selected_semantic_action_code) || message.classification.selected_semantic_action_code}</strong></p><p className={message.classification.correct ? 'feedback good' : 'feedback bad'}>{message.classification.correct ? '✓ Действие распознано верно' : <>Не совпало. Правильная метка: <strong>{actionNames.get(message.classification.expected_semantic_action_code) || message.classification.expected_semantic_action_code}</strong></>}</p></div>}{message.message_id === unclassified?.message_id && <div className="opponent-classifier"><p className="opponent-classifier-hint">Определите действие собеседника, чтобы продолжить тренировку.</p><SemanticActionPicker actions={availableActions} value={partnerAction} onChange={setPartnerAction} disabled={submitting} result={feedback?.messageId === message.message_id ? feedback : null} label="Какое действие совершил собеседник?" /><button type="button" onClick={submitPartnerClassification} disabled={!partnerAction || submitting}>{submitting ? 'Проверяем…' : 'Проверить'}</button></div>}</div>)}
       {deterministic && currentIncoming && !currentIncomingInHistory && <div className="bubble"><small>Собеседник</small>{currentIncoming.text}</div>}
       {!deterministic && typing && <div className="bubble typing-bubble" aria-live="polite"><small>Собеседник</small><span>печатает<span className="typing-dots">…</span></span></div>}
       {error && <p className="error">{error}</p>}

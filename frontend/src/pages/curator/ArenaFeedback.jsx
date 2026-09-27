@@ -5,7 +5,7 @@ import {
   createArenaFeedback,
   getCompetencyClusters,
   getArenaFeedback,
-  getArenaMessages,
+  getArenaHistoryDetail,
   getArenaSession,
   getSemanticActions
 } from '../../api';
@@ -14,6 +14,7 @@ import { formatDelta, formatNumber } from '../../app/format';
 import { sortMessagesChronologically } from '../../app/messages';
 import { semanticActionLabel } from '../../app/presentation';
 import PublicScenarioViewer from '../../components/PublicScenarioViewer';
+import ArenaMessageSemanticReport from '../../components/ArenaMessageSemanticReport';
 
 const messageText = (message) => {
   const content = message?.content || {};
@@ -32,13 +33,13 @@ export default function ArenaFeedback() {
   const [ratings, setRatings] = useState([]);
 
   const session = useQuery({ queryKey: ['arena-session', sessionId], queryFn: ({ signal }) => getArenaSession(sessionId, signal) });
-  const messages = useQuery({ queryKey: ['arena-messages', sessionId], queryFn: ({ signal }) => getArenaMessages(sessionId, signal) });
+  const participants = session.data?.participants || [];
+  const activeParticipant = selectedParticipant || participants[0]?.user_id || '';
+  const messages = useQuery({ queryKey: ['arena-participant-history', sessionId, activeParticipant], queryFn: ({ signal }) => getArenaHistoryDetail(activeParticipant, sessionId, signal), enabled: Boolean(activeParticipant) });
   const feedback = useQuery({ queryKey: ['arena-feedback', sessionId], queryFn: ({ signal }) => getArenaFeedback(sessionId, signal) });
   const clusters = useQuery({ queryKey: ['competency-clusters'], queryFn: ({ signal }) => getCompetencyClusters(signal), staleTime: 3600000 });
   const actions = useQuery({ queryKey: ['semantic-actions'], queryFn: ({ signal }) => getSemanticActions(signal), staleTime: 3600000 });
 
-  const participants = session.data?.participants || [];
-  const activeParticipant = selectedParticipant || participants[0]?.user_id || '';
   const feedbackByParticipant = useMemo(() => new Map((feedback.data || []).map((item) => [item.participant_id, item])), [feedback.data]);
   const currentFeedback = feedbackByParticipant.get(activeParticipant);
 
@@ -83,15 +84,14 @@ export default function ArenaFeedback() {
         <section className="card">
           <h2>Диалог</h2>
           <StatusBadge value={session.data?.status} />
-          {messages.data.length ? (
+          {messages.data?.messages?.length ? (
             <div className="chat-stream inline-chat">
-              {sortMessagesChronologically(messages.data).map((message) => {
-                const codes = [message.semantic_action_code, ...(message.semantic_annotations || []).map((item) => item.semantic_action_code)].filter(Boolean);
+              {sortMessagesChronologically(messages.data.messages).map((message) => {
                 return <div key={message.message_id} className="bubble">
                   <small>{message.sender_id === activeParticipant ? 'Выбранный участник' : 'Другой участник'}</small>
                   <div className="message-content">{messageText(message)}</div>
                   <time className="message-time">{message.created_at ? new Date(message.created_at).toLocaleString('ru-RU') : ''}</time>
-                  {codes.length ? <div className="message-semantic-report"><span>Семантическая метка:</span><div className="semantic-code-list">{[...new Set(codes)].map((code) => <span key={code}>{actionNames.get(code) || code}</span>)}</div></div> : null}
+                  <ArenaMessageSemanticReport message={message} mine={message.sender_id === activeParticipant} actionNames={actionNames} />
                 </div>;
               })}
             </div>

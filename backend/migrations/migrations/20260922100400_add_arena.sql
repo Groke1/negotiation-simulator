@@ -37,6 +37,18 @@ CREATE TABLE learning.arena_messages (
 
 CREATE INDEX idx_arena_messages_session_created ON learning.arena_messages(session_id, created_at);
 
+CREATE TABLE learning.arena_message_classifications (
+    message_id UUID NOT NULL REFERENCES learning.arena_messages(id) ON DELETE CASCADE,
+    classifier_id UUID NOT NULL REFERENCES users.users(id),
+    selected_semantic_action_code TEXT NULL,
+    selected_semantic_annotations JSONB NULL,
+    classification JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (message_id, classifier_id)
+);
+
+CREATE INDEX idx_arena_message_classifications_classifier ON learning.arena_message_classifications(classifier_id, created_at DESC);
+
 CREATE TABLE learning.arena_feedback (
     id UUID PRIMARY KEY,
     session_id UUID NOT NULL REFERENCES learning.arena_sessions(id),
@@ -63,6 +75,8 @@ ALTER TABLE learning.arena_assignments
 ALTER TABLE learning.arena_assignments DROP CONSTRAINT IF EXISTS fk_arena_assignments_session;
 DROP INDEX IF EXISTS learning.idx_arena_feedback_session;
 DROP TABLE IF EXISTS learning.arena_feedback;
+DROP INDEX IF EXISTS learning.idx_arena_message_classifications_classifier;
+DROP TABLE IF EXISTS learning.arena_message_classifications;
 DROP INDEX IF EXISTS learning.idx_arena_messages_session_created;
 DROP TABLE IF EXISTS learning.arena_messages;
 DROP TABLE IF EXISTS learning.arena_sessions;

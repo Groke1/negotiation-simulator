@@ -277,6 +277,56 @@ paths:
           $ref: '#/components/responses/InvalidArenaState'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /arena/sessions/{arena_session_id}/messages/{message_id}/classification:
+    parameters:
+      - $ref: '#/components/parameters/ArenaSessionId'
+      - name: message_id
+        in: path
+        required: true
+        description: UUID сообщения Arena, которое размечает текущий пользователь.
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags:
+        - Arena Sessions
+      summary: Разметить сообщение оппонента semantic-меткой
+      description: 'Участник Arena может разметить сообщение оппонента. Для chat/voice_message
+        передаётся semantic_action_code; для email — semantic_annotations. В истории сообщений
+        backend возвращает classification текущего пользователя: выбранную метку, ожидаемую
+        метку отправителя и correct=true/false.
+
+        '
+      operationId: classifyArenaMessage
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArenaMessageClassificationRequest'
+      responses:
+        '200':
+          description: Сообщение размечено текущим пользователем.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaMessageClassification'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ArenaAccessDenied'
+        '404':
+          $ref: '#/components/responses/ArenaMessageNotFound'
+        '409':
+          $ref: '#/components/responses/MessageAlreadyClassified'
+        '422':
+          $ref: '#/components/responses/MessageNotClassifiable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /arena/sessions/{arena_session_id}/complete:
     parameters:
       - $ref: '#/components/parameters/ArenaSessionId'
@@ -1028,6 +1078,41 @@ components:
           description: Обязателен для email; разметка фрагментов body.
           items:
             $ref: '#/components/schemas/ArenaSemanticAnnotation'
+    ArenaMessageClassificationRequest:
+      type: object
+      properties:
+        semantic_action_code:
+          type: string
+          description: Выбранная текущим пользователем semantic action для chat/voice_message сообщения оппонента.
+        semantic_annotations:
+          type: array
+          description: Выбранная текущим пользователем разметка email body сообщения оппонента.
+          items:
+            $ref: '#/components/schemas/ArenaSemanticAnnotation'
+    ArenaMessageClassification:
+      type: object
+      required:
+        - message_id
+        - correct
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        selected_semantic_action_code:
+          type: string
+        expected_semantic_action_code:
+          type: string
+        selected_semantic_annotations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaSemanticAnnotation'
+        expected_semantic_annotations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaSemanticAnnotation'
+        correct:
+          type: boolean
+          description: true, если выбранная текущим пользователем разметка совпала с разметкой отправителя сообщения.
     ArenaMessage:
       type: object
       required:
@@ -1053,6 +1138,11 @@ components:
           description: Разметки body для email-сообщения.
           items:
             $ref: '#/components/schemas/ArenaSemanticAnnotation'
+        classification:
+          oneOf:
+            - $ref: '#/components/schemas/ArenaMessageClassification'
+            - type: 'null'
+          description: Результат уже выполненной текущим пользователем разметки сообщения оппонента.
         created_at:
           type: string
           format: date-time
@@ -1490,6 +1580,48 @@ components:
             message:
               type: string
               const: Participant does not belong to this arena session
+    ArenaMessageNotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: ARENA_MESSAGE_NOT_FOUND
+            message:
+              type: string
+              const: Arena message not found
+    MessageAlreadyClassifiedError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: MESSAGE_ALREADY_CLASSIFIED
+            message:
+              type: string
+              const: Message is already classified
+    MessageNotClassifiableError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: MESSAGE_NOT_CLASSIFIABLE
+            message:
+              type: string
+              const: Message cannot be classified
     InternalServerErrorBody:
       allOf:
         - $ref: '#/components/schemas/ErrorResponse'
@@ -1553,6 +1685,24 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/UserNotFoundError'
+    ArenaMessageNotFound:
+      description: Сообщение Arena не найдено.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ArenaMessageNotFoundError'
+    MessageAlreadyClassified:
+      description: Текущий пользователь уже разметил это сообщение.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageAlreadyClassifiedError'
+    MessageNotClassifiable:
+      description: Сообщение нельзя разметить.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageNotClassifiableError'
     InternalServerError:
       description: Внутренняя ошибка сервера.
       content:

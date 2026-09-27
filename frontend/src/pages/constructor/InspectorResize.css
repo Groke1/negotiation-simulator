@@ -1,0 +1,4 @@
+.inspector-resize-ready,
+.inspector-resize-ready * {
+  cursor: col-resize !important;
+}
