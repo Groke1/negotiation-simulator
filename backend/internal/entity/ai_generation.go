@@ -70,6 +70,9 @@ type TrainingStateEvaluation struct {
 
 type TrainingAssessment struct {
 	Process            []TrainingProcessAssessment `json:"process"`
+	Timeline           []TrainingTimelineItem      `json:"timeline"`
+	MessageFeedback    []TrainingMessageFeedback   `json:"message_feedback"`
+	Highlights         TrainingHighlights          `json:"highlights"`
 	Strengths          []TrainingAnalysisNote      `json:"strengths"`
 	Improvements       []TrainingAnalysisNote      `json:"improvements"`
 	ClusterAssessments []TrainingClusterAssessment `json:"cluster_assessments"`
@@ -86,15 +89,55 @@ type TrainingAnalysisNote struct {
 	Description string `json:"description"`
 }
 
+type TrainingTimelineItem struct {
+	Order               int      `json:"order"`
+	BlockID             string   `json:"block_id"`
+	BlockName           string   `json:"block_name"`
+	TransitionID        *string  `json:"transition_id"`
+	FromBlockID         string   `json:"from_block_id"`
+	ToBlockID           string   `json:"to_block_id"`
+	MessageIDs          []string `json:"message_ids"`
+	Summary             string   `json:"summary"`
+	Outcome             string   `json:"outcome"`
+	SemanticActionCodes []string `json:"semantic_action_codes"`
+}
+
+type TrainingMessageFeedback struct {
+	MessageID          string   `json:"message_id"`
+	BlockID            string   `json:"block_id"`
+	SemanticActionCode string   `json:"semantic_action_code"`
+	Score              int      `json:"score"`
+	Level              string   `json:"level"`
+	Summary            string   `json:"summary"`
+	Strengths          []string `json:"strengths"`
+	Improvements       []string `json:"improvements"`
+	RelatedClusterIDs  []string `json:"related_cluster_ids"`
+}
+
+type TrainingHighlights struct {
+	Strengths    []TrainingHighlight `json:"strengths"`
+	Improvements []TrainingHighlight `json:"improvements"`
+}
+
+type TrainingHighlight struct {
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	MessageIDs  []string `json:"message_ids"`
+	ClusterIDs  []string `json:"cluster_ids"`
+}
+
 type TrainingClusterAssessment struct {
 	ClusterID        string                    `json:"cluster_id"`
 	Status           string                    `json:"status"`
 	Level            int                       `json:"level"`
 	EvidenceEpisodes []TrainingEvidenceEpisode `json:"evidence_episodes"`
+	Summary          string                    `json:"summary"`
 	Comment          string                    `json:"comment"`
+	Recommendation   string                    `json:"recommendation"`
 }
 
 type TrainingEvidenceEpisode struct {
+	MessageIDs          []string `json:"message_ids"`
 	Summary             string   `json:"summary"`
 	SemanticActionCodes []string `json:"semantic_action_codes"`
 }

@@ -314,8 +314,11 @@ func (s *Service) GetAnalysis(ctx context.Context, claims entity.AccessClaims, s
 	if err != nil {
 		return nil, err
 	}
-	if session.Status != entity.TrainingStatusCompleted || len(session.Analysis) == 0 {
+	if session.Status != entity.TrainingStatusCompleted {
 		return nil, entity.ErrInvalidTrainingState
+	}
+	if len(session.Analysis) == 0 {
+		return nil, entity.ErrTrainingAnalysisNotReady
 	}
 	return session.Analysis, nil
 }
@@ -329,7 +332,7 @@ func (s *Service) completeSessionInTx(ctx context.Context, session *entity.Train
 	}
 	score := overallTrainingScore(clusterResults)
 	outcome := outcomeJSON(doc, state)
-	analysis := analysisJSON(session.ID, score, outcome, messages, clusterResults, nil, extras)
+	analysis := analysisJSON(session.ID, score, outcome, doc, messages, clusterResults, nil, extras)
 	completed, err := s.repository.Complete(ctx, session.ID, score, analysis)
 	if err != nil {
 		return nil, err
@@ -338,7 +341,7 @@ func (s *Service) completeSessionInTx(ctx context.Context, session *entity.Train
 	if err != nil {
 		return nil, err
 	}
-	analysis = analysisJSON(session.ID, score, outcome, messages, clusterResults, changes, extras)
+	analysis = analysisJSON(session.ID, score, outcome, doc, messages, clusterResults, changes, extras)
 	completed, err = s.repository.Complete(ctx, session.ID, score, analysis)
 	if err != nil {
 		return nil, err
@@ -951,56 +954,35 @@ func outcomeJSON(doc entity.ScenarioDocument, state trainingState) json.RawMessa
 }
 
 type trainingAnalysisExtras struct {
-	Process      []entity.TrainingProcessAssessment
-	Strengths    []entity.TrainingAnalysisNote
-	Improvements []entity.TrainingAnalysisNote
+	Process            []entity.TrainingProcessAssessment
+	Timeline           []entity.TrainingTimelineItem
+	MessageFeedback    []entity.TrainingMessageFeedback
+	Highlights         entity.TrainingHighlights
+	Strengths          []entity.TrainingAnalysisNote
+	Improvements       []entity.TrainingAnalysisNote
+	ClusterAssessments []entity.TrainingClusterAssessment
 }
 
-func analysisJSON(sessionID string, score float64, outcome json.RawMessage, messages []entity.TrainingMessage, results []entity.TrainingClusterResult, changes []entity.ProfileClusterChange, extras *trainingAnalysisExtras) json.RawMessage {
-	process := make([]map[string]any, 0, len(messages))
-	if extras != nil && len(extras.Process) > 0 {
-		for _, item := range extras.Process {
-			process = append(process, map[string]any{"order": item.Order, "summary": item.Summary, "semantic_action_codes": item.SemanticActionCodes})
-		}
-	} else {
-		for i, message := range messages {
-			if message.SemanticActionCode == nil {
-				continue
-			}
-			event := deterministicEventFromMessage(message)
-			summary := "Действие участника: " + *message.SemanticActionCode
-			if event.ReplyOptionID != "" {
-				summary = "Участник выбрал подготовленную реплику " + event.ReplyOptionID
-			}
-			if strings.TrimSpace(event.TransitionFeedbackComment) != "" {
-				summary = event.TransitionFeedbackComment
-			}
-			process = append(process, map[string]any{"order": i + 1, "summary": summary, "semantic_action_codes": []string{*message.SemanticActionCode}})
-		}
-	}
-	competencies := make([]map[string]any, 0, len(results))
-	for _, result := range results {
-		competencies = append(competencies, map[string]any{"cluster_id": result.ClusterID, "score": floorScore(result.Score), "comment": result.Comment})
-	}
-	strengths := trainingStrengths(results)
-	improvements := trainingImprovements(results)
-	if extras != nil {
-		if len(extras.Strengths) > 0 {
-			strengths = notesToMaps(extras.Strengths)
-		}
-		if len(extras.Improvements) > 0 {
-			improvements = notesToMaps(extras.Improvements)
-		}
-	}
+func analysisJSON(sessionID string, score float64, outcome json.RawMessage, doc entity.ScenarioDocument, messages []entity.TrainingMessage, results []entity.TrainingClusterResult, changes []entity.ProfileClusterChange, extras *trainingAnalysisExtras) json.RawMessage {
+	timeline := analysisTimeline(doc, messages, extras)
+	messageFeedback := analysisMessageFeedback(messages, extras)
+	highlights := analysisHighlights(messageFeedback, results, extras)
+	process := legacyProcessFromTimeline(timeline, extras)
+	competencies := analysisCompetencies(messages, results, extras)
+	strengths := legacyNotesFromHighlights(highlights.Strengths, "Сильная сторона")
+	improvements := legacyNotesFromHighlights(highlights.Improvements, "Зона роста")
 	raw, _ := json.Marshal(map[string]any{
-		"session_id":     sessionID,
-		"score":          floorScore(score),
-		"result":         json.RawMessage(outcome),
-		"process":        process,
-		"strengths":      strengths,
-		"improvements":   improvements,
-		"competencies":   competencies,
-		"profile_change": map[string]any{"changes": changes},
+		"session_id":       sessionID,
+		"score":            floorScore(score),
+		"result":           json.RawMessage(outcome),
+		"timeline":         timeline,
+		"message_feedback": messageFeedback,
+		"highlights":       highlights,
+		"process":          process,
+		"strengths":        strengths,
+		"improvements":     improvements,
+		"competencies":     competencies,
+		"profile_change":   map[string]any{"changes": changes},
 	})
 	return raw
 }
@@ -1024,6 +1006,200 @@ func deterministicEventFromMessage(message entity.TrainingMessage) deterministic
 		_ = json.Unmarshal(message.Classification, &event)
 	}
 	return event
+}
+
+func analysisTimeline(doc entity.ScenarioDocument, messages []entity.TrainingMessage, extras *trainingAnalysisExtras) []map[string]any {
+	if extras != nil && len(extras.Timeline) > 0 {
+		items := make([]map[string]any, 0, len(extras.Timeline))
+		for _, item := range extras.Timeline {
+			items = append(items, map[string]any{
+				"order":                 item.Order,
+				"block_id":              item.BlockID,
+				"block_name":            item.BlockName,
+				"transition_id":         item.TransitionID,
+				"from_block_id":         item.FromBlockID,
+				"to_block_id":           item.ToBlockID,
+				"message_ids":           item.MessageIDs,
+				"summary":               item.Summary,
+				"outcome":               normalizeOutcome(item.Outcome, 0),
+				"semantic_action_codes": item.SemanticActionCodes,
+			})
+		}
+		return items
+	}
+	items := []map[string]any{}
+	order := 1
+	for _, message := range messages {
+		if message.Author != "learner" || message.SemanticActionCode == nil {
+			continue
+		}
+		event := deterministicEventFromMessage(message)
+		block, _ := blockByID(doc.Blocks, event.BlockID)
+		transitionID := nullableString(event.TransitionID)
+		toBlockID := ""
+		if event.TransitionID != "" {
+			if transition, ok := transitionByID(block.Transitions, event.TransitionID); ok {
+				toBlockID = transition.TargetBlockID
+			}
+		}
+		score := deterministicMessageScore(event)
+		items = append(items, map[string]any{
+			"order":                 order,
+			"block_id":              event.BlockID,
+			"block_name":            block.Name,
+			"transition_id":         transitionID,
+			"from_block_id":         event.BlockID,
+			"to_block_id":           toBlockID,
+			"message_ids":           []string{message.ID},
+			"summary":               deterministicSummary(message, event),
+			"outcome":               normalizeOutcome("", score),
+			"semantic_action_codes": []string{*message.SemanticActionCode},
+		})
+		order++
+	}
+	return items
+}
+
+func analysisMessageFeedback(messages []entity.TrainingMessage, extras *trainingAnalysisExtras) []map[string]any {
+	if extras != nil && len(extras.MessageFeedback) > 0 {
+		items := make([]map[string]any, 0, len(extras.MessageFeedback))
+		for _, item := range extras.MessageFeedback {
+			items = append(items, map[string]any{
+				"message_id":           item.MessageID,
+				"block_id":             item.BlockID,
+				"semantic_action_code": item.SemanticActionCode,
+				"score":                floorScore(float64(item.Score)),
+				"level":                normalizeLevel(item.Level, item.Score),
+				"summary":              item.Summary,
+				"strengths":            item.Strengths,
+				"improvements":         item.Improvements,
+				"related_cluster_ids":  item.RelatedClusterIDs,
+			})
+		}
+		return items
+	}
+	items := []map[string]any{}
+	for _, message := range messages {
+		if message.Author != "learner" || message.SemanticActionCode == nil {
+			continue
+		}
+		event := deterministicEventFromMessage(message)
+		score := deterministicMessageScore(event)
+		strengths, improvements := deterministicMessageNotes(message, event, score)
+		items = append(items, map[string]any{
+			"message_id":           message.ID,
+			"block_id":             event.BlockID,
+			"semantic_action_code": *message.SemanticActionCode,
+			"score":                floorScore(score),
+			"level":                scoreLevel(score),
+			"summary":              deterministicSummary(message, event),
+			"strengths":            strengths,
+			"improvements":         improvements,
+			"related_cluster_ids":  assessmentClusterIDs(event.AssessmentEvents),
+		})
+	}
+	return items
+}
+
+func analysisHighlights(messageFeedback []map[string]any, results []entity.TrainingClusterResult, extras *trainingAnalysisExtras) entity.TrainingHighlights {
+	if extras != nil && (len(extras.Highlights.Strengths) > 0 || len(extras.Highlights.Improvements) > 0) {
+		return extras.Highlights
+	}
+	highlights := entity.TrainingHighlights{}
+	for _, item := range messageFeedback {
+		score, _ := item["score"].(int)
+		messageID, _ := item["message_id"].(string)
+		clusterIDs, _ := item["related_cluster_ids"].([]string)
+		summary, _ := item["summary"].(string)
+		if score >= 75 && len(highlights.Strengths) < 3 {
+			highlights.Strengths = append(highlights.Strengths, entity.TrainingHighlight{
+				Title:       "Сильный ход в переговорах",
+				Description: summary,
+				MessageIDs:  []string{messageID},
+				ClusterIDs:  clusterIDs,
+			})
+		}
+		if score < 70 && len(highlights.Improvements) < 3 {
+			highlights.Improvements = append(highlights.Improvements, entity.TrainingHighlight{
+				Title:       "Что улучшить",
+				Description: summary,
+				MessageIDs:  []string{messageID},
+				ClusterIDs:  clusterIDs,
+			})
+		}
+	}
+	if len(highlights.Strengths) == 0 {
+		for _, result := range results {
+			if result.Score < 75 {
+				continue
+			}
+			highlights.Strengths = append(highlights.Strengths, entity.TrainingHighlight{Title: "Сильная компетенция", Description: result.Comment, ClusterIDs: []string{result.ClusterID}})
+			break
+		}
+	}
+	if len(highlights.Improvements) == 0 {
+		for _, result := range results {
+			if result.Score >= 75 {
+				continue
+			}
+			highlights.Improvements = append(highlights.Improvements, entity.TrainingHighlight{Title: "Зона роста", Description: competencyRecommendation(result.Score), ClusterIDs: []string{result.ClusterID}})
+			break
+		}
+	}
+	return highlights
+}
+
+func analysisCompetencies(messages []entity.TrainingMessage, results []entity.TrainingClusterResult, extras *trainingAnalysisExtras) []map[string]any {
+	assessments := map[string]entity.TrainingClusterAssessment{}
+	if extras != nil {
+		for _, item := range extras.ClusterAssessments {
+			assessments[item.ClusterID] = item
+		}
+	}
+	items := make([]map[string]any, 0, len(results))
+	for _, result := range results {
+		assessment, hasAssessment := assessments[result.ClusterID]
+		evidence := []map[string]any{}
+		summary := cleanComment(result.Comment)
+		recommendation := competencyRecommendation(result.Score)
+		comment := summary
+		if hasAssessment {
+			summary = firstNonEmpty(assessment.Summary, assessment.Comment, summary)
+			comment = firstNonEmpty(assessment.Comment, summary)
+			recommendation = firstNonEmpty(assessment.Recommendation, recommendation)
+			for _, episode := range assessment.EvidenceEpisodes {
+				evidence = append(evidence, map[string]any{"message_ids": episode.MessageIDs, "summary": episode.Summary, "semantic_action_codes": episode.SemanticActionCodes})
+			}
+		} else {
+			evidence = deterministicClusterEvidence(messages, result.ClusterID)
+		}
+		items = append(items, map[string]any{
+			"cluster_id":      result.ClusterID,
+			"score":           floorScore(result.Score),
+			"level":           scoreLevel(result.Score),
+			"summary":         summary,
+			"comment":         comment,
+			"evidence":        evidence,
+			"recommendation":  recommendation,
+			"evidence_weight": result.EvidenceWeight,
+		})
+	}
+	return items
+}
+
+func legacyProcessFromTimeline(timeline []map[string]any, extras *trainingAnalysisExtras) []map[string]any {
+	if extras != nil && len(extras.Process) > 0 {
+		items := make([]map[string]any, 0, len(extras.Process))
+		for _, item := range extras.Process {
+			items = append(items, map[string]any{"order": item.Order, "summary": item.Summary, "semantic_action_codes": item.SemanticActionCodes})
+		}
+		return items
+	}
+	process := make([]map[string]any, 0, len(timeline))
+	for _, item := range timeline {
+		process = append(process, map[string]any{"order": item["order"], "summary": item["summary"], "semantic_action_codes": item["semantic_action_codes"]})
+	}
+	return process
 }
 
 func deterministicClusterResults(messages []entity.TrainingMessage) []entity.TrainingClusterResult {
@@ -1056,9 +1232,103 @@ func deterministicClusterResults(messages []entity.TrainingMessage) []entity.Tra
 		if item.weight <= 0 {
 			continue
 		}
-		results = append(results, entity.TrainingClusterResult{ClusterID: clusterID, Score: item.weightedScore / item.weight, EvidenceWeight: math.Min(1, item.weight/3.0), Comment: strings.Join(item.comments, " ")})
+		results = append(results, entity.TrainingClusterResult{ClusterID: clusterID, Score: item.weightedScore / item.weight, EvidenceWeight: math.Min(1, item.weight/3.0), Comment: cleanComment(strings.Join(item.comments, " "))})
 	}
 	return results
+}
+
+func deterministicMessageScore(event deterministicEvent) float64 {
+	if len(event.AssessmentEvents) == 0 {
+		if event.Correct {
+			return 80
+		}
+		return 45
+	}
+	sum := 0.0
+	weight := 0.0
+	for _, assessment := range event.AssessmentEvents {
+		w := assessment.Weight
+		if w <= 0 {
+			w = 1
+		}
+		sum += assessment.Score * w
+		weight += w
+	}
+	if weight <= 0 {
+		return 0
+	}
+	return sum / weight
+}
+
+func deterministicSummary(message entity.TrainingMessage, event deterministicEvent) string {
+	if strings.TrimSpace(event.TransitionFeedbackComment) != "" {
+		return strings.TrimSpace(event.TransitionFeedbackComment)
+	}
+	text := messageText(message.Content, entity.TrainingChannelChat)
+	switch {
+	case event.Correct && text != "":
+		return "Выбранная реплика соответствует ожидаемому переговорному действию и помогает продвинуть диалог: " + shortenText(text, 160)
+	case !event.Correct && text != "":
+		return "Реплика понятна, но выбранная semantic-метка не совпала с ожидаемой. Стоит точнее определять действие: " + shortenText(text, 160)
+	case event.Correct:
+		return "Выбранная реплика соответствует ожидаемому переговорному действию."
+	default:
+		return "Выбранная semantic-метка не совпала с ожидаемой."
+	}
+}
+
+func deterministicMessageNotes(message entity.TrainingMessage, event deterministicEvent, score float64) ([]string, []string) {
+	strengths := []string{}
+	improvements := []string{}
+	for _, assessment := range event.AssessmentEvents {
+		comment := strings.TrimSpace(assessment.Comment)
+		if comment == "" {
+			continue
+		}
+		if assessment.Score >= 75 {
+			strengths = append(strengths, comment)
+		} else {
+			improvements = append(improvements, comment)
+		}
+	}
+	if len(strengths) == 0 && score >= 75 {
+		strengths = append(strengths, "Реплика продвигает переговоры и соответствует задаче текущего состояния.")
+	}
+	if len(improvements) == 0 && score < 70 {
+		improvements = append(improvements, "Можно точнее связать реплику с интересами, границами или встречной ценностью.")
+	}
+	return uniqueStrings(strengths), uniqueStrings(improvements)
+}
+
+func deterministicClusterEvidence(messages []entity.TrainingMessage, clusterID string) []map[string]any {
+	evidence := []map[string]any{}
+	for _, message := range messages {
+		if message.Author != "learner" || message.SemanticActionCode == nil {
+			continue
+		}
+		event := deterministicEventFromMessage(message)
+		for _, assessment := range event.AssessmentEvents {
+			if assessment.ClusterID != clusterID {
+				continue
+			}
+			evidence = append(evidence, map[string]any{
+				"message_ids":           []string{message.ID},
+				"summary":               firstNonEmpty(strings.TrimSpace(assessment.Comment), deterministicSummary(message, event)),
+				"semantic_action_codes": []string{*message.SemanticActionCode},
+			})
+		}
+	}
+	return evidence
+}
+
+func assessmentClusterIDs(events []assessmentEvent) []string {
+	ids := make([]string, 0, len(events))
+	for _, event := range events {
+		if event.ClusterID != "" {
+			ids = append(ids, event.ClusterID)
+		}
+	}
+	return uniqueStrings(ids)
 }
 
 func virtualPartnerClusterResults(assessment entity.TrainingAssessment, targetClusterIDs []string) []entity.TrainingClusterResult {
@@ -1105,7 +1375,15 @@ func virtualPartnerEvidenceStrength(episodes int) float64 {
 }
 
 func analysisExtrasFromAssessment(assessment entity.TrainingAssessment) *trainingAnalysisExtras {
-	return &trainingAnalysisExtras{Process: assessment.Process, Strengths: assessment.Strengths, Improvements: assessment.Improvements}
+	return &trainingAnalysisExtras{
+		Process:            assessment.Process,
+		Timeline:           assessment.Timeline,
+		MessageFeedback:    assessment.MessageFeedback,
+		Highlights:         assessment.Highlights,
+		Strengths:          assessment.Strengths,
+		Improvements:       assessment.Improvements,
+		ClusterAssessments: assessment.ClusterAssessments,
+	}
 }
 
 func validateTrainingAssessment(assessment entity.TrainingAssessment, targetClusterIDs []string) error {
@@ -1247,6 +1525,18 @@ func notesToMaps(notes []entity.TrainingAnalysisNote) []map[string]string {
 	return items
 }
 
+func legacyNotesFromHighlights(highlights []entity.TrainingHighlight, fallbackTitle string) []map[string]string {
+	items := make([]map[string]string, 0, len(highlights))
+	for _, item := range highlights {
+		title := strings.TrimSpace(item.Title)
+		if title == "" {
+			title = fallbackTitle
+		}
+		items = append(items, map[string]string{"title": title, "description": strings.TrimSpace(item.Description)})
+	}
+	return items
+}
+
 func stringSet(values []string) map[string]bool {
 	set := make(map[string]bool, len(values))
 	for _, value := range values {
@@ -1289,6 +1579,113 @@ func floorScore(value float64) int {
 		return 100
 	}
 	return int(math.Floor(value))
+}
+
+func scoreLevel(score float64) string {
+	switch {
+	case score >= 85:
+		return "excellent"
+	case score >= 70:
+		return "strong"
+	case score >= 50:
+		return "needs_attention"
+	default:
+		return "weak"
+	}
+}
+
+func normalizeLevel(level string, score int) string {
+	switch strings.TrimSpace(level) {
+	case "excellent", "strong", "needs_attention", "weak":
+		return level
+	default:
+		return scoreLevel(float64(score))
+	}
+}
+
+func normalizeOutcome(outcome string, score float64) string {
+	switch strings.TrimSpace(outcome) {
+	case "positive", "neutral", "negative":
+		return outcome
+	}
+	switch {
+	case score >= 75:
+		return "positive"
+	case score >= 50:
+		return "neutral"
+	default:
+		return "negative"
+	}
+}
+
+func competencyRecommendation(score float64) string {
+	switch {
+	case score >= 85:
+		return "Сохраните этот подход: он хорошо работает в подобных переговорах."
+	case score >= 70:
+		return "Продолжайте развивать навык: добавляйте больше конкретики и фиксируйте договорённости."
+	case score >= 50:
+		return "В следующей тренировке заранее формулируйте цель хода и проверяйте, какую ценность вы отдаёте или получаете."
+	default:
+		return "Начните с базового шага: проясните интересы, обозначьте границы и только потом переходите к предложениям."
+	}
+}
+
+func nullableString(value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return &value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func shortenText(value string, max int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if max <= 0 || len([]rune(value)) <= max {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:max]) + "…"
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func cleanComment(comment string) string {
+	parts := strings.Split(comment, ".")
+	unique := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		unique = append(unique, part)
+	}
+	if len(unique) == 0 {
+		return strings.TrimSpace(comment)
+	}
+	return strings.Join(unique, ". ") + "."
 }
 
 func trainingStrengths(results []entity.TrainingClusterResult) []map[string]string {

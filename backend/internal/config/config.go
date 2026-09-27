@@ -63,7 +63,7 @@ type (
 			VirtualPartnerRuntimeTemperature float64 `env:"AI_VIRTUAL_PARTNER_RUNTIME_TEMPERATURE" envDefault:"0.4"`
 			TrainingStateTemperature         float64 `env:"AI_TRAINING_STATE_TEMPERATURE" envDefault:"0.2"`
 			TrainingAssessmentTemperature    float64 `env:"AI_TRAINING_ASSESSMENT_TEMPERATURE" envDefault:"0.2"`
-			BlockDesignerThink               bool    `env:"AI_BLOCK_DESIGNER_THINK" envDefault:"true"`
+			BlockDesignerThink               bool    `env:"AI_BLOCK_DESIGNER_THINK" envDefault:"false"`
 			DialogueBuilderThink             bool    `env:"AI_DIALOGUE_BUILDER_THINK" envDefault:"true"`
 			VirtualPartnerRuntimeThink       bool    `env:"AI_VIRTUAL_PARTNER_RUNTIME_THINK" envDefault:"false"`
 			TrainingStateThink               bool    `env:"AI_TRAINING_STATE_THINK" envDefault:"true"`

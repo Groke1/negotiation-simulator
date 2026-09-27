@@ -213,7 +213,7 @@ func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusForbidden
 	case httpx.ErrScenarioNotFound, httpx.ErrTrainingSessionNotFound, httpx.ErrTrainingMessageNotFound:
 		status = http.StatusNotFound
-	case httpx.ErrScenarioNotAvailable, httpx.ErrInvalidTrainingState, httpx.ErrMessageAlreadyClassified:
+	case httpx.ErrScenarioNotAvailable, httpx.ErrInvalidTrainingState, httpx.ErrTrainingAnalysisNotReady, httpx.ErrMessageAlreadyClassified:
 		status = http.StatusConflict
 	case httpx.ErrTrainingConfigurationNotSupported, httpx.ErrActionNotAvailable, httpx.ErrTrainingMessageChannelMismatch, httpx.ErrMessageNotClassifiable:
 		status = http.StatusUnprocessableEntity

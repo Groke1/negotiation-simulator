@@ -82,7 +82,7 @@ func (s *scenarioService) GenerateBlock(ctx context.Context, claims entity.Acces
 	var output struct {
 		Block entity.BlockContentProposal `json:"block"`
 	}
-	input := map[string]any{"scenario": scenarioAIInput(doc), "roles": doc.Roles, "block": block, "neighbors": blockNeighbors(doc.Blocks, blockID), "semantic_actions": actions, "instructions": options.Instructions}
+	input := map[string]any{"task": "generate_block", "difficulty": doc.Difficulty, "scenario": scenarioAIInput(doc), "roles": doc.Roles, "block": block, "neighbors": blockNeighbors(doc.Blocks, blockID), "semantic_actions": actions, "instructions": options.Instructions}
 	if err := s.ai.GenerateJSON(ctx, ai.RoleBlockDesigner, input, &output, func() error {
 		return validateBlockProposal(output.Block, doc, actions)
 	}); err != nil {
@@ -121,7 +121,7 @@ func (s *scenarioService) GenerateDialogue(ctx context.Context, claims entity.Ac
 		return nil, nil, entity.ErrAIGenerationContextIncomplete
 	}
 	var output dialogueOutput
-	input := map[string]any{"scenario": scenarioAIInput(doc), "roles": doc.Roles, "block": block, "transitions": block.Transitions, "learner_role_id": learnerRoleID, "semantic_actions": actions, "instructions": options.Instructions}
+	input := map[string]any{"task": "generate_dialogue", "difficulty": doc.Difficulty, "scenario": scenarioAIInput(doc), "roles": doc.Roles, "block": block, "transitions": block.Transitions, "learner_role_id": learnerRoleID, "semantic_actions": actions, "instructions": options.Instructions}
 	if err := s.ai.GenerateJSON(ctx, ai.RoleDialogueBuilder, input, &output, func() error {
 		return validateDialogueOutput(output.effectiveDialogue(), learnerRoleID, block, actions)
 	}); err != nil {
@@ -215,6 +215,7 @@ type architectBlockOutput struct {
 	Behavior        string                      `json:"behavior"`
 	ActionRules     []entity.SemanticActionRule `json:"action_rules"`
 	Constraints     []string                    `json:"constraints"`
+	Result          *entity.ScenarioEndResult   `json:"result"`
 	Transitions     []architectTransitionOutput `json:"transitions"`
 }
 
@@ -237,18 +238,20 @@ type localDialogue struct {
 }
 
 type localDialogNode struct {
-	Key             string                       `json:"key"`
-	IncomingMessage *entity.DeterministicMessage `json:"incoming_message"`
-	ReplyOptions    []localReplyOption           `json:"reply_options"`
+	Key               string                                 `json:"key"`
+	IncomingMessage   *entity.DeterministicMessage           `json:"incoming_message"`
+	AssessmentTargets []entity.DeterministicAssessmentTarget `json:"assessment_targets"`
+	ReplyOptions      []localReplyOption                     `json:"reply_options"`
 }
 
 type localReplyOption struct {
-	Key                string `json:"key"`
-	RoleID             string `json:"role_id"`
-	Text               string `json:"text"`
-	SemanticActionCode string `json:"semantic_action_code"`
-	NextNodeKey        string `json:"next_node_key"`
-	TransitionID       string `json:"transition_id"`
+	Key                string                                `json:"key"`
+	RoleID             string                                `json:"role_id"`
+	Text               string                                `json:"text"`
+	SemanticActionCode string                                `json:"semantic_action_code"`
+	Assessments        []entity.DeterministicReplyAssessment `json:"assessments"`
+	NextNodeKey        string                                `json:"next_node_key"`
+	TransitionID       string                                `json:"transition_id"`
 }
 
 func validateArchitectDraft(output architectDraftOutput, doc entity.ScenarioDocument, actions []entity.SemanticActionDefinition) error {
@@ -323,6 +326,7 @@ func normalizeArchitectBlocks(input []architectBlockOutput) ([]entity.ScenarioBl
 			Behavior:        block.Behavior,
 			ActionRules:     block.ActionRules,
 			Constraints:     block.Constraints,
+			Result:          block.Result,
 			Transitions:     transitions,
 		})
 	}
@@ -374,12 +378,43 @@ func validateDialogueOutput(output localDialogue, learnerRoleID string, block en
 		if node.IncomingMessage != nil && !codes[node.IncomingMessage.SemanticActionCode] {
 			return fmt.Errorf("unknown incoming semantic action")
 		}
+		targets := map[string]bool{}
+		for _, target := range node.AssessmentTargets {
+			if strings.TrimSpace(target.ClusterID) == "" {
+				return fmt.Errorf("empty assessment target cluster")
+			}
+			if targets[target.ClusterID] {
+				return fmt.Errorf("duplicate assessment target")
+			}
+			targets[target.ClusterID] = true
+			if target.Weight != 0.5 && target.Weight != 1 && target.Weight != 1.5 {
+				return fmt.Errorf("invalid assessment target weight")
+			}
+		}
 		for _, option := range node.ReplyOptions {
 			if option.RoleID != learnerRoleID {
 				return fmt.Errorf("reply option role mismatch")
 			}
 			if !codes[option.SemanticActionCode] {
 				return fmt.Errorf("unknown reply semantic action")
+			}
+			assessments := map[string]bool{}
+			for _, assessment := range option.Assessments {
+				if !targets[assessment.ClusterID] {
+					return fmt.Errorf("reply assessment target mismatch")
+				}
+				if assessments[assessment.ClusterID] {
+					return fmt.Errorf("duplicate reply assessment")
+				}
+				assessments[assessment.ClusterID] = true
+				if assessment.Level < 0 || assessment.Level > 4 {
+					return fmt.Errorf("invalid reply assessment level")
+				}
+			}
+			for clusterID := range targets {
+				if !assessments[clusterID] {
+					return fmt.Errorf("missing reply assessment")
+				}
 			}
 			nextNodeKey := strings.TrimSpace(option.NextNodeKey)
 			if (nextNodeKey == "") == (option.TransitionID == "") {
@@ -428,11 +463,12 @@ func normalizeDialogue(input localDialogue) (entity.DeterministicDialogue, error
 				RoleID:             option.RoleID,
 				Text:               option.Text,
 				SemanticActionCode: option.SemanticActionCode,
+				Assessments:        option.Assessments,
 				NextNodeID:         keyToID[strings.TrimSpace(option.NextNodeKey)],
 				TransitionID:       option.TransitionID,
 			})
 		}
-		nodes = append(nodes, entity.DeterministicDialogueNode{ID: keyToID[nodeKey], IncomingMessage: node.IncomingMessage, ReplyOptions: options})
+		nodes = append(nodes, entity.DeterministicDialogueNode{ID: keyToID[nodeKey], IncomingMessage: node.IncomingMessage, AssessmentTargets: node.AssessmentTargets, ReplyOptions: options})
 	}
 	return entity.DeterministicDialogue{LearnerRoleID: strings.TrimSpace(input.LearnerRoleID), StartNodeID: keyToID[strings.TrimSpace(input.StartNodeKey)], Nodes: nodes}, nil
 }

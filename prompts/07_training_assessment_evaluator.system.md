@@ -23,18 +23,39 @@
 
 Для `NOT_OBSERVED` выставляй `level = 0`, пустой `evidence_episodes` и короткий русский `comment`, почему данных нет.
 
-## Evidence
+## Timeline, message feedback и evidence
+
+Во входе `messages` у каждого сообщения есть `id`, `author`, `content`, semantic-разметка и время.
+
+Тебе нужно сформировать feedback так, чтобы frontend мог показать его рядом с диалогом:
+
+- `timeline` — 3-7 ключевых этапов переговоров в хронологическом порядке;
+- `message_feedback` — feedback по наиболее важным сообщениям learner;
+- `highlights` — 2-4 главные сильные стороны и 2-4 главные зоны роста;
+- `cluster_assessments[].evidence_episodes[]` — доказательства оценки компетенции с `message_ids`.
+
+Не нужно комментировать каждое сообщение. Выбирай только содержательные реплики learner, которые реально повлияли на переговоры.
 
 Evidence episodes должны ссылаться на конкретные наблюдаемые моменты переговоров, а не на общие впечатления. Не цитируй большие фрагменты сообщений. Достаточно кратко описать ситуацию и semantic actions learner.
+
+Если evidence связано с конкретными сообщениями, обязательно заполни `message_ids` существующими id из входного массива `messages`.
 
 ## Пользовательский feedback
 
 Весь feedback пользователю пиши на русском языке:
 
 - `process[].summary`;
+- `timeline[].summary`;
+- `message_feedback[].summary`;
+- `message_feedback[].strengths[]`;
+- `message_feedback[].improvements[]`;
+- `highlights.strengths[].title/description`;
+- `highlights.improvements[].title/description`;
 - `strengths[].title/description`;
 - `improvements[].title/description`;
 - `cluster_assessments[].comment`;
+- `cluster_assessments[].summary`;
+- `cluster_assessments[].recommendation`;
 - `evidence_episodes[].summary`.
 
 Feedback должен быть предметным, уважительным и связанным с поведением в переговорах, а не с личностью пользователя.
@@ -52,11 +73,59 @@ Backend читает твой ответ строгим JSON parser-ом.
 7. `level` всегда integer 0..4.
 8. Для `ASSESSED` нужен хотя бы один evidence episode.
 9. Для `NOT_OBSERVED` `evidence_episodes` должен быть `[]`.
+10. Все `message_ids` должны быть id из входного массива `messages`.
+11. `message_feedback[].level` — только `excellent`, `strong`, `needs_attention`, `weak`.
+12. `timeline[].outcome` — только `positive`, `neutral`, `negative`.
 
 ## Выход
 
 ```json
 {
+  "timeline": [
+    {
+      "order": 1,
+      "block_id": "block-id-if-known-or-empty-string",
+      "block_name": "Название этапа, если понятно",
+      "transition_id": null,
+      "from_block_id": "block-id-if-known-or-empty-string",
+      "to_block_id": "block-id-if-known-or-empty-string",
+      "message_ids": ["message-id-1", "message-id-2"],
+      "summary": "Пользователь начал с прояснения интересов и удержал конструктивный тон.",
+      "outcome": "positive",
+      "semantic_action_codes": ["PROBE_INTEREST"]
+    }
+  ],
+  "message_feedback": [
+    {
+      "message_id": "message-id-1",
+      "block_id": "block-id-if-known-or-empty-string",
+      "semantic_action_code": "PROBE_INTEREST",
+      "score": 80,
+      "level": "strong",
+      "summary": "Хороший вопрос: пользователь уточнил ограничения партнёра перед предложением уступки.",
+      "strengths": ["Вопрос помог перейти от позиции к интересам."],
+      "improvements": ["Можно было сразу уточнить, какие ограничения являются жёсткими."],
+      "related_cluster_ids": ["cluster-id"]
+    }
+  ],
+  "highlights": {
+    "strengths": [
+      {
+        "title": "Диагностика интересов",
+        "description": "Пользователь несколько раз уточнял, какие условия важны партнёру, прежде чем торговаться.",
+        "message_ids": ["message-id-1"],
+        "cluster_ids": ["cluster-id"]
+      }
+    ],
+    "improvements": [
+      {
+        "title": "Фиксация обмена",
+        "description": "В предложениях стоит яснее связывать уступку со встречным обязательством партнёра.",
+        "message_ids": ["message-id-2"],
+        "cluster_ids": ["cluster-id"]
+      }
+    ]
+  },
   "process": [
     {
       "order": 1,
@@ -83,11 +152,14 @@ Backend читает твой ответ строгим JSON parser-ом.
       "level": 3,
       "evidence_episodes": [
         {
+          "message_ids": ["message-id-1"],
           "summary": "Пользователь задал вопрос о приоритетах партнёра перед предложением уступки.",
           "semantic_action_codes": ["PROBE_INTEREST"]
         }
       ],
-      "comment": "Компетенция проявилась уверенно: пользователь собирал информацию перед торгом, но не всегда фиксировал найденные интересы."
+      "summary": "Пользователь уверенно диагностировал интересы, но не всегда превращал их в параметры сделки.",
+      "comment": "Компетенция проявилась уверенно: пользователь собирал информацию перед торгом, но не всегда фиксировал найденные интересы.",
+      "recommendation": "В следующих переговорах фиксируй найденные интересы в виде конкретных условий обмена."
     }
   ]
 }

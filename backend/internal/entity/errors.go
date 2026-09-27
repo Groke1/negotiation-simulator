@@ -37,6 +37,7 @@ var (
 	ErrScenarioNotAvailable              = errors.New("scenario not available")
 	ErrTrainingConfigurationNotSupported = errors.New("training configuration not supported")
 	ErrInvalidTrainingState              = errors.New("invalid training state")
+	ErrTrainingAnalysisNotReady          = errors.New("training analysis not ready")
 	ErrActionNotAvailable                = errors.New("action not available")
 	ErrTrainingMessageChannelMismatch    = errors.New("training message channel mismatch")
 	ErrTrainingMessageNotFound           = errors.New("training message not found")

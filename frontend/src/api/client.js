@@ -13,6 +13,7 @@ const ERROR_MESSAGES = {
   ASSIGNMENT_CONFLICT: 'У ученика уже есть активное назначение этого сценария.',
   ARENA_JOIN_NOT_ALLOWED: 'Сейчас к этой Arena нельзя подключиться.',
   ARENA_FEEDBACK_CONFLICT: 'Feedback этому участнику уже отправлен.',
+  TRAINING_ANALYSIS_NOT_READY: 'Итоговый разбор тренировки ещё готовится.',
 };
 
 export class ApiError extends Error {

@@ -348,7 +348,13 @@ paths:
         '404':
           $ref: '#/components/responses/TrainingSessionNotFound'
         '409':
-          $ref: '#/components/responses/InvalidState'
+          description: TrainingSession ещё не завершена или итоговый разбор ещё вычисляется.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InvalidTrainingStateError'
+                  - $ref: '#/components/schemas/TrainingAnalysisNotReadyError'
         '500':
           $ref: '#/components/responses/InternalServerError'
 components:
@@ -1274,12 +1280,172 @@ components:
         comment:
           type: string
           description: Объяснение оценки кластера в этой попытке.
+        level:
+          type: string
+          enum:
+            - excellent
+            - strong
+            - needs_attention
+            - weak
+        summary:
+          type: string
+          description: Короткое человекочитаемое резюме проявления компетенции.
+        evidence:
+          type: array
+          description: Конкретные сообщения/эпизоды, на которых основана оценка.
+          items:
+            $ref: '#/components/schemas/TrainingEvidenceEpisode'
+        recommendation:
+          type: string
+          description: Что делать лучше в следующей тренировке.
+        evidence_weight:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Насколько много наблюдений было для обновления профиля.
+    TrainingEvidenceEpisode:
+      type: object
+      required:
+        - message_ids
+        - summary
+      properties:
+        message_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        summary:
+          type: string
+        semantic_action_codes:
+          type: array
+          items:
+            type: string
+    TrainingTimelineItem:
+      type: object
+      required:
+        - order
+        - message_ids
+        - summary
+        - outcome
+      properties:
+        order:
+          type: integer
+          minimum: 1
+        block_id:
+          type: string
+          description: ID блока, если применимо.
+        block_name:
+          type: string
+        transition_id:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        from_block_id:
+          type: string
+        to_block_id:
+          type: string
+        message_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        summary:
+          type: string
+        outcome:
+          type: string
+          enum:
+            - positive
+            - neutral
+            - negative
+        semantic_action_codes:
+          type: array
+          items:
+            type: string
+    TrainingMessageFeedback:
+      type: object
+      required:
+        - message_id
+        - summary
+        - score
+        - level
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        block_id:
+          type: string
+        semantic_action_code:
+          type: string
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+        level:
+          type: string
+          enum:
+            - excellent
+            - strong
+            - needs_attention
+            - weak
+        summary:
+          type: string
+        strengths:
+          type: array
+          items:
+            type: string
+        improvements:
+          type: array
+          items:
+            type: string
+        related_cluster_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    TrainingHighlight:
+      type: object
+      required:
+        - title
+        - description
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        message_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        cluster_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    TrainingHighlights:
+      type: object
+      required:
+        - strengths
+        - improvements
+      properties:
+        strengths:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrainingHighlight'
+        improvements:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrainingHighlight'
     TrainingAnalysisResponse:
       type: object
       required:
         - session_id
         - score
         - result
+        - timeline
+        - message_feedback
+        - highlights
         - process
         - strengths
         - improvements
@@ -1295,16 +1461,31 @@ components:
           maximum: 100
         result:
           $ref: '#/components/schemas/Outcome'
+        timeline:
+          type: array
+          description: UI-friendly хронология ключевых этапов переговоров.
+          items:
+            $ref: '#/components/schemas/TrainingTimelineItem'
+        message_feedback:
+          type: array
+          description: Feedback по конкретным сообщениям learner, пригодный для подсветки диалога.
+          items:
+            $ref: '#/components/schemas/TrainingMessageFeedback'
+        highlights:
+          $ref: '#/components/schemas/TrainingHighlights'
         process:
           type: array
+          description: Legacy summary; для нового UI предпочтительно использовать timeline.
           items:
             $ref: '#/components/schemas/ProcessAnalysisItem'
         strengths:
           type: array
+          description: Legacy summary; для нового UI предпочтительно использовать highlights.strengths.
           items:
             $ref: '#/components/schemas/AnalysisNote'
         improvements:
           type: array
+          description: Legacy summary; для нового UI предпочтительно использовать highlights.improvements.
           items:
             $ref: '#/components/schemas/AnalysisNote'
         competencies:
@@ -1437,6 +1618,20 @@ components:
             message:
               type: string
               const: Training session state does not allow this operation
+    TrainingAnalysisNotReadyError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: TRAINING_ANALYSIS_NOT_READY
+            message:
+              type: string
+              const: Training analysis is still being calculated
     ActionNotAvailableError:
       allOf:
         - $ref: '#/components/schemas/ErrorResponse'

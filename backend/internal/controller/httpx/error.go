@@ -46,6 +46,7 @@ const (
 	ErrScenarioNotAvailable              ErrorCode = "SCENARIO_NOT_AVAILABLE"
 	ErrTrainingConfigurationNotSupported ErrorCode = "TRAINING_CONFIGURATION_NOT_SUPPORTED"
 	ErrInvalidTrainingState              ErrorCode = "INVALID_TRAINING_STATE"
+	ErrTrainingAnalysisNotReady          ErrorCode = "TRAINING_ANALYSIS_NOT_READY"
 	ErrActionNotAvailable                ErrorCode = "ACTION_NOT_AVAILABLE"
 	ErrTrainingMessageChannelMismatch    ErrorCode = "TRAINING_MESSAGE_CHANNEL_MISMATCH"
 	ErrTrainingMessageNotFound           ErrorCode = "TRAINING_MESSAGE_NOT_FOUND"
@@ -146,6 +147,8 @@ func (e ErrorCode) Message() string {
 		return "Training configuration is not supported"
 	case ErrInvalidTrainingState:
 		return "Training state does not allow this operation"
+	case ErrTrainingAnalysisNotReady:
+		return "Training analysis is still being calculated"
 	case ErrActionNotAvailable:
 		return "Requested action is not available"
 	case ErrTrainingMessageChannelMismatch:
@@ -271,6 +274,8 @@ func ErrorCodeFromError(err error) ErrorCode {
 		return ErrTrainingConfigurationNotSupported
 	case errors.Is(err, entity.ErrInvalidTrainingState):
 		return ErrInvalidTrainingState
+	case errors.Is(err, entity.ErrTrainingAnalysisNotReady):
+		return ErrTrainingAnalysisNotReady
 	case errors.Is(err, entity.ErrActionNotAvailable):
 		return ErrActionNotAvailable
 	case errors.Is(err, entity.ErrTrainingMessageChannelMismatch):
