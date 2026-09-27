@@ -305,6 +305,9 @@ func (s *scenarioService) GenerateBlock(ctx context.Context, claims entity.Acces
 	input := map[string]any{"task": "generate_block", "difficulty": doc.Difficulty, "scenario": scenarioAIInput(doc), "roles": doc.Roles, "block": block, "neighbors": blockNeighbors(doc.Blocks, blockID), "semantic_actions": actions, "instructions": options.Instructions}
 	if err := s.ai.GenerateJSON(ctx, ai.RoleBlockDesigner, input, &output, func() error {
 		proposal := output.Block.toProposal()
+		if block.Type != "end" {
+			proposal.Result = nil
+		}
 		if block.Type == "end" && (proposal.Result == nil || strings.TrimSpace(proposal.Result.Summary) == "") {
 			return fmt.Errorf("end block result is required")
 		}
@@ -320,7 +323,11 @@ func (s *scenarioService) GenerateBlock(ctx context.Context, claims entity.Acces
 	blocks[index].LeadRoleID = proposal.LeadRoleID
 	blocks[index].RoleGoals = proposal.RoleGoals
 	blocks[index].RoleBehaviors = proposal.RoleBehaviors
-	blocks[index].Result = proposal.Result
+	if block.Type == "end" {
+		blocks[index].Result = proposal.Result
+	} else {
+		blocks[index].Result = nil
+	}
 	copyScenario := *scenario
 	nodes, _ := json.Marshal(blocks)
 	copyScenario.Nodes = nodes
@@ -572,11 +579,18 @@ func normalizeArchitectBlocks(input []architectBlockOutput) ([]entity.ScenarioBl
 			LeadRoleID:      block.LeadRoleID,
 			RoleGoals:       block.RoleGoals,
 			RoleBehaviors:   block.RoleBehaviors,
-			Result:          block.Result,
+			Result:          resultForBlockType(block.Type, block.Result),
 			Transitions:     transitions,
 		})
 	}
 	return blocks, nil
+}
+
+func resultForBlockType(blockType string, result *entity.ScenarioEndResult) *entity.ScenarioEndResult {
+	if blockType != "end" {
+		return nil
+	}
+	return result
 }
 
 func validateBlockProposal(block entity.BlockContentProposal, doc entity.ScenarioDocument, _ []entity.SemanticActionDefinition) error {

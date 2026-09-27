@@ -66,7 +66,28 @@ Backend передаёт существующие входящие/исходя�
 
 ## Формат выхода
 
-Верни строго JSON:
+Для `block.type = regular` или `block.type = start` верни строго JSON без поля `result`:
+
+```json
+{
+  "block": {
+    "name": "...",
+    "description": "...",
+    "expanded_context": "...",
+    "lead_role_id": "existing-role-id",
+    "role_goals": [
+      {"role_id": "role-1", "goal": "..."},
+      {"role_id": "role-2", "goal": "..."}
+    ],
+    "role_behaviors": [
+      {"role_id": "role-1", "behavior": "..."},
+      {"role_id": "role-2", "behavior": "..."}
+    ]
+  }
+}
+```
+
+Для `block.type = end` верни строго JSON с полем `result`:
 
 ```json
 {
@@ -84,7 +105,7 @@ Backend передаёт существующие входящие/исходя�
       {"role_id": "role-2", "behavior": "..."}
     ],
     "result": {
-      "summary": "Заполняй только для end-блока; для regular/start не возвращай это поле.",
+      "summary": "Чем закончились переговоры в этом финальном состоянии.",
       "goals_met": ["..."],
       "goals_missed": ["..."]
     }
@@ -92,5 +113,6 @@ Backend передаёт существующие входящие/исходя�
 }
 ```
 
-Для start block не выдумывай обычную переговорную динамику: верни минимально необходимое содержимое без `result`.
+Для start block не выдумывай обычную переговорную динамику: верни минимально необходимое содержимое и НЕ возвращай `result`.
+Для regular block НЕ возвращай `result`.
 Для end block не выдумывай новую динамику, но обязательно опиши итог переговоров в `result`.

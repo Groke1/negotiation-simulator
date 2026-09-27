@@ -68,7 +68,6 @@ export function scenarioToFlow(scenario) {
         id: tr.id,
         source: block.id,
         target: tr.target_block_id,
-        label: tr.condition || '',
         data: { transition: tr, sourceBlockId: block.id }
       });
     });

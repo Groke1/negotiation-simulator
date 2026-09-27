@@ -68,7 +68,7 @@
 
 Правила:
 
-- `learner_semantic_action_code` и `partner_semantic_action_code` — только из `semantic_actions`.
+- `learner_semantic_action_code` и `partner_semantic_action_code` — только из `semantic_actions`. Если подходящего нет, то используй `OTHER`.
 - Не придумывай новые action codes.
 - `learner_confidence` — number от 0 до 1.
 - `patience_delta` — integer от -5 до 40.
