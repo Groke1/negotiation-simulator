@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -84,15 +86,12 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	default:
 		return fmt.Errorf("unsupported AI_PROVIDER %q", cfg.AI.Provider)
 	}
+	systemPrompts, err := loadAISystemPrompts(cfg.AI.PromptDir)
+	if err != nil {
+		logger.Error("can not load ai prompts", zap.Error(err))
+		return err
+	}
 	aiService, err := ai.NewService(aiProvider, ai.Config{
-		ScenarioArchitectModel:     cfg.AI.ScenarioArchitectModel,
-		BlockDesignerModel:         cfg.AI.BlockDesignerModel,
-		DialogueBuilderModel:       cfg.AI.DialogueBuilderModel,
-		ActionClassifierModel:      cfg.AI.ActionClassifierModel,
-		VirtualPartnerModel:        cfg.AI.VirtualPartnerModel,
-		VirtualPartnerRuntimeModel: cfg.AI.VirtualPartnerRuntimeModel,
-		TrainingStateModel:         cfg.AI.TrainingStateModel,
-		TrainingAssessmentModel:    cfg.AI.TrainingAssessmentModel,
 		ScenarioArchitectTemp:      cfg.AI.ScenarioArchitectTemperature,
 		BlockDesignerTemp:          cfg.AI.BlockDesignerTemperature,
 		DialogueBuilderTemp:        cfg.AI.DialogueBuilderTemperature,
@@ -107,6 +106,7 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 		TrainingStateThink:         boolPtr(cfg.AI.TrainingStateThink),
 		TrainingAssessmentThink:    boolPtr(cfg.AI.TrainingAssessmentThink),
 		MaxStructuredOutputRetry:   cfg.AI.MaxStructuredOutputRetry,
+		SystemPrompts:              systemPrompts,
 	})
 	if err != nil {
 		logger.Error("can not initialize ai service", zap.Error(err))
@@ -180,6 +180,34 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+func loadAISystemPrompts(dir string) (map[ai.Role]string, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return nil, nil
+	}
+	files := map[ai.Role]string{
+		ai.RoleScenarioArchitect:     "scenario_architect.system.md",
+		ai.RoleBlockDesigner:         "block_designer.system.md",
+		ai.RoleDialogueBuilder:       "deterministic_dialogue_builder.system.md",
+		ai.RoleVirtualPartnerRuntime: "virtual_partner_runtime.system.md",
+		ai.RoleTrainingAssessment:    "training_assessment_evaluator.system.md",
+	}
+	prompts := make(map[ai.Role]string, len(files))
+	for role, name := range files {
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		if prompt := strings.TrimSpace(string(content)); prompt != "" {
+			prompts[role] = prompt
+		}
+	}
+	return prompts, nil
 }
 
 func boolPtr(value bool) *bool {

@@ -44,16 +44,8 @@ type (
 			Think                    bool          `env:"AI_THINK" envDefault:"false"`
 			Stream                   bool          `env:"AI_STREAM" envDefault:"false"`
 			Format                   string        `env:"AI_FORMAT" envDefault:"json"`
+			PromptDir                string        `env:"AI_PROMPT_DIR" envDefault:"prompts"`
 			MaxStructuredOutputRetry int           `env:"AI_MAX_STRUCTURED_OUTPUT_RETRY" envDefault:"1"`
-
-			ScenarioArchitectModel     string `env:"AI_SCENARIO_ARCHITECT_MODEL" envDefault:"negotiation-scenario-architect"`
-			BlockDesignerModel         string `env:"AI_BLOCK_DESIGNER_MODEL" envDefault:"negotiation-block-designer"`
-			DialogueBuilderModel       string `env:"AI_DIALOGUE_BUILDER_MODEL" envDefault:"negotiation-dialogue-builder"`
-			ActionClassifierModel      string `env:"AI_ACTION_CLASSIFIER_MODEL" envDefault:"negotiation-action-classifier"`
-			VirtualPartnerModel        string `env:"AI_VIRTUAL_PARTNER_MODEL" envDefault:"negotiation-virtual-partner"`
-			VirtualPartnerRuntimeModel string `env:"AI_VIRTUAL_PARTNER_RUNTIME_MODEL" envDefault:"negotiation-virtual-partner-runtime"`
-			TrainingStateModel         string `env:"AI_TRAINING_STATE_MODEL" envDefault:"negotiation-state-evaluator"`
-			TrainingAssessmentModel    string `env:"AI_TRAINING_ASSESSMENT_MODEL" envDefault:"negotiation-assessment-evaluator"`
 
 			ScenarioArchitectTemperature     float64 `env:"AI_SCENARIO_ARCHITECT_TEMPERATURE" envDefault:"0.4"`
 			BlockDesignerTemperature         float64 `env:"AI_BLOCK_DESIGNER_TEMPERATURE" envDefault:"0.4"`

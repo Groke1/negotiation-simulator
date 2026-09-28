@@ -343,6 +343,7 @@ func (s *Service) completeSessionInTx(ctx context.Context, session *entity.Train
 			extras = analysisExtrasFromAssessment(*assessment)
 		}
 		clusterResults = ensureTerminatedVirtualPartnerResults(doc, state, clusterResults)
+		clusterResults = ensureVirtualPartnerFallbackResults(doc, clusterResults)
 	}
 	score := overallTrainingScore(clusterResults)
 	outcome := outcomeJSON(doc, state)
@@ -388,7 +389,7 @@ func (s *Service) completeTrainingAnalysisAsync(sessionID string) {
 		if session.Mode == entity.TrainingModeVirtualPartner {
 			assessment, err = s.assessVirtualPartnerTraining(ctx, session, doc, state, messages)
 			if err != nil {
-				return
+				assessment = nil
 			}
 		}
 		_ = s.transactor.WithTx(ctx, func(txCtx context.Context) error {
@@ -1434,6 +1435,22 @@ func ensureTerminatedVirtualPartnerResults(doc entity.ScenarioDocument, state tr
 			Score:          20,
 			EvidenceWeight: 0.3,
 			Comment:        "Тренировка завершилась досрочно: поведение участника сорвало переговоры до достижения финального состояния.",
+		})
+	}
+	return items
+}
+
+func ensureVirtualPartnerFallbackResults(doc entity.ScenarioDocument, results []entity.TrainingClusterResult) []entity.TrainingClusterResult {
+	if len(results) > 0 || len(doc.TargetClusterIDs) == 0 {
+		return results
+	}
+	items := make([]entity.TrainingClusterResult, 0, len(doc.TargetClusterIDs))
+	for _, clusterID := range doc.TargetClusterIDs {
+		items = append(items, entity.TrainingClusterResult{
+			ClusterID:      clusterID,
+			Score:          50,
+			EvidenceWeight: 0.1,
+			Comment:        "AI-анализ тренировки не был сформирован, поэтому сохранена техническая нейтральная оценка.",
 		})
 	}
 	return items

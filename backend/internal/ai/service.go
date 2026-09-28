@@ -43,14 +43,6 @@ type Provider interface {
 }
 
 type Config struct {
-	ScenarioArchitectModel     string
-	BlockDesignerModel         string
-	DialogueBuilderModel       string
-	ActionClassifierModel      string
-	VirtualPartnerModel        string
-	VirtualPartnerRuntimeModel string
-	TrainingStateModel         string
-	TrainingAssessmentModel    string
 	ScenarioArchitectTemp      float64
 	BlockDesignerTemp          float64
 	DialogueBuilderTemp        float64
@@ -65,7 +57,13 @@ type Config struct {
 	TrainingStateThink         *bool
 	TrainingAssessmentThink    *bool
 	MaxStructuredOutputRetry   int
+	SystemPrompts              map[Role]string
 }
+
+const (
+	mainModel    = "qwen3.5:9b"
+	messageModel = "qwen3.5:4b"
+)
 
 type service struct {
 	provider Provider
@@ -93,9 +91,11 @@ func (s *service) GenerateJSON(ctx context.Context, role Role, input any, output
 	}
 
 	var lastErr error
-	messages := []message{
-		{Role: "user", Content: string(payload)},
+	messages := make([]message, 0, 2)
+	if prompt := strings.TrimSpace(s.cfg.SystemPrompts[role]); prompt != "" {
+		messages = append(messages, message{Role: "system", Content: prompt})
 	}
+	messages = append(messages, message{Role: "user", Content: string(payload)})
 	for attempt := 0; attempt <= s.cfg.MaxStructuredOutputRetry; attempt++ {
 		if attempt > 0 && lastErr != nil {
 			messages = append(messages, message{Role: "user", Content: "Previous response did not pass backend JSON/schema validation: " + lastErr.Error() + ". Return only corrected JSON."})
@@ -131,21 +131,21 @@ type roleConfig struct {
 func (s *service) configForRole(role Role) (roleConfig, error) {
 	switch role {
 	case RoleScenarioArchitect:
-		return roleConfig{model: s.cfg.ScenarioArchitectModel, temperature: s.cfg.ScenarioArchitectTemp}, nil
+		return roleConfig{model: mainModel, temperature: s.cfg.ScenarioArchitectTemp}, nil
 	case RoleBlockDesigner:
-		return roleConfig{model: s.cfg.BlockDesignerModel, temperature: s.cfg.BlockDesignerTemp, think: s.cfg.BlockDesignerThink}, nil
+		return roleConfig{model: mainModel, temperature: s.cfg.BlockDesignerTemp, think: s.cfg.BlockDesignerThink}, nil
 	case RoleDialogueBuilder:
-		return roleConfig{model: s.cfg.DialogueBuilderModel, temperature: s.cfg.DialogueBuilderTemp, think: s.cfg.DialogueBuilderThink}, nil
+		return roleConfig{model: mainModel, temperature: s.cfg.DialogueBuilderTemp, think: s.cfg.DialogueBuilderThink}, nil
 	case RoleActionClassifier:
-		return roleConfig{model: s.cfg.ActionClassifierModel, temperature: s.cfg.ActionClassifierTemp}, nil
+		return roleConfig{model: mainModel, temperature: s.cfg.ActionClassifierTemp}, nil
 	case RoleVirtualPartner:
-		return roleConfig{model: s.cfg.VirtualPartnerModel, temperature: s.cfg.VirtualPartnerTemp}, nil
+		return roleConfig{model: mainModel, temperature: s.cfg.VirtualPartnerTemp}, nil
 	case RoleVirtualPartnerRuntime:
-		return roleConfig{model: s.cfg.VirtualPartnerRuntimeModel, temperature: s.cfg.VirtualPartnerRuntimeTemp, think: s.cfg.VirtualPartnerRuntimeThink}, nil
+		return roleConfig{model: messageModel, temperature: s.cfg.VirtualPartnerRuntimeTemp, think: s.cfg.VirtualPartnerRuntimeThink}, nil
 	case RoleTrainingState:
-		return roleConfig{model: s.cfg.TrainingStateModel, temperature: s.cfg.TrainingStateTemp, think: s.cfg.TrainingStateThink}, nil
+		return roleConfig{model: mainModel, temperature: s.cfg.TrainingStateTemp, think: s.cfg.TrainingStateThink}, nil
 	case RoleTrainingAssessment:
-		return roleConfig{model: s.cfg.TrainingAssessmentModel, temperature: s.cfg.TrainingAssessmentTemp, think: s.cfg.TrainingAssessmentThink}, nil
+		return roleConfig{model: mainModel, temperature: s.cfg.TrainingAssessmentTemp, think: s.cfg.TrainingAssessmentThink}, nil
 	default:
 		return roleConfig{}, fmt.Errorf("unknown ai role %s", role)
 	}
