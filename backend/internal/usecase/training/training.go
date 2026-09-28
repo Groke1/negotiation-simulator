@@ -16,6 +16,7 @@ type repository interface {
 	ListSessions(ctx context.Context, filter entity.TrainingSessionFilter) ([]entity.TrainingSession, error)
 	UpdateState(ctx context.Context, sessionID string, state []byte, status entity.TrainingStatus) (*entity.TrainingSession, error)
 	Complete(ctx context.Context, sessionID string, score float64, analysis []byte) (*entity.TrainingSession, error)
+	SetAnalysis(ctx context.Context, sessionID string, analysis []byte) (*entity.TrainingSession, error)
 	CompleteLinkedAssignment(ctx context.Context, sessionID string) error
 	CreateMessage(ctx context.Context, params entity.CreateTrainingMessage) (*entity.TrainingMessage, error)
 	ListMessages(ctx context.Context, sessionID string) ([]entity.TrainingMessage, error)
@@ -45,6 +46,8 @@ const (
 	virtualPartnerPatienceThreshold = 100
 	virtualPartnerPatienceDeltaMin  = -5
 	virtualPartnerPatienceDeltaMax  = 40
+	trainingAnalysisFailedStatus    = "failed"
+	trainingAnalysisFailedErrorCode = "AI_ANALYSIS_FAILED"
 )
 
 type Service struct {
@@ -328,6 +331,14 @@ func (s *Service) GetAnalysis(ctx context.Context, claims entity.AccessClaims, s
 	if session.Status != entity.TrainingStatusCompleted {
 		return nil, entity.ErrInvalidTrainingState
 	}
+	if isFailedTrainingAnalysis(session.Analysis) {
+		analysis, err := s.calculateTrainingAnalysis(ctx, session)
+		if err != nil {
+			_ = s.markTrainingAnalysisFailed(ctx, session.ID)
+			return nil, entity.ErrTrainingAnalysisNotReady
+		}
+		return analysis, nil
+	}
 	if len(session.Analysis) == 0 {
 		return nil, entity.ErrTrainingAnalysisNotReady
 	}
@@ -343,7 +354,6 @@ func (s *Service) completeSessionInTx(ctx context.Context, session *entity.Train
 			extras = analysisExtrasFromAssessment(*assessment)
 		}
 		clusterResults = ensureTerminatedVirtualPartnerResults(doc, state, clusterResults)
-		clusterResults = ensureVirtualPartnerFallbackResults(doc, clusterResults)
 	}
 	score := overallTrainingScore(clusterResults)
 	outcome := outcomeJSON(doc, state)
@@ -374,39 +384,86 @@ func (s *Service) completeTrainingAnalysisAsync(sessionID string) {
 		if err != nil {
 			return
 		}
-		if len(session.Analysis) > 0 {
+		if len(session.Analysis) > 0 && !isFailedTrainingAnalysis(session.Analysis) {
 			return
 		}
-		doc, state, err := sessionRuntime(session)
-		if err != nil {
-			return
+		if _, err := s.calculateTrainingAnalysis(ctx, session); err != nil {
+			_ = s.markTrainingAnalysisFailed(ctx, session.ID)
 		}
-		messages, err := s.repository.ListMessages(ctx, session.ID)
-		if err != nil {
-			return
-		}
-		var assessment *entity.TrainingAssessment
-		if session.Mode == entity.TrainingModeVirtualPartner {
-			assessment, err = s.assessVirtualPartnerTraining(ctx, session, doc, state, messages)
-			if err != nil {
-				assessment = nil
-			}
-		}
-		_ = s.transactor.WithTx(ctx, func(txCtx context.Context) error {
-			fresh, err := s.repository.GetSession(txCtx, session.ID)
-			if err != nil {
-				return err
-			}
-			if len(fresh.Analysis) > 0 {
-				return nil
-			}
-			returned, err := s.completeSessionInTx(txCtx, fresh, doc, state, messages, assessment)
-			if err != nil || returned == nil {
-				return err
-			}
-			return nil
-		})
 	}()
+}
+
+func (s *Service) calculateTrainingAnalysis(ctx context.Context, session *entity.TrainingSession) (json.RawMessage, error) {
+	doc, state, err := sessionRuntime(session)
+	if err != nil {
+		return nil, err
+	}
+	messages, err := s.repository.ListMessages(ctx, session.ID)
+	if err != nil {
+		return nil, err
+	}
+	var assessment *entity.TrainingAssessment
+	if session.Mode == entity.TrainingModeVirtualPartner {
+		assessment, err = s.assessVirtualPartnerTraining(ctx, session, doc, state, messages)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var analysis json.RawMessage
+	err = s.transactor.WithTx(ctx, func(txCtx context.Context) error {
+		fresh, err := s.repository.GetSession(txCtx, session.ID)
+		if err != nil {
+			return err
+		}
+		if len(fresh.Analysis) > 0 && !isFailedTrainingAnalysis(fresh.Analysis) {
+			analysis = fresh.Analysis
+			return nil
+		}
+		returned, err := s.completeSessionInTx(txCtx, fresh, doc, state, messages, assessment)
+		if err != nil {
+			return err
+		}
+		if returned == nil {
+			return entity.ErrTrainingAnalysisNotReady
+		}
+		analysis = returned.Session.Analysis
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(analysis) == 0 || isFailedTrainingAnalysis(analysis) {
+		return nil, entity.ErrTrainingAnalysisNotReady
+	}
+	return analysis, nil
+}
+
+func (s *Service) markTrainingAnalysisFailed(ctx context.Context, sessionID string) error {
+	_, err := s.repository.SetAnalysis(ctx, sessionID, failedTrainingAnalysisJSON())
+	return err
+}
+
+func failedTrainingAnalysisJSON() json.RawMessage {
+	raw, _ := json.Marshal(map[string]any{
+		"status":     trainingAnalysisFailedStatus,
+		"retryable":  true,
+		"error_code": trainingAnalysisFailedErrorCode,
+	})
+	return raw
+}
+
+func isFailedTrainingAnalysis(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var payload struct {
+		Status    string `json:"status"`
+		ErrorCode string `json:"error_code"`
+	}
+	if json.Unmarshal(raw, &payload) != nil {
+		return false
+	}
+	return payload.Status == trainingAnalysisFailedStatus && payload.ErrorCode == trainingAnalysisFailedErrorCode
 }
 
 func (s *Service) requireSessionOwner(ctx context.Context, claims entity.AccessClaims, sessionID string) (*entity.TrainingSession, error) {
@@ -1037,7 +1094,7 @@ func deterministicEventFromMessage(message entity.TrainingMessage) deterministic
 }
 
 func analysisTimeline(doc entity.ScenarioDocument, messages []entity.TrainingMessage, extras *trainingAnalysisExtras) []map[string]any {
-	if extras != nil && len(extras.Timeline) > 0 {
+	if extras != nil {
 		items := make([]map[string]any, 0, len(extras.Timeline))
 		for _, item := range extras.Timeline {
 			items = append(items, map[string]any{
@@ -1089,7 +1146,7 @@ func analysisTimeline(doc entity.ScenarioDocument, messages []entity.TrainingMes
 }
 
 func analysisMessageFeedback(messages []entity.TrainingMessage, extras *trainingAnalysisExtras) []map[string]any {
-	if extras != nil && len(extras.MessageFeedback) > 0 {
+	if extras != nil {
 		items := make([]map[string]any, 0, len(extras.MessageFeedback))
 		for _, item := range extras.MessageFeedback {
 			items = append(items, map[string]any{
@@ -1391,12 +1448,6 @@ func virtualPartnerClusterResults(assessment entity.TrainingAssessment, targetCl
 			continue
 		}
 		if item.Status == "NOT_OBSERVED" {
-			results = append(results, entity.TrainingClusterResult{
-				ClusterID:      item.ClusterID,
-				Score:          0,
-				EvidenceWeight: 0,
-				Comment:        strings.TrimSpace(item.Comment),
-			})
 			continue
 		}
 		if item.Status != "ASSESSED" {
@@ -1418,39 +1469,25 @@ func ensureTerminatedVirtualPartnerResults(doc entity.ScenarioDocument, state tr
 	if ok && block.Type == "end" {
 		return results
 	}
-	hasWeightedEvidence := false
-	for _, result := range results {
-		if result.EvidenceWeight > 0 {
-			hasWeightedEvidence = true
-			break
-		}
-	}
-	if hasWeightedEvidence || len(doc.TargetClusterIDs) == 0 {
+	if len(doc.TargetClusterIDs) == 0 {
 		return results
 	}
-	items := make([]entity.TrainingClusterResult, 0, len(doc.TargetClusterIDs))
+	weightedClusters := map[string]bool{}
+	for _, result := range results {
+		if result.EvidenceWeight > 0 {
+			weightedClusters[result.ClusterID] = true
+		}
+	}
+	items := append([]entity.TrainingClusterResult(nil), results...)
 	for _, clusterID := range doc.TargetClusterIDs {
+		if weightedClusters[clusterID] {
+			continue
+		}
 		items = append(items, entity.TrainingClusterResult{
 			ClusterID:      clusterID,
 			Score:          20,
 			EvidenceWeight: 0.3,
 			Comment:        "Тренировка завершилась досрочно: поведение участника сорвало переговоры до достижения финального состояния.",
-		})
-	}
-	return items
-}
-
-func ensureVirtualPartnerFallbackResults(doc entity.ScenarioDocument, results []entity.TrainingClusterResult) []entity.TrainingClusterResult {
-	if len(results) > 0 || len(doc.TargetClusterIDs) == 0 {
-		return results
-	}
-	items := make([]entity.TrainingClusterResult, 0, len(doc.TargetClusterIDs))
-	for _, clusterID := range doc.TargetClusterIDs {
-		items = append(items, entity.TrainingClusterResult{
-			ClusterID:      clusterID,
-			Score:          50,
-			EvidenceWeight: 0.1,
-			Comment:        "AI-анализ тренировки не был сформирован, поэтому сохранена техническая нейтральная оценка.",
 		})
 	}
 	return items
@@ -1482,6 +1519,16 @@ func analysisExtrasFromAssessment(assessment entity.TrainingAssessment) *trainin
 }
 
 func validateTrainingAssessment(assessment entity.TrainingAssessment, targetClusterIDs []string) error {
+	for _, item := range assessment.Timeline {
+		if strings.TrimSpace(item.Summary) == "" {
+			return entity.ErrAIInvalidStructuredOutput
+		}
+	}
+	for _, item := range assessment.MessageFeedback {
+		if strings.TrimSpace(item.MessageID) == "" || strings.TrimSpace(item.Summary) == "" {
+			return entity.ErrAIInvalidStructuredOutput
+		}
+	}
 	targets := stringSet(targetClusterIDs)
 	seen := map[string]bool{}
 	for _, item := range assessment.ClusterAssessments {
@@ -1491,7 +1538,7 @@ func validateTrainingAssessment(assessment entity.TrainingAssessment, targetClus
 		seen[item.ClusterID] = true
 		switch item.Status {
 		case "ASSESSED":
-			if item.Level < 0 || item.Level > 4 || len(item.EvidenceEpisodes) == 0 || strings.TrimSpace(item.Comment) == "" {
+			if item.Level < 0 || item.Level > 4 || len(item.EvidenceEpisodes) == 0 || strings.TrimSpace(item.Summary) == "" || strings.TrimSpace(item.Comment) == "" || strings.TrimSpace(item.Recommendation) == "" {
 				return entity.ErrAIInvalidStructuredOutput
 			}
 		case "NOT_OBSERVED":

@@ -12,27 +12,32 @@ incoming_message -> reply_options -> next node -> ... -> exit through existing t
 
 Backend передаёт:
 
-- сценарий и две роли;
-- `block`;
+- сценарий;
+- `learner_role` — описание роли пользователя без backend id;
+- `partner_role` — описание роли партнёра без backend id;
+- `block` — текущий блок без backend id ролей;
 - существующие разрешённые transitions текущего блока;
-- `learner_role_id` — роль, за которую строится deterministic-прохождение;
 - semantic action definitions;
 - optional `instructions`.
 
 ## Основные правила
 
-1. Reply options пользователя всегда должны иметь `role_id = learner_role_id`.
-2. Incoming messages обычно принадлежат второй роли.
+1. Reply options — это варианты ответа пользователя. Не возвращай для них `role_id`: backend сам подставит роль пользователя.
+2. Incoming messages — это реплики партнёра. Не возвращай для них `role_id`: backend сам подставит роль партнёра.
 3. Используй только semantic action codes из входного справочника.
-4. Не создавай UUID для node/reply. Используй локальные `key`. Backend преобразует их в UUID.
-5. В `deterministic_dialogue.learner_role_id` верни ровно тот `learner_role_id`, который backend передал во входе.
-6. Для выхода из блока используй только существующий `transition_id`, переданный backend.
+4. Не создавай UUID. Используй локальные `key` только для nodes.
+5. Не возвращай `learner_role_id`.
+6. Для выхода из блока используй только существующий `transition_id`, переданный backend во входном массиве `transitions`.
+   Если `transitions` пустой, не возвращай `transition_id`: завершай локальную ветку terminal node с пустым `reply_options`.
 7. Для продолжения внутри блока используй `next_node_key`.
 8. У каждого reply option должно быть РОВНО одно из:
    - `next_node_key`;
    - `transition_id`.
 9. Все node keys должны быть достижимы от `start_node_key`.
-10. Из каждой разумной ветки должен существовать конечный путь к одному из разрешённых transitions. Не создавай бесконечные циклы.
+10. Если transitions есть, из каждой разумной ветки должен существовать конечный путь к одному из разрешённых transitions. Если transitions нет, каждая ветка должна приходить в terminal node с пустым `reply_options`.
+    Не создавай циклы и self-loop: `next_node_key` не может ссылаться на текущий node.
+    Запрещено: node `n5` с reply option `"next_node_key":"n5"`.
+    Если нужно продолжить ту же тему, создай новый node, например `n5_followup`, или используй существующий `transition_id`.
 11. Разные reply options должны быть содержательно различными и педагогически осмысленными, а не перефразировками одной реплики.
 12. Semantic action reply option — правильная классификация этой заранее подготовленной реплики. Во время Training пользователь всё равно сам выберет semantic action, а backend сравнит его выбор с этим значением.
 13. Incoming message также получает правильный semantic action code, который frontend не обязан показывать пользователю заранее.
@@ -55,21 +60,22 @@ Backend читает твой ответ строгим JSON parser-ом.
 6. Запрещены альтернативные имена полей.
 7. Используй только локальные ключи:
    - `start_node_key`;
-   - `key`;
+   - `key` только у node;
    - `next_node_key`.
-8. Не используй поля `id`, `start_node_id`, `next_node_id`, `node_id`, `reply_id`.
-9. Для выхода из блока используй только поле `transition_id` с UUID существующего transition из входа.
-10. Не возвращай `null`, если в схеме ожидается строка, число, boolean, object или array.
-11. Для неизвестного текстового значения используй `""`; для пустой коллекции — `[]`; для пустого object — `{}`.
-12. Сохраняй точные имена ключей в snake_case.
+8. Не используй поля `id`, `start_node_id`, `next_node_id`, `node_id`, `reply_id`, `reply_key`.
+9. Не используй поля `role_id` и `learner_role_id`.
+10. Для выхода из блока используй только поле `transition_id` с UUID существующего transition из входа. Если входной массив `transitions` пустой, не используй `transition_id`.
+11. Не возвращай `null`, если в схеме ожидается строка, число, boolean, object или array.
+12. Для неизвестного текстового значения используй `""`; для пустой коллекции — `[]`; для пустого object — `{}`.
+13. Сохраняй точные имена ключей в snake_case.
+14. Если у reply option нет продолжения, не ставь `next_node_key: null`: либо укажи существующий следующий node, либо укажи существующий `transition_id`.
 
 ## Размер дерева
 
 Если backend не передал иных пожеланий:
 
-- 5–10 nodes на regular block для medium/hard и 4–7 nodes для easy;
-- 2–4 reply options на node;
-- глубина обычно 3–5 выборов, если это логично для блока;
+- 3–4 reply options на node, кроме terminal node;
+- глубина (число node) обычно 3–4 выборов, если это логично для блока;
 - минимум две разные ветки должны позволять выйти из блока, если у блока есть несколько разрешённых transitions;
 - допускается несколько разных выходов через разные существующие transitions.
 
@@ -81,18 +87,18 @@ Backend читает твой ответ строгим JSON parser-ом.
 
 Для переходов в end-блок выбирай transition_id только тогда, когда реплика действительно логически переводит переговоры к финальному состоянию. Если у end-блока есть собственный deterministic_dialogue, backend сначала даст пользователю пройти его сообщения до конца; если dialogue в end-блоке отсутствует, тренировка завершится сразу после перехода.
 
+Если `transitions` пустой, сделай короткое самодостаточное дерево внутри блока. Последние node должны иметь `"reply_options": []`. Не придумывай placeholder transition id.
+
 ## Формат выхода
 
 ```json
 {
   "deterministic_dialogue": {
-    "learner_role_id": "learner-role-id",
     "start_node_key": "n1",
     "nodes": [
       {
         "key": "n1",
         "incoming_message": {
-          "role_id": "opponent-role-id",
           "text": "...",
           "semantic_action_code": "MAKE_PROPOSAL"
         },
@@ -104,8 +110,6 @@ Backend читает твой ответ строгим JSON parser-ом.
         ],
         "reply_options": [
           {
-            "key": "n1_r1",
-            "role_id": "learner-role-id",
             "text": "...",
             "semantic_action_code": "PROBE_INTEREST",
             "assessments": [
@@ -118,8 +122,6 @@ Backend читает твой ответ строгим JSON parser-ом.
             "next_node_key": "n2"
           },
           {
-            "key": "n1_r2",
-            "role_id": "learner-role-id",
             "text": "...",
             "semantic_action_code": "HOLD_BOUNDARY",
             "assessments": [
@@ -136,7 +138,6 @@ Backend читает твой ответ строгим JSON parser-ом.
       {
         "key": "n2",
         "incoming_message": {
-          "role_id": "opponent-role-id",
           "text": "...",
           "semantic_action_code": "CLARIFY"
         },
@@ -148,4 +149,4 @@ Backend читает твой ответ строгим JSON parser-ом.
 }
 ```
 
-Перед ответом внутренне проверь ссылки `next_node_key`, доступность transitions и соответствие всех semantic action codes входному словарю.
+Перед ответом внутренне проверь ссылки `next_node_key`, отсутствие циклов/self-loop, доступность transitions и соответствие всех semantic action codes входному словарю.

@@ -152,7 +152,7 @@ func (s *service) configForRole(role Role) (roleConfig, error) {
 }
 
 func decodeModelJSON(content string, output any) error {
-	content = strings.TrimSpace(content)
+	content = normalizeModelJSONContent(content)
 	if content == "" {
 		return fmt.Errorf("empty ai response")
 	}
@@ -169,6 +169,24 @@ func decodeModelJSON(content string, output any) error {
 		return fmt.Errorf("ai response contains extra JSON tokens")
 	}
 	return nil
+}
+
+func normalizeModelJSONContent(content string) string {
+	content = strings.TrimSpace(content)
+	if strings.HasPrefix(content, "```") && strings.HasSuffix(content, "```") {
+		lines := strings.Split(content, "\n")
+		if len(lines) >= 2 {
+			opening := strings.TrimSpace(lines[0])
+			closing := strings.TrimSpace(lines[len(lines)-1])
+			if strings.HasPrefix(opening, "```") && closing == "```" {
+				lang := strings.TrimSpace(strings.TrimPrefix(opening, "```"))
+				if lang == "" || strings.EqualFold(lang, "json") {
+					return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+				}
+			}
+		}
+	}
+	return content
 }
 
 func mapProviderError(err error) error {

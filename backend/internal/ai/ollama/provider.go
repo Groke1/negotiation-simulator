@@ -13,11 +13,13 @@ import (
 )
 
 type Config struct {
-	BaseURL string
-	Timeout time.Duration
-	Think   bool
-	Stream  bool
-	Format  string
+	BaseURL    string
+	Timeout    time.Duration
+	Think      bool
+	Stream     bool
+	Format     string
+	NumPredict int
+	NumCtx     int
 }
 
 type Provider struct {
@@ -41,6 +43,12 @@ func (p *Provider) Generate(ctx context.Context, req ai.GenerateRequest) (string
 		Stream:   p.cfg.Stream,
 		Format:   strings.TrimSpace(p.cfg.Format),
 		Options:  map[string]any{"temperature": req.Temperature},
+	}
+	if p.cfg.NumPredict > 0 {
+		payload.Options["num_predict"] = p.cfg.NumPredict
+	}
+	if p.cfg.NumCtx > 0 {
+		payload.Options["num_ctx"] = p.cfg.NumCtx
 	}
 	if req.Think != nil {
 		payload.Think = *req.Think

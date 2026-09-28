@@ -82,7 +82,7 @@ func Run(logger *zap.Logger, cfg *config.Config) error {
 	var aiProvider ai.Provider
 	switch strings.ToLower(strings.TrimSpace(cfg.AI.Provider)) {
 	case "ollama":
-		aiProvider = ollama.NewProvider(ollama.Config{BaseURL: cfg.AI.BaseURL, Timeout: cfg.AI.Timeout, Think: cfg.AI.Think, Stream: cfg.AI.Stream, Format: cfg.AI.Format})
+		aiProvider = ollama.NewProvider(ollama.Config{BaseURL: cfg.AI.BaseURL, Timeout: cfg.AI.Timeout, Think: cfg.AI.Think, Stream: cfg.AI.Stream, Format: cfg.AI.Format, NumPredict: cfg.AI.NumPredict, NumCtx: cfg.AI.NumCtx})
 	default:
 		return fmt.Errorf("unsupported AI_PROVIDER %q", cfg.AI.Provider)
 	}

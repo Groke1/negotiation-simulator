@@ -368,6 +368,40 @@ func (q *Queries) ListTrainingSessions(ctx context.Context, arg ListTrainingSess
 	return items, nil
 }
 
+const setTrainingAnalysis = `-- name: SetTrainingAnalysis :one
+UPDATE learning.training_sessions
+SET analysis = $1
+WHERE id = $2
+RETURNING id, user_id, scenario_id, scenario_role_id, mode, channel, status, assignment_id, snapshot, state, analysis, score, created_at, completed_at
+`
+
+type SetTrainingAnalysisParams struct {
+	Analysis []byte      `json:"analysis"`
+	ID       pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) SetTrainingAnalysis(ctx context.Context, arg SetTrainingAnalysisParams) (LearningTrainingSession, error) {
+	row := q.db.QueryRow(ctx, setTrainingAnalysis, arg.Analysis, arg.ID)
+	var i LearningTrainingSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ScenarioID,
+		&i.ScenarioRoleID,
+		&i.Mode,
+		&i.Channel,
+		&i.Status,
+		&i.AssignmentID,
+		&i.Snapshot,
+		&i.State,
+		&i.Analysis,
+		&i.Score,
+		&i.CreatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const updateTrainingMessageClassification = `-- name: UpdateTrainingMessageClassification :one
 UPDATE learning.training_messages
 SET classification = $1

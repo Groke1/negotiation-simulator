@@ -44,6 +44,12 @@ SET status = 'completed', score = sqlc.arg(score), analysis = sqlc.arg(analysis)
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
+-- name: SetTrainingAnalysis :one
+UPDATE learning.training_sessions
+SET analysis = sqlc.arg(analysis)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
 -- name: CompleteLinkedAssignment :exec
 UPDATE learning.assignments
 SET status = 'completed', completed_at = NOW()

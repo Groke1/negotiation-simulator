@@ -133,6 +133,21 @@ func (r *Repository) Complete(ctx context.Context, sessionID string, score float
 	return sessionFromSQL(row, ""), nil
 }
 
+func (r *Repository) SetAnalysis(ctx context.Context, sessionID string, analysis []byte) (*entity.TrainingSession, error) {
+	pgID, err := pgxconv.StringToUUID(sessionID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	row, err := r.getQueries(ctx).SetTrainingAnalysis(ctx, sqlc.SetTrainingAnalysisParams{ID: pgID, Analysis: analysis})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, entity.ErrTrainingSessionNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return sessionFromSQL(row, ""), nil
+}
+
 func (r *Repository) CompleteLinkedAssignment(ctx context.Context, sessionID string) error {
 	pgID, err := pgxconv.StringToUUID(sessionID)
 	if err != nil {

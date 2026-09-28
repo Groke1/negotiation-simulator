@@ -44,6 +44,8 @@ type (
 			Think                    bool          `env:"AI_THINK" envDefault:"false"`
 			Stream                   bool          `env:"AI_STREAM" envDefault:"false"`
 			Format                   string        `env:"AI_FORMAT" envDefault:"json"`
+			NumPredict               int           `env:"AI_NUM_PREDICT" envDefault:"32768"`
+			NumCtx                   int           `env:"AI_NUM_CTX" envDefault:"65536"`
 			PromptDir                string        `env:"AI_PROMPT_DIR" envDefault:"prompts"`
 			MaxStructuredOutputRetry int           `env:"AI_MAX_STRUCTURED_OUTPUT_RETRY" envDefault:"1"`
 
@@ -56,7 +58,7 @@ type (
 			TrainingStateTemperature         float64 `env:"AI_TRAINING_STATE_TEMPERATURE" envDefault:"0.2"`
 			TrainingAssessmentTemperature    float64 `env:"AI_TRAINING_ASSESSMENT_TEMPERATURE" envDefault:"0.2"`
 			BlockDesignerThink               bool    `env:"AI_BLOCK_DESIGNER_THINK" envDefault:"false"`
-			DialogueBuilderThink             bool    `env:"AI_DIALOGUE_BUILDER_THINK" envDefault:"true"`
+			DialogueBuilderThink             bool    `env:"AI_DIALOGUE_BUILDER_THINK" envDefault:"false"`
 			VirtualPartnerRuntimeThink       bool    `env:"AI_VIRTUAL_PARTNER_RUNTIME_THINK" envDefault:"false"`
 			TrainingStateThink               bool    `env:"AI_TRAINING_STATE_THINK" envDefault:"true"`
 			TrainingAssessmentThink          bool    `env:"AI_TRAINING_ASSESSMENT_THINK" envDefault:"true"`

@@ -19,6 +19,7 @@ type Querier interface {
 	GetTrainingSession(ctx context.Context, id pgtype.UUID) (GetTrainingSessionRow, error)
 	ListTrainingMessages(ctx context.Context, sessionID pgtype.UUID) ([]LearningTrainingMessage, error)
 	ListTrainingSessions(ctx context.Context, arg ListTrainingSessionsParams) ([]ListTrainingSessionsRow, error)
+	SetTrainingAnalysis(ctx context.Context, arg SetTrainingAnalysisParams) (LearningTrainingSession, error)
 	UpdateTrainingMessageClassification(ctx context.Context, arg UpdateTrainingMessageClassificationParams) (LearningTrainingMessage, error)
 	UpdateTrainingState(ctx context.Context, arg UpdateTrainingStateParams) (LearningTrainingSession, error)
 }

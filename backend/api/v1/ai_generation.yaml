@@ -79,8 +79,8 @@ paths:
         Генерирует proposal полноценного графа Scenario на основе уже сохранённых исходных данных методиста:
         description, difficulty, двух ролей, target clusters и настроек runtime/channel.
 
-        Proposal содержит expanded_context и blocks с transitions. Deterministic dialogue намеренно
-        не генерируется этим endpoint и создаётся отдельно для конкретного блока.
+        Proposal содержит blocks с transitions. Expanded context намеренно генерируется отдельным
+        endpoint, а deterministic dialogue создаётся отдельно для конкретного блока.
 
         Backend нормализует локальные keys, созданные LLM, в UUID и выполняет in-memory validation proposal.
         Ни proposal, ни validation result автоматически не сохраняются в БД.
@@ -383,13 +383,8 @@ components:
     ScenarioDraftProposal:
       type: object
       required:
-        - expanded_context
         - blocks
       properties:
-        expanded_context:
-          type: string
-          maxLength: 50000
-          description: Предложенный общий публичный контекст сценария.
         blocks:
           type: array
           description: |

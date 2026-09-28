@@ -115,8 +115,7 @@ type expandContextResponse struct {
 }
 
 type scenarioDraftProposalResponse struct {
-	ExpandedContext string                  `json:"expanded_context"`
-	Blocks          []scenarioBlockResponse `json:"blocks"`
+	Blocks []scenarioBlockResponse `json:"blocks"`
 }
 
 type scenarioBlockResponse struct {
