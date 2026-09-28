@@ -10,7 +10,7 @@ const roles = ['learner', 'methodist', 'curator'];
 const descriptions = { learner: 'Проходит тренировки и участвует в Arena.', methodist: 'Создаёт сценарии переговоров.', curator: 'Назначает практики и анализирует результаты.' };
 
 export default function Onboarding() {
-  const { me, signInComplete } = useAuth();
+  const { me, signInComplete, setRole } = useAuth();
   const organizations = useQuery({ queryKey: ['organizations'], queryFn: ({ signal }) => getOrganizations(signal), enabled: !me?.organization });
   const [organizationId, setOrganizationId] = useState(''); const [organizationName, setOrganizationName] = useState(''); const [selectedRoles, setSelectedRoles] = useState(me?.roles || []); const [error, setError] = useState(''); const [saving, setSaving] = useState(false);
   if (!me) return <LoadingState />;
@@ -23,6 +23,9 @@ export default function Onboarding() {
       if (!me.organization && !id) { const organization = await createOrganization(organizationName.trim()); id = organization.id; }
       if (!me.organization) await setOrganization(id);
       for (const role of selectedRoles.filter((value) => !me.roles.includes(value))) await grantRole(role);
+      // POST /roles only persists the role. Switching the active role is what issues
+      // a fresh access token with the newly granted permissions.
+      await setRole(selectedRoles[0]);
       await signInComplete();
     } catch (reason) { setError(reason.message); } finally { setSaving(false); }
   }

@@ -19,7 +19,7 @@ WHERE s.id = sqlc.arg(id);
 SELECT s.*, sc.title AS scenario_title
 FROM learning.training_sessions s
 JOIN scenarios.scenarios sc ON sc.id = s.scenario_id
-WHERE s.user_id = sqlc.arg(user_id)
+WHERE (sqlc.narg(user_id)::uuid IS NULL OR s.user_id = sqlc.narg(user_id))
   AND (sqlc.narg(scenario_id)::uuid IS NULL OR s.scenario_id = sqlc.narg(scenario_id))
   AND (sqlc.narg(status)::text IS NULL OR s.status = sqlc.narg(status))
   AND (sqlc.narg(mode)::text IS NULL OR s.mode = sqlc.narg(mode))

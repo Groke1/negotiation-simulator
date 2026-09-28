@@ -13,7 +13,7 @@ WHERE aa.id = sqlc.arg(id);
 SELECT aa.*, sc.title AS scenario_title
 FROM learning.arena_assignments aa
 JOIN scenarios.scenarios sc ON sc.id = aa.scenario_id
-WHERE aa.created_by = sqlc.arg(curator_id)
+WHERE (sqlc.narg(curator_id)::uuid IS NULL OR aa.created_by = sqlc.narg(curator_id))
 ORDER BY aa.scheduled_at DESC, aa.created_at DESC
 LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 

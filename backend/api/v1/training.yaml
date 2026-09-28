@@ -31,8 +31,9 @@ paths:
     get:
       tags:
         - Training
-      summary: Получить историю попыток текущего пользователя
-      description: 'Возвращает все TrainingSession текущего пользователя. Один опубликованный сценарий можно
+      summary: Получить историю попыток
+      description: 'Learner получает только свои TrainingSession. Curator получает TrainingSession всех пользователей.
+        Один опубликованный сценарий можно
 
         проходить многократно; каждая попытка хранится отдельной сессией.
 
@@ -79,6 +80,8 @@ paths:
           $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     post:
@@ -87,7 +90,7 @@ paths:
       summary: Запустить тренировку
       description: 'Создаёт новую попытку по опубликованному Scenario. Повторное прохождение ранее завершённого
 
-        Scenario разрешено. Пользователь выбирает одну из двух ролей сценария.
+        Scenario разрешено. Доступно только learner. Пользователь выбирает одну из двух ролей сценария.
 
         '
       operationId: startTrainingSession
@@ -110,6 +113,8 @@ paths:
           $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/ScenarioNotFound'
         '409':
@@ -135,7 +140,8 @@ paths:
       summary: Получить состояние тренировки
       description: 'Используется в том числе для возобновления незавершённой тренировки после закрытия страницы.
 
-        Возвращает историю сообщений для virtual_partner либо текущий deterministic-узел.
+        Возвращает историю сообщений для virtual_partner либо текущий deterministic-узел. Learner может читать
+        только свою сессию; curator может читать любую сессию.
 
         '
       operationId: getTrainingSession
@@ -328,7 +334,8 @@ paths:
       summary: Получить итоговый разбор тренировки
       description: 'Возвращает результат переговоров, разбор процесса, сильные стороны, зоны развития,
 
-        оценки кластеров и изменение профиля до/после попытки.
+        оценки кластеров и изменение профиля до/после попытки. Learner может читать только свой разбор;
+        curator может читать разбор любой сессии.
 
         '
       operationId: getTrainingAnalysis

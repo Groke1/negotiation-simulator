@@ -59,7 +59,7 @@ func (s *Service) ListAssignments(ctx context.Context, claims entity.AccessClaim
 	if err := requireCurator(claims); err != nil {
 		return nil, err
 	}
-	return s.repository.ListAssignments(ctx, claims.UserID, limit, offset)
+	return s.repository.ListAssignments(ctx, "", limit, offset)
 }
 
 func (s *Service) CreateAssignment(ctx context.Context, claims entity.AccessClaims, params entity.CreateArenaAssignment) (*entity.ArenaAssignment, error) {
@@ -96,7 +96,7 @@ func (s *Service) GetAssignment(ctx context.Context, claims entity.AccessClaims,
 	if err != nil {
 		return nil, err
 	}
-	if assignment.CreatedBy == claims.UserID || assignmentParticipantRole(assignment.Participants, claims.UserID) != "" {
+	if claims.ActiveRole == entity.RoleCurator || assignmentParticipantRole(assignment.Participants, claims.UserID) != "" {
 		return assignment, nil
 	}
 	return nil, entity.ErrArenaAccessDenied
@@ -153,7 +153,7 @@ func (s *Service) getSessionForAccess(ctx context.Context, claims entity.AccessC
 	if err != nil {
 		return nil, err
 	}
-	if session.CreatedBy == claims.UserID || sessionParticipantRole(session.Participants, claims.UserID) != "" {
+	if claims.ActiveRole == entity.RoleCurator || sessionParticipantRole(session.Participants, claims.UserID) != "" {
 		return session, nil
 	}
 	return nil, entity.ErrArenaAccessDenied
@@ -217,6 +217,9 @@ func (s *Service) Complete(ctx context.Context, claims entity.AccessClaims, sess
 	session, err := s.getSessionForAccess(ctx, claims, sessionID)
 	if err != nil {
 		return err
+	}
+	if sessionParticipantRole(session.Participants, claims.UserID) == "" {
+		return entity.ErrArenaAccessDenied
 	}
 	if session.Status != entity.ArenaSessionInProgress {
 		return entity.ErrInvalidArenaState

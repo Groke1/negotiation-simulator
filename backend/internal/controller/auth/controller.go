@@ -7,6 +7,7 @@ import (
 	"net/mail"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -48,7 +49,7 @@ func (c *Controller) Register(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
 		return
 	}
-	tokens, err := c.service.Register(r.Context(), entity.RegisterUser{Username: strings.TrimSpace(req.Username), Email: strings.TrimSpace(req.Email), Password: req.Password})
+	tokens, err := c.service.Register(r.Context(), entity.RegisterUser{Username: normalizeUsername(req.Username), Email: strings.TrimSpace(req.Email), Password: req.Password})
 	if err != nil {
 		c.writeAuthError(w, r, err)
 		return
@@ -118,12 +119,17 @@ func (c *Controller) writeAuthError(w http.ResponseWriter, r *http.Request, err 
 	httpx.WriteError(w, status, code)
 }
 
-var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+var usernamePattern = regexp.MustCompile(`^[\p{L}\p{N}_.\- ]+$`)
 
 func validRegisterRequest(req registerRequest) bool {
-	username := strings.TrimSpace(req.Username)
+	username := normalizeUsername(req.Username)
 	email := strings.TrimSpace(req.Email)
-	return len(username) >= 3 && len(username) <= 50 && usernamePattern.MatchString(username) && validEmail(email) && len(req.Password) >= 8 && len(req.Password) <= 128
+	usernameLen := utf8.RuneCountInString(username)
+	return usernameLen >= 3 && usernameLen <= 50 && usernamePattern.MatchString(username) && validEmail(email) && len(req.Password) >= 8 && len(req.Password) <= 128
+}
+
+func normalizeUsername(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func validLoginRequest(req loginRequest) bool {

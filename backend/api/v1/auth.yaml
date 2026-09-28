@@ -153,8 +153,9 @@ components:
           type: string
           minLength: 3
           maxLength: 50
-          pattern: ^[A-Za-z0-9_.-]+$
-          example: ivan.petrov
+          pattern: ^[\p{L}\p{N}_.\- ]+$
+          description: Имя пользователя может содержать буквы любого языка, цифры, пробелы, `_`, `.`, `-`.
+          example: Иван Петров
         email:
           type: string
           format: email

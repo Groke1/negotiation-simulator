@@ -63,11 +63,20 @@ func NewService(repository repository, scenarioRepository scenarioRepository, pr
 }
 
 func (s *Service) ListSessions(ctx context.Context, claims entity.AccessClaims, filter entity.TrainingSessionFilter) ([]entity.TrainingSession, error) {
-	filter.UserID = claims.UserID
+	switch claims.ActiveRole {
+	case entity.RoleLearner:
+		filter.UserID = claims.UserID
+	case entity.RoleCurator:
+	default:
+		return nil, entity.ErrTrainingAccessDenied
+	}
 	return s.repository.ListSessions(ctx, filter)
 }
 
 func (s *Service) StartSession(ctx context.Context, claims entity.AccessClaims, params entity.StartTrainingSession) (*entity.TrainingSessionDetails, error) {
+	if claims.ActiveRole != entity.RoleLearner {
+		return nil, entity.ErrTrainingAccessDenied
+	}
 	params.UserID = claims.UserID
 	scenario, err := s.scenarioRepository.GetScenarioByID(ctx, params.ScenarioID)
 	if err != nil {
@@ -113,7 +122,7 @@ func (s *Service) StartSession(ctx context.Context, claims entity.AccessClaims, 
 }
 
 func (s *Service) GetSession(ctx context.Context, claims entity.AccessClaims, sessionID string) (*entity.TrainingSessionDetails, error) {
-	session, err := s.requireSessionOwner(ctx, claims, sessionID)
+	session, err := s.requireSessionReadable(ctx, claims, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +333,7 @@ func (s *Service) ClassifyMessage(ctx context.Context, claims entity.AccessClaim
 }
 
 func (s *Service) GetAnalysis(ctx context.Context, claims entity.AccessClaims, sessionID string) (json.RawMessage, error) {
-	session, err := s.requireSessionOwner(ctx, claims, sessionID)
+	session, err := s.requireSessionReadable(ctx, claims, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -471,10 +480,21 @@ func (s *Service) requireSessionOwner(ctx context.Context, claims entity.AccessC
 	if err != nil {
 		return nil, err
 	}
-	if session.UserID != claims.UserID {
+	if claims.ActiveRole != entity.RoleLearner || session.UserID != claims.UserID {
 		return nil, entity.ErrTrainingAccessDenied
 	}
 	return session, nil
+}
+
+func (s *Service) requireSessionReadable(ctx context.Context, claims entity.AccessClaims, sessionID string) (*entity.TrainingSession, error) {
+	session, err := s.repository.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if claims.ActiveRole == entity.RoleCurator || (claims.ActiveRole == entity.RoleLearner && session.UserID == claims.UserID) {
+		return session, nil
+	}
+	return nil, entity.ErrTrainingAccessDenied
 }
 
 func (s *Service) createPartnerMessage(ctx context.Context, sessionID, text, expectedCode string) (*entity.TrainingMessage, error) {

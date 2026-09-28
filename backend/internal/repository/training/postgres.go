@@ -76,7 +76,11 @@ func (r *Repository) GetSession(ctx context.Context, id string) (*entity.Trainin
 }
 
 func (r *Repository) ListSessions(ctx context.Context, filter entity.TrainingSessionFilter) ([]entity.TrainingSession, error) {
-	userID, err := pgxconv.StringToUUID(filter.UserID)
+	var userIDFilter *string
+	if filter.UserID != "" {
+		userIDFilter = &filter.UserID
+	}
+	userID, err := optionalUUID(userIDFilter)
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}

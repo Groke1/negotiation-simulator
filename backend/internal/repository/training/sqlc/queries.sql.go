@@ -287,7 +287,7 @@ const listTrainingSessions = `-- name: ListTrainingSessions :many
 SELECT s.id, s.user_id, s.scenario_id, s.scenario_role_id, s.mode, s.channel, s.status, s.assignment_id, s.snapshot, s.state, s.analysis, s.score, s.created_at, s.completed_at, sc.title AS scenario_title
 FROM learning.training_sessions s
 JOIN scenarios.scenarios sc ON sc.id = s.scenario_id
-WHERE s.user_id = $1
+WHERE ($1::uuid IS NULL OR s.user_id = $1)
   AND ($2::uuid IS NULL OR s.scenario_id = $2)
   AND ($3::text IS NULL OR s.status = $3)
   AND ($4::text IS NULL OR s.mode = $4)
