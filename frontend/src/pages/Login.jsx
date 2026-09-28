@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { login, register } from '../api';
 import { useAuth } from '../app/AuthContext';
+import { preferredRole } from '../app/roles';
 
 export default function Login({ register: isRegistration = false }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signInComplete } = useAuth();
+  const { signInComplete, setRole } = useAuth();
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -22,8 +23,10 @@ export default function Login({ register: isRegistration = false }) {
     try {
       if (isRegistration) await register(username, email, password);
       else await login(email, password);
-      await signInComplete();
-      navigate(location.state?.from?.pathname || '/', { replace: true });
+      const currentUser = await signInComplete();
+      const role = preferredRole(currentUser.roles);
+      if (role) await setRole(role);
+      navigate(isRegistration ? '/' : (location.state?.from?.pathname || '/'), { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {

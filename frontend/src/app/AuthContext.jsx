@@ -25,9 +25,20 @@ export function AuthProvider({ children }) {
     loading: !signedOut && meQuery.isLoading,
     error: meQuery.error,
     authenticated: !signedOut && Boolean(normalizedMe),
-    async signInComplete() { setSignedOut(false); await client.invalidateQueries({ queryKey: ['me'] }); },
+    async signInComplete() {
+      setSignedOut(false);
+      const currentUser = await getMe();
+      client.setQueryData(['me'], currentUser);
+      return currentUser;
+    },
     signOut() { tokenStore.clear(); setSignedOut(true); client.clear(); },
-    async setRole(role) { await switchRole(role); await client.invalidateQueries(); await client.refetchQueries({ queryKey: ['me'] }); },
+    async setRole(role) {
+      await switchRole(role);
+      const currentUser = await getMe();
+      client.setQueryData(['me'], currentUser);
+      await client.invalidateQueries({ predicate: (query) => query.queryKey[0] !== 'me' });
+      return currentUser;
+    },
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

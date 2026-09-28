@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { createOrganization, getOrganizations, grantRole, setOrganization } from '../api';
 import { useAuth } from '../app/AuthContext';
-import { roleHome, roleName } from '../app/roles';
+import { preferredRole, roleHome, roleName } from '../app/roles';
 import { ErrorState, LoadingState } from '../components/UI';
 
 const roles = ['learner', 'methodist', 'curator'];
@@ -25,7 +25,7 @@ export default function Onboarding() {
       for (const role of selectedRoles.filter((value) => !me.roles.includes(value))) await grantRole(role);
       // POST /roles only persists the role. Switching the active role is what issues
       // a fresh access token with the newly granted permissions.
-      await setRole(selectedRoles[0]);
+      await setRole(preferredRole(selectedRoles));
       await signInComplete();
     } catch (reason) { setError(reason.message); } finally { setSaving(false); }
   }
