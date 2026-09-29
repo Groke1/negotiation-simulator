@@ -62,6 +62,7 @@ const (
 	ErrArenaMessageNotFound            ErrorCode = "ARENA_MESSAGE_NOT_FOUND"
 	ErrArenaAccessDenied               ErrorCode = "ARENA_ACCESS_DENIED"
 	ErrArenaJoinNotAllowed             ErrorCode = "ARENA_JOIN_NOT_ALLOWED"
+	ErrArenaWaitingForParticipant      ErrorCode = "ARENA_WAITING_FOR_PARTICIPANT"
 	ErrInvalidArenaState               ErrorCode = "INVALID_ARENA_STATE"
 	ErrArenaFeedbackForbidden          ErrorCode = "ARENA_FEEDBACK_FORBIDDEN"
 	ErrArenaFeedbackConflict           ErrorCode = "ARENA_FEEDBACK_CONFLICT"
@@ -177,6 +178,8 @@ func (e ErrorCode) Message() string {
 		return "Access to this arena is denied"
 	case ErrArenaJoinNotAllowed:
 		return "Cannot join this arena"
+	case ErrArenaWaitingForParticipant:
+		return "Arena is waiting for the second participant"
 	case ErrInvalidArenaState:
 		return "Arena state does not allow this operation"
 	case ErrArenaFeedbackForbidden:
@@ -308,6 +311,8 @@ func ErrorCodeFromError(err error) ErrorCode {
 		return ErrArenaAccessDenied
 	case errors.Is(err, entity.ErrArenaJoinNotAllowed):
 		return ErrArenaJoinNotAllowed
+	case errors.Is(err, entity.ErrArenaWaitingForParticipant):
+		return ErrArenaWaitingForParticipant
 	case errors.Is(err, entity.ErrInvalidArenaState):
 		return ErrInvalidArenaState
 	case errors.Is(err, entity.ErrArenaFeedbackForbidden):

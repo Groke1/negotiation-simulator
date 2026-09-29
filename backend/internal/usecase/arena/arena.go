@@ -203,6 +203,9 @@ func (s *Service) SendMessage(ctx context.Context, claims entity.AccessClaims, p
 		return nil, err
 	}
 	if session.Status != entity.ArenaSessionInProgress {
+		if session.Status == entity.ArenaSessionWaiting {
+			return nil, entity.ErrArenaWaitingForParticipant
+		}
 		return nil, entity.ErrInvalidArenaState
 	}
 	if sessionParticipantRole(session.Participants, claims.UserID) == "" {
@@ -376,6 +379,9 @@ func (s *Service) decorateSessionScenario(ctx context.Context, session *entity.A
 	if err != nil {
 		return nil, err
 	}
+	if err := s.decorateSessionParticipants(ctx, session); err != nil {
+		return nil, err
+	}
 	doc := entity.ScenarioDocumentFromScenario(*scenario)
 	public := entity.PublicScenarioInfoFromDocument(doc)
 	session.Scenario = &public
@@ -401,6 +407,34 @@ func (s *Service) decorateSessionScenario(ctx context.Context, session *entity.A
 		}
 	}
 	return session, nil
+}
+
+func (s *Service) decorateSessionParticipants(ctx context.Context, session *entity.ArenaSession) error {
+	joinedByUser := make(map[string]entity.ArenaSessionParticipant, len(session.Joined))
+	for _, participant := range session.Joined {
+		joinedByUser[participant.UserID] = participant
+	}
+	for i := range session.Participants {
+		if joined, ok := joinedByUser[session.Participants[i].UserID]; ok {
+			session.Participants[i].JoinedAt = joined.JoinedAt
+		}
+		user, err := s.userRepository.GetUserByID(ctx, session.Participants[i].UserID)
+		if err != nil {
+			return err
+		}
+		session.Participants[i].Username = user.Username
+	}
+	for i := range session.Joined {
+		if session.Joined[i].Username != "" {
+			continue
+		}
+		user, err := s.userRepository.GetUserByID(ctx, session.Joined[i].UserID)
+		if err != nil {
+			return err
+		}
+		session.Joined[i].Username = user.Username
+	}
+	return nil
 }
 
 func validArenaChannel(channel string) bool {

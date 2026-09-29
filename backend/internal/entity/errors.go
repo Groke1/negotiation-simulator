@@ -51,6 +51,7 @@ var (
 	ErrArenaMessageNotFound              = errors.New("arena message not found")
 	ErrArenaAccessDenied                 = errors.New("arena access denied")
 	ErrArenaJoinNotAllowed               = errors.New("arena join not allowed")
+	ErrArenaWaitingForParticipant        = errors.New("arena waiting for participant")
 	ErrInvalidArenaState                 = errors.New("invalid arena state")
 	ErrArenaFeedbackForbidden            = errors.New("arena feedback forbidden")
 	ErrArenaFeedbackConflict             = errors.New("arena feedback conflict")

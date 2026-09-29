@@ -59,6 +59,8 @@ export const createArenaAssignment = (data, participants, scheduledAt) => reques
 export const getArenaAssignment = (id, signal) => request(`/arena/assignments/${id}`, { signal });
 export const joinArena = (id) => request(`/arena/assignments/${id}/join`, { method: 'POST' });
 export const getArenaSession = (id, signal) => request(`/arena/sessions/${id}`, { signal });
+export const getArenaPresence = (id, signal) => request(`/arena/sessions/${id}/presence`, { signal });
+export const updateArenaTyping = (id, isTyping, signal) => request(`/arena/sessions/${id}/typing`, { method: 'POST', data: { is_typing: isTyping }, signal });
 export const getArenaMessages = (id, signal) => request(`/arena/sessions/${id}/messages`, { signal }).then((data) => data.messages || []);
 export const sendArenaMessage = (id, message) => request(`/arena/sessions/${id}/messages`, { method: 'POST', data: message });
 export const classifyArenaMessage = (sessionId, messageId, data) => request(`/arena/sessions/${sessionId}/messages/${messageId}/classification`, { method: 'POST', data });

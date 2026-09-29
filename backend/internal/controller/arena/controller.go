@@ -52,6 +52,8 @@ func (c *Controller) InitRoutes(r chi.Router) {
 	r.Get("/arena/assignments/{arena_assignment_id}", c.GetAssignment)
 	r.Post("/arena/assignments/{arena_assignment_id}/join", c.Join)
 	r.Get("/arena/sessions/{arena_session_id}", c.GetSession)
+	r.Get("/arena/sessions/{arena_session_id}/presence", c.GetPresence)
+	r.Post("/arena/sessions/{arena_session_id}/typing", c.UpdateTyping)
 	r.Get("/arena/sessions/{arena_session_id}/messages", c.ListMessages)
 	r.Post("/arena/sessions/{arena_session_id}/messages", c.SendMessage)
 	r.Post("/arena/sessions/{arena_session_id}/messages/{message_id}/classification", c.ClassifyMessage)
@@ -130,7 +132,8 @@ func (c *Controller) Join(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
-	pkghttpx.WriteJSON(w, http.StatusOK, joinArenaResponse{ArenaSessionID: session.ID, Status: session.Status, Participants: session.Joined, WebsocketPath: "/ws/arena/sessions/" + session.ID, Scenario: session.Scenario, Preparation: arenaPreparationFromSession(session, claims.UserID)})
+	presence := c.presenceResponse(session)
+	pkghttpx.WriteJSON(w, http.StatusOK, joinArenaResponse{ArenaSessionID: session.ID, Status: session.Status, Participants: presence.Participants, Presence: presence, WebsocketPath: "/ws/arena/sessions/" + session.ID, Scenario: session.Scenario, Preparation: arenaPreparationFromSession(session, claims.UserID)})
 }
 
 func (c *Controller) GetSession(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +146,50 @@ func (c *Controller) GetSession(w http.ResponseWriter, r *http.Request) {
 		c.writeError(w, r, err)
 		return
 	}
+	session.Participants = c.presenceResponse(session).Participants
 	pkghttpx.WriteJSON(w, http.StatusOK, session)
+}
+
+func (c *Controller) GetPresence(w http.ResponseWriter, r *http.Request) {
+	claims, id, ok := claimsAndID(w, r, "arena_session_id")
+	if !ok {
+		return
+	}
+	session, err := c.service.GetSession(r.Context(), claims, id)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	pkghttpx.WriteJSON(w, http.StatusOK, c.presenceResponse(session))
+}
+
+func (c *Controller) UpdateTyping(w http.ResponseWriter, r *http.Request) {
+	claims, id, ok := claimsAndID(w, r, "arena_session_id")
+	if !ok {
+		return
+	}
+	var req typingRequest
+	if err := pkghttpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
+		return
+	}
+	session, err := c.service.GetSession(r.Context(), claims, id)
+	if err != nil {
+		c.writeError(w, r, err)
+		return
+	}
+	participant, ok := participantByUserID(session.Participants, claims.UserID)
+	if !ok {
+		c.writeError(w, r, entity.ErrArenaAccessDenied)
+		return
+	}
+	if session.Status == entity.ArenaSessionCompleted || session.Status == entity.ArenaSessionCancelled {
+		c.writeError(w, r, entity.ErrInvalidArenaState)
+		return
+	}
+	c.hub.setTyping(id, claims.UserID, req.IsTyping)
+	c.hub.broadcast(id, typingUpdatedPayload(id, participant, req.IsTyping))
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *Controller) ListMessages(w http.ResponseWriter, r *http.Request) {
@@ -319,8 +365,14 @@ func (c *Controller) WebSocket(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrInvalidRequest)
 		return
 	}
-	if _, err := c.service.GetSession(r.Context(), *claims, sessionID); err != nil {
+	session, err := c.service.GetSession(r.Context(), *claims, sessionID)
+	if err != nil {
 		c.writeError(w, r, err)
+		return
+	}
+	participant, ok := participantByUserID(session.Participants, claims.UserID)
+	if !ok {
+		c.writeError(w, r, entity.ErrArenaAccessDenied)
 		return
 	}
 	upgrader := websocket.Upgrader{
@@ -334,15 +386,36 @@ func (c *Controller) WebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
-	c.hub.add(sessionID, conn)
-	defer c.hub.remove(sessionID, conn)
+	client, becameOnline := c.hub.add(sessionID, conn, participant)
+	_ = client.writeJSON(presenceSnapshotPayload(sessionID, c.presenceResponse(session).Participants))
+	if becameOnline {
+		c.hub.broadcast(sessionID, participantOnlinePayload(sessionID, participant))
+	}
+	defer func() {
+		wasTyping, becameOffline := c.hub.remove(sessionID, client)
+		if wasTyping {
+			c.hub.broadcast(sessionID, typingUpdatedPayload(sessionID, participant, false))
+		}
+		if becameOffline {
+			c.hub.broadcast(sessionID, participantOfflinePayload(sessionID, participant))
+		}
+	}()
 	for {
 		var req wsMessageSend
 		if err := conn.ReadJSON(&req); err != nil {
 			return
 		}
+		if req.Type == "typing.update" {
+			if req.IsTyping == nil {
+				_ = client.writeJSON(map[string]any{"type": "error", "code": string(httpx.ErrInvalidRequest), "message": httpx.ErrInvalidRequest.Message()})
+				continue
+			}
+			c.hub.setTyping(sessionID, claims.UserID, *req.IsTyping)
+			c.hub.broadcast(sessionID, typingUpdatedPayload(sessionID, participant, *req.IsTyping))
+			continue
+		}
 		if req.Type != "message.send" {
-			_ = conn.WriteJSON(map[string]any{"type": "error", "code": string(httpx.ErrInvalidRequest), "message": httpx.ErrInvalidRequest.Message()})
+			_ = client.writeJSON(map[string]any{"type": "error", "code": string(httpx.ErrInvalidRequest), "message": httpx.ErrInvalidRequest.Message()})
 			continue
 		}
 		content := req.Content
@@ -351,12 +424,13 @@ func (c *Controller) WebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		params, ok := arenaMessageParams(sessionID, req.MessageID, content, req.SemanticActionCode, req.SemanticAnnotations)
 		if !ok {
-			_ = conn.WriteJSON(map[string]any{"type": "error", "code": string(httpx.ErrInvalidRequest), "message": httpx.ErrInvalidRequest.Message()})
+			_ = client.writeJSON(map[string]any{"type": "error", "code": string(httpx.ErrInvalidRequest), "message": httpx.ErrInvalidRequest.Message()})
 			continue
 		}
 		msg, err := c.service.SendMessage(r.Context(), *claims, params)
 		if err != nil {
-			_ = conn.WriteJSON(map[string]any{"type": "error", "code": string(httpx.ErrorCodeFromError(err)), "message": httpx.ErrorCodeFromError(err).Message()})
+			code := httpx.ErrorCodeFromError(err)
+			_ = client.writeJSON(map[string]any{"type": "error", "code": string(code), "message": code.Message()})
 			continue
 		}
 		c.hub.broadcast(sessionID, map[string]any{"type": "message.created", "message": msg})
@@ -421,6 +495,43 @@ func sessionParticipantRole(participants []entity.ArenaSessionParticipant, userI
 	return ""
 }
 
+func participantByUserID(participants []entity.ArenaSessionParticipant, userID string) (entity.ArenaSessionParticipant, bool) {
+	for _, participant := range participants {
+		if participant.UserID == userID {
+			return participant, true
+		}
+	}
+	return entity.ArenaSessionParticipant{}, false
+}
+
+func (c *Controller) presenceResponse(session *entity.ArenaSession) arenaPresenceResponse {
+	online := c.hub.onlineUsers(session.ID)
+	participants := make([]entity.ArenaSessionParticipant, 0, len(session.Participants))
+	for _, participant := range session.Participants {
+		participant.Online = online[participant.UserID]
+		participants = append(participants, participant)
+	}
+	return arenaPresenceResponse{Participants: participants}
+}
+
+func presenceSnapshotPayload(sessionID string, participants []entity.ArenaSessionParticipant) map[string]any {
+	return map[string]any{"type": "presence.snapshot", "arena_session_id": sessionID, "participants": participants}
+}
+
+func participantOnlinePayload(sessionID string, participant entity.ArenaSessionParticipant) map[string]any {
+	participant.Online = true
+	return map[string]any{"type": "participant.online", "arena_session_id": sessionID, "participant": participant}
+}
+
+func participantOfflinePayload(sessionID string, participant entity.ArenaSessionParticipant) map[string]any {
+	participant.Online = false
+	return map[string]any{"type": "participant.offline", "arena_session_id": sessionID, "participant": participant}
+}
+
+func typingUpdatedPayload(sessionID string, participant entity.ArenaSessionParticipant, isTyping bool) map[string]any {
+	return map[string]any{"type": "typing.updated", "arena_session_id": sessionID, "user_id": participant.UserID, "username": participant.Username, "scenario_role_id": participant.ScenarioRoleID, "is_typing": isTyping}
+}
+
 func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	code := httpx.ErrorCodeFromError(err)
 	status := http.StatusInternalServerError
@@ -431,7 +542,7 @@ func (c *Controller) writeError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusForbidden
 	case httpx.ErrArenaAssignmentNotFound, httpx.ErrArenaSessionNotFound, httpx.ErrArenaMessageNotFound, httpx.ErrScenarioNotFound, httpx.ErrUserNotFound:
 		status = http.StatusNotFound
-	case httpx.ErrArenaJoinNotAllowed, httpx.ErrInvalidArenaState, httpx.ErrArenaFeedbackConflict, httpx.ErrScenarioNotAvailable, httpx.ErrMessageAlreadyClassified:
+	case httpx.ErrArenaJoinNotAllowed, httpx.ErrArenaWaitingForParticipant, httpx.ErrInvalidArenaState, httpx.ErrArenaFeedbackConflict, httpx.ErrScenarioNotAvailable, httpx.ErrMessageAlreadyClassified:
 		status = http.StatusConflict
 	case httpx.ErrArenaFeedbackParticipantInvalid, httpx.ErrMessageNotClassifiable:
 		status = http.StatusUnprocessableEntity
@@ -530,37 +641,98 @@ func hostnameOnly(host string) string {
 }
 
 type hub struct {
-	mu    sync.Mutex
-	conns map[string]map[*websocket.Conn]struct{}
+	mu     sync.Mutex
+	conns  map[string]map[*arenaClient]struct{}
+	typing map[string]map[string]bool
 }
 
 func newHub() *hub {
-	return &hub{conns: map[string]map[*websocket.Conn]struct{}{}}
+	return &hub{conns: map[string]map[*arenaClient]struct{}{}, typing: map[string]map[string]bool{}}
 }
 
-func (h *hub) add(sessionID string, conn *websocket.Conn) {
+type arenaClient struct {
+	conn     *websocket.Conn
+	userID   string
+	username string
+	roleID   string
+	writeMu  sync.Mutex
+}
+
+func (c *arenaClient) writeJSON(payload any) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.conn.WriteJSON(payload)
+}
+
+func (h *hub) add(sessionID string, conn *websocket.Conn, participant entity.ArenaSessionParticipant) (*arenaClient, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.conns[sessionID] == nil {
-		h.conns[sessionID] = map[*websocket.Conn]struct{}{}
+		h.conns[sessionID] = map[*arenaClient]struct{}{}
 	}
-	h.conns[sessionID][conn] = struct{}{}
+	wasOnline := h.userOnlineLocked(sessionID, participant.UserID)
+	client := &arenaClient{conn: conn, userID: participant.UserID, username: participant.Username, roleID: participant.ScenarioRoleID}
+	h.conns[sessionID][client] = struct{}{}
+	return client, !wasOnline
 }
 
-func (h *hub) remove(sessionID string, conn *websocket.Conn) {
+func (h *hub) remove(sessionID string, client *arenaClient) (bool, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.conns[sessionID], conn)
+	delete(h.conns[sessionID], client)
+	becameOffline := !h.userOnlineLocked(sessionID, client.userID)
+	wasTyping := false
+	if h.typing[sessionID] != nil {
+		wasTyping = h.typing[sessionID][client.userID]
+		delete(h.typing[sessionID], client.userID)
+	}
+	if len(h.conns[sessionID]) == 0 {
+		delete(h.conns, sessionID)
+		delete(h.typing, sessionID)
+	}
+	return wasTyping, becameOffline
+}
+
+func (h *hub) setTyping(sessionID, userID string, isTyping bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.typing[sessionID] == nil {
+		h.typing[sessionID] = map[string]bool{}
+	}
+	if isTyping {
+		h.typing[sessionID][userID] = true
+		return
+	}
+	delete(h.typing[sessionID], userID)
+}
+
+func (h *hub) onlineUsers(sessionID string) map[string]bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	users := map[string]bool{}
+	for client := range h.conns[sessionID] {
+		users[client.userID] = true
+	}
+	return users
 }
 
 func (h *hub) broadcast(sessionID string, payload any) {
 	h.mu.Lock()
-	conns := make([]*websocket.Conn, 0, len(h.conns[sessionID]))
-	for conn := range h.conns[sessionID] {
-		conns = append(conns, conn)
+	clients := make([]*arenaClient, 0, len(h.conns[sessionID]))
+	for client := range h.conns[sessionID] {
+		clients = append(clients, client)
 	}
 	h.mu.Unlock()
-	for _, conn := range conns {
-		_ = conn.WriteJSON(payload)
+	for _, client := range clients {
+		_ = client.writeJSON(payload)
 	}
+}
+
+func (h *hub) userOnlineLocked(sessionID, userID string) bool {
+	for client := range h.conns[sessionID] {
+		if client.userID == userID {
+			return true
+		}
+	}
+	return false
 }

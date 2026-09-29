@@ -25,6 +25,7 @@ const (
 
 type ArenaParticipant struct {
 	UserID         string `json:"user_id"`
+	Username       string `json:"username,omitempty"`
 	ScenarioRoleID string `json:"scenario_role_id"`
 }
 
@@ -70,8 +71,10 @@ type ArenaSession struct {
 
 type ArenaSessionParticipant struct {
 	UserID         string     `json:"user_id"`
+	Username       string     `json:"username,omitempty"`
 	ScenarioRoleID string     `json:"scenario_role_id"`
 	JoinedAt       *time.Time `json:"joined_at"`
+	Online         bool       `json:"online"`
 }
 
 type ArenaMessage struct {

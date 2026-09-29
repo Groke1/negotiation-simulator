@@ -12,6 +12,8 @@ const ERROR_MESSAGES = {
   ORGANIZATION_REQUIRED: 'Сначала выберите организацию.',
   ASSIGNMENT_CONFLICT: 'У ученика уже есть активное назначение этого сценария.',
   ARENA_JOIN_NOT_ALLOWED: 'Сейчас к этой Arena нельзя подключиться.',
+  ARENA_WAITING_FOR_PARTICIPANT: 'Ожидаем подключения второго участника. Отправка сообщений станет доступна, когда он будет в сети.',
+  INVALID_ARENA_STATE: 'Сейчас Arena не позволяет отправить сообщение. Проверьте, подключился ли собеседник.',
   ARENA_MESSAGE_NOT_FOUND: 'Сообщение Arena не найдено.',
   MESSAGE_ALREADY_CLASSIFIED: 'Эта реплика уже размечена.',
   MESSAGE_NOT_CLASSIFIABLE: 'Эту реплику нельзя разметить.',

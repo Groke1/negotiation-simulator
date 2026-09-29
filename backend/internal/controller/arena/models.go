@@ -27,6 +27,7 @@ type joinArenaResponse struct {
 	ArenaSessionID string                           `json:"arena_session_id"`
 	Status         entity.ArenaSessionStatus        `json:"status"`
 	Participants   []entity.ArenaSessionParticipant `json:"participants"`
+	Presence       arenaPresenceResponse            `json:"presence"`
 	WebsocketPath  string                           `json:"websocket_path"`
 	Scenario       *entity.PublicScenarioInfo       `json:"scenario"`
 	Preparation    arenaPreparation                 `json:"preparation"`
@@ -66,11 +67,19 @@ type messageListResponse struct {
 	Messages []entity.ArenaMessage `json:"messages"`
 }
 
+type arenaPresenceResponse struct {
+	Participants []entity.ArenaSessionParticipant `json:"participants"`
+}
+
 type sendMessageRequest struct {
 	MessageID           string          `json:"message_id"`
 	Content             json.RawMessage `json:"content"`
 	SemanticActionCode  *string         `json:"semantic_action_code"`
 	SemanticAnnotations json.RawMessage `json:"semantic_annotations"`
+}
+
+type typingRequest struct {
+	IsTyping bool `json:"is_typing"`
 }
 
 type classifyMessageRequest struct {
@@ -107,6 +116,7 @@ type sessionDetailsResponse struct {
 type wsMessageSend struct {
 	Type                string          `json:"type"`
 	MessageID           string          `json:"message_id"`
+	IsTyping            *bool           `json:"is_typing"`
 	Text                string          `json:"text"`
 	Content             json.RawMessage `json:"content"`
 	SemanticActionCode  *string         `json:"semantic_action_code"`

@@ -212,6 +212,64 @@ paths:
           $ref: '#/components/responses/ArenaSessionNotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /arena/sessions/{arena_session_id}/presence:
+    parameters:
+      - $ref: '#/components/parameters/ArenaSessionId'
+    get:
+      tags:
+        - Arena Sessions
+      summary: Получить presence участников Arena
+      description: Возвращает двух участников конкретной ArenaSession с именами, ролями, временем join и текущим online-состоянием WebSocket-чата.
+      operationId: getArenaPresence
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Presence участников Arena.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaPresenceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ArenaAccessDenied'
+        '404':
+          $ref: '#/components/responses/ArenaSessionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /arena/sessions/{arena_session_id}/typing:
+    parameters:
+      - $ref: '#/components/parameters/ArenaSessionId'
+    post:
+      tags:
+        - Arena Sessions
+      summary: Сообщить, что участник печатает
+      description: REST fallback для typing-индикатора. Основной realtime-вариант — WebSocket message `typing.update`.
+      operationId: updateArenaTyping
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArenaTypingRequest'
+      responses:
+        '204':
+          description: Typing-состояние принято и разослано в WebSocket.
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ArenaAccessDenied'
+        '404':
+          $ref: '#/components/responses/ArenaSessionNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidArenaState'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /arena/sessions/{arena_session_id}/messages:
     parameters:
       - $ref: '#/components/parameters/ArenaSessionId'
@@ -275,7 +333,13 @@ paths:
         '404':
           $ref: '#/components/responses/ArenaSessionNotFound'
         '409':
-          $ref: '#/components/responses/InvalidArenaState'
+          description: Arena ждёт второго участника либо текущее состояние не допускает отправку.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ArenaWaitingForParticipantError'
+                  - $ref: '#/components/schemas/InvalidArenaStateError'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /arena/sessions/{arena_session_id}/messages/{message_id}/classification:
@@ -902,12 +966,17 @@ components:
       type: object
       required:
         - user_id
+        - username
         - scenario_role_id
         - joined_at
+        - online
       properties:
         user_id:
           type: string
           format: uuid
+        username:
+          type: string
+          description: Имя пользователя для отображения в чате и typing-индикаторах.
         scenario_role_id:
           type: string
           format: uuid
@@ -916,12 +985,35 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        online:
+          type: boolean
+          description: true, если у пользователя сейчас есть активное WebSocket-подключение к этой ArenaSession.
+    ArenaPresenceResponse:
+      type: object
+      required:
+        - participants
+      properties:
+        participants:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/ArenaSessionParticipant'
+    ArenaTypingRequest:
+      type: object
+      required:
+        - is_typing
+      properties:
+        is_typing:
+          type: boolean
+          description: true — пользователь начал печатать, false — перестал.
     JoinArenaResponse:
       type: object
       required:
         - arena_session_id
         - status
         - participants
+        - presence
         - websocket_path
         - scenario
         - preparation
@@ -935,6 +1027,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ArenaSessionParticipant'
+        presence:
+          $ref: '#/components/schemas/ArenaPresenceResponse'
         websocket_path:
           type: string
           description: Путь WebSocket.
@@ -1483,6 +1577,20 @@ components:
             message:
               type: string
               const: Arena cannot be joined at this time
+    ArenaWaitingForParticipantError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              const: ARENA_WAITING_FOR_PARTICIPANT
+            message:
+              type: string
+              const: Arena is waiting for the second participant
     InvalidArenaStateError:
       allOf:
         - $ref: '#/components/schemas/ErrorResponse'

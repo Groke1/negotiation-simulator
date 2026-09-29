@@ -4,7 +4,8 @@ info:
   version: 1.0.0
   description: |
     WebSocket-протокол live-обмена сообщениями между двумя реальными участниками Arena.
-    Поддерживает content для chat/email/voice_message и semantic-разметку реплик.
+    Поддерживает content для chat/email/voice_message, semantic-разметку реплик,
+    online/presence и typing-индикаторы.
 defaultContentType: application/json
 servers:
   local:
@@ -22,10 +23,16 @@ channels:
         $ref: '#/components/messages/MessageSend'
       messageCreated:
         $ref: '#/components/messages/MessageCreated'
-      participantJoined:
-        $ref: '#/components/messages/ParticipantJoined'
-      participantLeft:
-        $ref: '#/components/messages/ParticipantLeft'
+      participantOnline:
+        $ref: '#/components/messages/ParticipantOnline'
+      participantOffline:
+        $ref: '#/components/messages/ParticipantOffline'
+      presenceSnapshot:
+        $ref: '#/components/messages/PresenceSnapshot'
+      typingUpdate:
+        $ref: '#/components/messages/TypingUpdate'
+      typingUpdated:
+        $ref: '#/components/messages/TypingUpdated'
       arenaCompleted:
         $ref: '#/components/messages/ArenaCompleted'
       error:
@@ -37,14 +44,17 @@ operations:
       $ref: '#/channels/arenaChat'
     messages:
       - $ref: '#/channels/arenaChat/messages/messageSend'
+      - $ref: '#/channels/arenaChat/messages/typingUpdate'
   receiveEvents:
     action: receive
     channel:
       $ref: '#/channels/arenaChat'
     messages:
+      - $ref: '#/channels/arenaChat/messages/presenceSnapshot'
       - $ref: '#/channels/arenaChat/messages/messageCreated'
-      - $ref: '#/channels/arenaChat/messages/participantJoined'
-      - $ref: '#/channels/arenaChat/messages/participantLeft'
+      - $ref: '#/channels/arenaChat/messages/participantOnline'
+      - $ref: '#/channels/arenaChat/messages/participantOffline'
+      - $ref: '#/channels/arenaChat/messages/typingUpdated'
       - $ref: '#/channels/arenaChat/messages/arenaCompleted'
       - $ref: '#/channels/arenaChat/messages/error'
 components:
@@ -89,6 +99,19 @@ components:
             description: Разметка body; обязательна для email.
             items:
               $ref: '#/components/schemas/SemanticAnnotation'
+    TypingUpdate:
+      name: typing.update
+      title: Отправить typing-состояние
+      summary: Клиент сообщает, что текущий участник начал или перестал печатать.
+      payload:
+        type: object
+        required: [type, is_typing]
+        properties:
+          type:
+            type: string
+            const: typing.update
+          is_typing:
+            type: boolean
     MessageCreated:
       name: message.created
       title: Сообщение сохранено
@@ -125,30 +148,74 @@ components:
               created_at:
                 type: string
                 format: date-time
-    ParticipantJoined:
-      name: participant.joined
+    PresenceSnapshot:
+      name: presence.snapshot
+      title: Снимок presence после подключения
       payload:
         type: object
-        required: [type, user_id]
+        required: [type, arena_session_id, participants]
         properties:
           type:
             type: string
-            const: participant.joined
-          user_id:
+            const: presence.snapshot
+          arena_session_id:
             type: string
             format: uuid
-    ParticipantLeft:
-      name: participant.left
+          participants:
+            type: array
+            items:
+              $ref: '#/components/schemas/ArenaSessionParticipant'
+    ParticipantOnline:
+      name: participant.online
       payload:
         type: object
-        required: [type, user_id]
+        required: [type, arena_session_id, participant]
         properties:
           type:
             type: string
-            const: participant.left
+            const: participant.online
+          arena_session_id:
+            type: string
+            format: uuid
+          participant:
+            $ref: '#/components/schemas/ArenaSessionParticipant'
+    ParticipantOffline:
+      name: participant.offline
+      payload:
+        type: object
+        required: [type, arena_session_id, participant]
+        properties:
+          type:
+            type: string
+            const: participant.offline
+          arena_session_id:
+            type: string
+            format: uuid
+          participant:
+            $ref: '#/components/schemas/ArenaSessionParticipant'
+    TypingUpdated:
+      name: typing.updated
+      title: Участник печатает
+      payload:
+        type: object
+        required: [type, arena_session_id, user_id, username, scenario_role_id, is_typing]
+        properties:
+          type:
+            type: string
+            const: typing.updated
+          arena_session_id:
+            type: string
+            format: uuid
           user_id:
             type: string
             format: uuid
+          username:
+            type: string
+          scenario_role_id:
+            type: string
+            format: uuid
+          is_typing:
+            type: boolean
     ArenaCompleted:
       name: arena.completed
       payload:
@@ -180,6 +247,25 @@ components:
             type: string
             description: Человекочитаемое описание ошибки.
   schemas:
+    ArenaSessionParticipant:
+      type: object
+      required: [user_id, username, scenario_role_id, joined_at, online]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        scenario_role_id:
+          type: string
+          format: uuid
+        joined_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        online:
+          type: boolean
     ChatContent:
       type: object
       required: [type, text]
