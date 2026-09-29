@@ -70,14 +70,18 @@ const listAssignments = `-- name: ListAssignments :many
 SELECT a.id, a.curator_id, a.learner_id, a.scenario_id, sc.title AS scenario_title, a.status, a.created_at, a.completed_at
 FROM learning.assignments a
 JOIN scenarios.scenarios sc ON sc.id = a.scenario_id
-WHERE a.curator_id = $1
-  AND ($2::text IS NULL OR a.status = $2)
+WHERE (
+    ($1::uuid IS NOT NULL AND a.curator_id = $1)
+    OR ($2::uuid IS NOT NULL AND a.learner_id = $2)
+)
+  AND ($3::text IS NULL OR a.status = $3)
 ORDER BY a.created_at DESC, a.id DESC
-LIMIT $4 OFFSET $3
+LIMIT $5 OFFSET $4
 `
 
 type ListAssignmentsParams struct {
 	CuratorID   pgtype.UUID `json:"curator_id"`
+	LearnerID   pgtype.UUID `json:"learner_id"`
 	Status      pgtype.Text `json:"status"`
 	OffsetCount int32       `json:"offset_count"`
 	LimitCount  int32       `json:"limit_count"`
@@ -97,6 +101,7 @@ type ListAssignmentsRow struct {
 func (q *Queries) ListAssignments(ctx context.Context, arg ListAssignmentsParams) ([]ListAssignmentsRow, error) {
 	rows, err := q.db.Query(ctx, listAssignments,
 		arg.CuratorID,
+		arg.LearnerID,
 		arg.Status,
 		arg.OffsetCount,
 		arg.LimitCount,

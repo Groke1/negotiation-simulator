@@ -60,14 +60,18 @@ func (s *Service) ListTeamSessions(ctx context.Context, claims entity.AccessClai
 }
 
 func (s *Service) ListAssignments(ctx context.Context, claims entity.AccessClaims, filter entity.AssignmentFilter) ([]entity.Assignment, error) {
-	if err := requireCurator(claims); err != nil {
-		return nil, err
+	switch claims.ActiveRole {
+	case entity.RoleCurator:
+		filter.CuratorID = claims.UserID
+	case entity.RoleLearner:
+		filter.LearnerID = claims.UserID
+	default:
+		return nil, entity.ErrAssignmentAccessDenied
 	}
 	if filter.Status == nil {
 		status := entity.AssignmentStatusPending
 		filter.Status = &status
 	}
-	filter.CuratorID = claims.UserID
 	return s.repository.ListAssignments(ctx, filter)
 }
 

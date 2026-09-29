@@ -17,6 +17,7 @@ const ERROR_MESSAGES = {
   MESSAGE_NOT_CLASSIFIABLE: 'Эту реплику нельзя разметить.',
   ARENA_FEEDBACK_CONFLICT: 'Feedback этому участнику уже отправлен.',
   TRAINING_ANALYSIS_NOT_READY: 'Итоговый разбор тренировки ещё готовится.',
+  INVALID_TRAINING_STATE: 'Тренировка ещё не завершена.',
 };
 
 export class ApiError extends Error {

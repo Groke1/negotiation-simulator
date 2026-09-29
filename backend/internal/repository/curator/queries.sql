@@ -16,7 +16,10 @@ SELECT EXISTS (
 SELECT a.id, a.curator_id, a.learner_id, a.scenario_id, sc.title AS scenario_title, a.status, a.created_at, a.completed_at
 FROM learning.assignments a
 JOIN scenarios.scenarios sc ON sc.id = a.scenario_id
-WHERE a.curator_id = sqlc.arg(curator_id)
+WHERE (
+    (sqlc.narg(curator_id)::uuid IS NOT NULL AND a.curator_id = sqlc.narg(curator_id))
+    OR (sqlc.narg(learner_id)::uuid IS NOT NULL AND a.learner_id = sqlc.narg(learner_id))
+)
   AND (sqlc.narg(status)::text IS NULL OR a.status = sqlc.narg(status))
 ORDER BY a.created_at DESC, a.id DESC
 LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);

@@ -19,6 +19,7 @@ const messageText = (message) => {
 };
 const messageTime = (value) => value ? new Date(value).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }) : '';
 const ANALYSIS_NOT_READY = 'TRAINING_ANALYSIS_NOT_READY';
+const TRAINING_NOT_COMPLETED = 'INVALID_TRAINING_STATE';
 
 function AnalysisPending({ onRetry, refreshing }) {
   return <div className="page analysis-pending-page"><section className="analysis-pending-card">
@@ -29,6 +30,10 @@ function AnalysisPending({ onRetry, refreshing }) {
     <p className="analysis-pending-note" aria-live="polite">Страница обновляется автоматически каждые 30 секунд.</p>
     <button type="button" onClick={onRetry} disabled={refreshing}>{refreshing ? 'Проверяем…' : 'Проверить сейчас'}</button>
   </section></div>;
+}
+
+function TrainingNotCompleted({ isCurator, onBack }) {
+  return <div className="page"><EmptyState title="Тренировка ещё не завершена" description="Разбор станет доступен после автоматического завершения тренировки." action={<button type="button" onClick={onBack}>{isCurator ? 'К истории команды' : 'К тренировкам'}</button>} /></div>;
 }
 
 function SemanticReport({ message, actionNames }) {
@@ -58,6 +63,7 @@ export default function Debrief() {
   const actionNames = useMemo(() => new Map((actions.data || []).map((action) => [action.code, semanticActionLabel(action)])), [actions.data]);
   if (sources.some((source) => source.isLoading)) return <LoadingState />;
   if (analysis.error?.code === ANALYSIS_NOT_READY) return <AnalysisPending onRetry={() => analysis.refetch()} refreshing={analysis.isFetching} />;
+  if (analysis.error?.code === TRAINING_NOT_COMPLETED || (session.data && session.data.status !== 'completed')) return <TrainingNotCompleted isCurator={isCurator} onBack={() => navigate(isCurator ? '/curator/history' : '/learner/training')} />;
   const failed = sources.find((source) => source.error);
   if (failed) return <ErrorState error={failed.error} retry={() => sources.forEach((source) => source.refetch())} />;
   const data = analysis.data;

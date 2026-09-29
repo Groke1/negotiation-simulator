@@ -69,11 +69,15 @@ func (r *Repository) HasPendingAssignment(ctx context.Context, learnerID, scenar
 }
 
 func (r *Repository) ListAssignments(ctx context.Context, filter entity.AssignmentFilter) ([]entity.Assignment, error) {
-	curatorID, err := pgxconv.StringToUUID(filter.CuratorID)
+	curatorID, err := optionalAssignmentUUID(filter.CuratorID)
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}
-	rows, err := r.getQueries(ctx).ListAssignments(ctx, sqlc.ListAssignmentsParams{CuratorID: curatorID, Status: assignmentStatusText(filter.Status), LimitCount: filter.Limit, OffsetCount: filter.Offset})
+	learnerID, err := optionalAssignmentUUID(filter.LearnerID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	rows, err := r.getQueries(ctx).ListAssignments(ctx, sqlc.ListAssignmentsParams{CuratorID: curatorID, LearnerID: learnerID, Status: assignmentStatusText(filter.Status), LimitCount: filter.Limit, OffsetCount: filter.Offset})
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +153,13 @@ func assignmentStatusText(value *entity.AssignmentStatus) pgtype.Text {
 		return pgtype.Text{}
 	}
 	return pgtype.Text{String: string(*value), Valid: true}
+}
+
+func optionalAssignmentUUID(value string) (pgtype.UUID, error) {
+	if value == "" {
+		return pgtype.UUID{}, nil
+	}
+	return pgxconv.StringToUUID(value)
 }
 
 func scoreOrNil(value int32) *int {

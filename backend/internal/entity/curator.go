@@ -28,6 +28,7 @@ type CreateAssignment struct {
 
 type AssignmentFilter struct {
 	CuratorID string
+	LearnerID string
 	Status    *AssignmentStatus
 	Limit     int32
 	Offset    int32
