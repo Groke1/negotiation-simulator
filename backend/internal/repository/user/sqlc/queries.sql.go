@@ -129,7 +129,7 @@ func (q *Queries) GetUserRoles(ctx context.Context, userID pgtype.UUID) ([]Users
 }
 
 const listOrganizationUsers = `-- name: ListOrganizationUsers :many
-SELECT u.id, u.username, u.email, COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}')::users.product_role[] AS roles, u.created_at
+SELECT u.id, u.username, u.email, COALESCE(array_agg(ur.role::text ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}')::text[] AS roles, u.created_at
 FROM users.users requester
 JOIN users.users u ON u.organization_id = requester.organization_id
 LEFT JOIN users.user_roles ur ON ur.user_id = u.id
@@ -149,7 +149,7 @@ type ListOrganizationUsersRow struct {
 	ID        pgtype.UUID        `json:"id"`
 	Username  string             `json:"username"`
 	Email     string             `json:"email"`
-	Roles     []UsersProductRole `json:"roles"`
+	Roles     []string           `json:"roles"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
