@@ -62,7 +62,11 @@ components:
     bearerSubprotocol:
       type: http
       scheme: bearer
-      description: JWT передаётся вторым значением Sec-WebSocket-Protocol после `arena-v1`.
+      description: |
+        JWT можно передать одним из способов:
+        - вторым значением Sec-WebSocket-Protocol после `arena-v1`;
+        - query-параметром `access_token`;
+        - query-параметром `token`.
   messages:
     MessageSend:
       name: message.send

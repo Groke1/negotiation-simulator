@@ -84,8 +84,12 @@ export async function request(path, { method = 'GET', data, body, signal, header
 
 export const apiBaseUrl = API_BASE_URL;
 
-export function webSocketUrl(path) {
+export function webSocketUrl(path, query = {}) {
   const base = new URL(API_BASE_URL, window.location.origin);
   const protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
-  return new URL(path, `${protocol}//${base.host}`).toString();
+  const url = new URL(path, `${protocol}//${base.host}`);
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
+  });
+  return url.toString();
 }

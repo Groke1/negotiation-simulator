@@ -38,6 +38,8 @@ export default function ArenaSession() {
   const streamRef = useRef(null);
   const socket = useRef(null);
   const retry = useRef(null);
+  const connectionTimeout = useRef(null);
+  const shouldReconnect = useRef(true);
   const typingTimeout = useRef(null);
   const typingActive = useRef(false);
   const joining = useQuery({ queryKey: ['arena-join', assignmentId], queryFn: () => joinArena(assignmentId), retry: false });
@@ -79,53 +81,96 @@ export default function ArenaSession() {
   useEffect(() => {
     if (!joined?.arena_session_id) return undefined;
     let stopped = false;
-    const connect = async () => {
-      setStatus('Подключаемся…');
+    let reconnectAttempt = 0;
+    shouldReconnect.current = true;
+
+    const scheduleReconnect = () => {
+      if (stopped || !shouldReconnect.current) return;
+      reconnectAttempt += 1;
+      const delay = Math.min(1000 * (2 ** Math.min(reconnectAttempt, 3)), 8000);
+      setStatus('Переподключаемся…');
+      retry.current = window.setTimeout(connect, delay);
+    };
+
+    const hydrate = async () => {
       try {
         const [history, presenceSnapshot] = await Promise.all([getArenaMessages(joined.arena_session_id), getArenaPresence(joined.arena_session_id)]);
         if (!stopped) {
           setMessages((current) => mergeMessages(current, history));
           setPresence(presenceSnapshot?.participants || []);
         }
-        const ws = new WebSocket(webSocketUrl(joined.websocket_path), ['arena-v1', getToken()]);
-        socket.current = ws;
-        ws.onopen = () => !stopped && setStatus('В сети');
-        ws.onmessage = (event) => {
-          let item;
-          try { item = JSON.parse(event.data); } catch { return; }
-          if (item.type === 'message.created') setMessages((current) => mergeMessages(current, [item.message]));
-          if (item.type === 'presence.snapshot') setPresence(item.participants || []);
-          if (item.type === 'participant.online' || item.type === 'participant.offline') {
-            setParticipantPresence(item.participant);
-            if (item.type === 'participant.offline' && item.participant?.user_id !== me?.id) setTypingOpponent(null);
-          }
-          if (item.type === 'typing.updated' && item.user_id !== me?.id) setTypingOpponent(item.is_typing ? item : null);
-          if (item.type === 'arena.completed') {
-            setCompletedBy(item.completed_by || 'other');
-            setStatus(item.completed_by === me?.id ? 'Arena завершена вами' : 'Arena завершена другим участником');
-            ws.close();
-            navigate(`/learner/arenas/${joined.arena_session_id}`);
-          }
-          if (item.type === 'error') setError(item.code === 'ARENA_WAITING_FOR_PARTICIPANT' ? 'Ожидаем подключения второго участника. Отправка сообщений станет доступна, когда он будет в сети.' : item.code === 'INVALID_ARENA_STATE' ? 'Сейчас Arena не позволяет отправить сообщение. Проверьте, подключился ли собеседник.' : item.message || 'Сервер временно не принял сообщение.');
-        };
-        ws.onclose = () => {
-          if (!stopped) {
-            setStatus('Переподключаемся…');
-            retry.current = window.setTimeout(connect, 2000);
-          }
-        };
-        ws.onerror = () => setError('Не удалось подключить live-чат. Повторяем попытку.');
-      } catch (requestError) {
-        if (!stopped) {
-          setError(requestError.message);
-          retry.current = window.setTimeout(connect, 3000);
-        }
+      } catch {
+        // The live channel must still be attempted when history or presence is temporarily unavailable.
       }
     };
+
+    const connect = () => {
+      if (stopped || !shouldReconnect.current) return;
+      const token = getToken();
+      if (!token) {
+        setStatus('Не подключено');
+        setError('Не удалось подтвердить сессию. Обновите страницу и войдите снова.');
+        return;
+      }
+      setStatus(reconnectAttempt ? 'Переподключаемся…' : 'Подключаемся…');
+      let ws;
+      try {
+        ws = new WebSocket(webSocketUrl(joined.websocket_path, { access_token: token }), 'arena-v1');
+      } catch {
+        setStatus('Подключение не установлено');
+        setError('Не удалось открыть live-чат. Повторяем попытку.');
+        scheduleReconnect();
+        return;
+      }
+      socket.current = ws;
+      connectionTimeout.current = window.setTimeout(() => {
+        if (ws.readyState === WebSocket.CONNECTING) {
+          setStatus('Подключение не установлено');
+          setError('Не удалось подключиться к live-чату. Повторяем попытку.');
+          ws.close();
+        }
+      }, 10000);
+      ws.onopen = () => {
+        window.clearTimeout(connectionTimeout.current);
+        reconnectAttempt = 0;
+        setError('');
+        setStatus('В сети');
+      };
+      ws.onmessage = (event) => {
+        let item;
+        try { item = JSON.parse(event.data); } catch { return; }
+        if (item.type === 'message.created') setMessages((current) => mergeMessages(current, [item.message]));
+        if (item.type === 'presence.snapshot') setPresence(item.participants || []);
+        if (item.type === 'participant.online' || item.type === 'participant.offline') {
+          setParticipantPresence(item.participant);
+          if (item.type === 'participant.offline' && item.participant?.user_id !== me?.id) setTypingOpponent(null);
+        }
+        if (item.type === 'typing.updated' && item.user_id !== me?.id) setTypingOpponent(item.is_typing ? item : null);
+        if (item.type === 'arena.completed') {
+          shouldReconnect.current = false;
+          setCompletedBy(item.completed_by || 'other');
+          setStatus(item.completed_by === me?.id ? 'Arena завершена вами' : 'Arena завершена другим участником');
+          ws.close();
+          navigate(`/learner/arenas/${joined.arena_session_id}`);
+        }
+        if (item.type === 'error') setError(item.code === 'ARENA_WAITING_FOR_PARTICIPANT' ? 'Ожидаем подключения второго участника. Отправка сообщений станет доступна, когда он будет в сети.' : item.code === 'INVALID_ARENA_STATE' ? 'Сейчас Arena не позволяет отправить сообщение. Проверьте, подключился ли собеседник.' : item.message || 'Сервер временно не принял сообщение.');
+      };
+      ws.onclose = () => {
+        window.clearTimeout(connectionTimeout.current);
+        if (socket.current === ws) socket.current = null;
+        scheduleReconnect();
+      };
+      ws.onerror = () => {
+        setStatus('Подключение не установлено');
+      };
+    };
+    void hydrate();
     connect();
     return () => {
       stopped = true;
+      shouldReconnect.current = false;
       window.clearTimeout(retry.current);
+      window.clearTimeout(connectionTimeout.current);
       window.clearTimeout(typingTimeout.current);
       socket.current?.close();
     };

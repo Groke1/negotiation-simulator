@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -16,6 +17,13 @@ import (
 	ctrlmw "sourcecraft.dev/lct-hackaton-2026.arena/internal/controller/middleware"
 	"sourcecraft.dev/lct-hackaton-2026.arena/internal/entity"
 	pkghttpx "sourcecraft.dev/lct-hackaton-2026.arena/pkg/httpx"
+)
+
+const (
+	arenaWSWriteTimeout   = 10 * time.Second
+	arenaWSPongWait       = 60 * time.Second
+	arenaWSPingPeriod     = 50 * time.Second
+	arenaWSMaxMessageSize = 64 * 1024
 )
 
 type Service interface {
@@ -386,11 +394,15 @@ func (c *Controller) WebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	conn.SetReadLimit(arenaWSMaxMessageSize)
+	_ = conn.SetReadDeadline(time.Now().Add(arenaWSPongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(arenaWSPongWait))
+	})
 	client, becameOnline := c.hub.add(sessionID, conn, participant)
-	_ = client.writeJSON(presenceSnapshotPayload(sessionID, c.presenceResponse(session).Participants))
-	if becameOnline {
-		c.hub.broadcast(sessionID, participantOnlinePayload(sessionID, participant))
-	}
+	done := make(chan struct{})
+	defer close(done)
+	go client.pingLoop(done)
 	defer func() {
 		wasTyping, becameOffline := c.hub.remove(sessionID, client)
 		if wasTyping {
@@ -400,6 +412,12 @@ func (c *Controller) WebSocket(w http.ResponseWriter, r *http.Request) {
 			c.hub.broadcast(sessionID, participantOfflinePayload(sessionID, participant))
 		}
 	}()
+	if err := client.writeJSON(presenceSnapshotPayload(sessionID, c.presenceResponse(session).Participants)); err != nil {
+		return
+	}
+	if becameOnline {
+		c.hub.broadcast(sessionID, participantOnlinePayload(sessionID, participant))
+	}
 	for {
 		var req wsMessageSend
 		if err := conn.ReadJSON(&req); err != nil {
@@ -601,6 +619,12 @@ func tokenFromWebSocketRequest(r *http.Request) string {
 	if header := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(strings.ToLower(header), "bearer ") {
 		return strings.TrimSpace(header[7:])
 	}
+	if token := strings.TrimSpace(r.URL.Query().Get("access_token")); token != "" {
+		return token
+	}
+	if token := strings.TrimSpace(r.URL.Query().Get("token")); token != "" {
+		return token
+	}
 	for _, part := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
 		part = strings.TrimSpace(part)
 		if part != "" && part != "arena-v1" {
@@ -661,7 +685,30 @@ type arenaClient struct {
 func (c *arenaClient) writeJSON(payload any) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(arenaWSWriteTimeout))
 	return c.conn.WriteJSON(payload)
+}
+
+func (c *arenaClient) writeControl(messageType int, data []byte, deadline time.Time) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.conn.WriteControl(messageType, data, deadline)
+}
+
+func (c *arenaClient) pingLoop(done <-chan struct{}) {
+	ticker := time.NewTicker(arenaWSPingPeriod)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			if err := c.writeControl(websocket.PingMessage, nil, time.Now().Add(arenaWSWriteTimeout)); err != nil {
+				_ = c.conn.Close()
+				return
+			}
+		}
+	}
 }
 
 func (h *hub) add(sessionID string, conn *websocket.Conn, participant entity.ArenaSessionParticipant) (*arenaClient, bool) {
