@@ -14,6 +14,16 @@ const newId = createId;
 const blankRole = () => ({ id: newId(), name: '', description: '', goal: '', interests: '', constraints: '', private_information: '' });
 const blankBlock = (learnerRoleId = '') => ({ id: newId(), type: 'regular', name: 'Новое состояние', description: '', expanded_context: '', lead_role_id: '', role_goals: [], role_behaviors: [], transitions: [], deterministic_dialogue: { learner_role_id: learnerRoleId, start_node_id: '', nodes: [] } });
 const RUNTIMES = [['virtual_partner', 'Виртуальный партнёр'], ['deterministic', 'Подготовленный диалог'], ['arena', 'Arena']];
+const normalizeDialogue = (dialogue = {}) => ({
+  ...dialogue,
+  learner_role_id: dialogue.learner_role_id || '',
+  start_node_id: dialogue.start_node_id || '',
+  nodes: Array.isArray(dialogue.nodes) ? dialogue.nodes.map((node) => ({
+    ...node,
+    assessment_targets: Array.isArray(node.assessment_targets) ? node.assessment_targets : [],
+    reply_options: Array.isArray(node.reply_options) ? node.reply_options : [],
+  })) : [],
+});
 const cleanBlock = (block) => {
   const clean = { ...(block || {}) };
   delete clean.position;
@@ -21,7 +31,13 @@ const cleanBlock = (block) => {
   delete clean.behavior;
   delete clean.action_rules;
   delete clean.constraints;
-  return { ...clean, role_goals: clean.role_goals || [], role_behaviors: clean.role_behaviors || [], transitions: clean.transitions || [] };
+  return {
+    ...clean,
+    role_goals: clean.role_goals || [],
+    role_behaviors: clean.role_behaviors || [],
+    transitions: clean.transitions || [],
+    deterministic_dialogue: normalizeDialogue(clean.deterministic_dialogue),
+  };
 };
 const editable = (scenario) => ({ title: scenario.title || '', description: scenario.description || '', expanded_context: scenario.expanded_context || '', difficulty: scenario.difficulty || 'medium', tags: scenario.tags || [], supported_runtimes: scenario.supported_runtimes || [], supported_channels: ['chat'], target_cluster_ids: scenario.target_cluster_ids || [], roles: scenario.roles || [], blocks: (scenario.blocks || []).map(cleanBlock) });
 const importableScenario = (value) => {
@@ -81,7 +97,7 @@ export default function ScenarioView() {
   async function waitForGeneration(request) { let status = request; while (status?.status === 'pending' || status?.status === 'running') { await new Promise((resolve) => window.setTimeout(resolve, 20000)); status = await getAIGenerationRequest(scenarioId, request.request_id); } if (status?.status === 'failed') throw new Error(status.error_message || 'Не удалось завершить генерацию.'); return status?.result; }
   async function runAi(kind, prompt = '') { setAiBusy(true); setSaveError(''); try { if (dirty) await saveDraft(); let request; if (kind === 'context') request = await generateScenarioContext(scenarioId, prompt); if (kind === 'draft') request = await generateScenarioDraft(scenarioId, prompt); if (kind === 'block' && selected) request = await generateScenarioBlock(scenarioId, selected.id, prompt); if (kind === 'dialogue' && selected) request = await generateDialogue(scenarioId, selected.id, learnerRoleId, prompt); const response = await waitForGeneration(request); const value = response?.proposal || response; changeDraft((current) => { if (kind === 'context') return { ...current, expanded_context: value?.expanded_context || current.expanded_context }; if (kind === 'draft') return { ...current, expanded_context: value?.expanded_context || current.expanded_context, blocks: (value?.blocks || current.blocks).map(cleanBlock) }; if (kind === 'block' && selected) return { ...current, blocks: current.blocks.map((block) => block.id === selected.id ? cleanBlock({ ...block, ...value }) : block) }; if (kind === 'dialogue' && selected) return { ...current, blocks: current.blocks.map((block) => block.id === selected.id ? { ...block, deterministic_dialogue: value } : block) }; return current; }); setInstructions(''); } catch (error) { setSaveError(error.message); } finally { setAiBusy(false); } }
   function addBlock() { const block = blankBlock(learnerRoleId); changeDraft((current) => ({ ...current, blocks: [...current.blocks, block] })); setSelectedId(block.id); setInspector(true); }
-  function setLearnerRole(roleId) { setLearnerRoleSelection(roleId); changeDraft((current) => ({ ...current, blocks: current.blocks.map((block) => ({ ...block, deterministic_dialogue: { ...(block.deterministic_dialogue || {}), learner_role_id: roleId } })) })); }
+  function setLearnerRole(roleId) { setLearnerRoleSelection(roleId); changeDraft((current) => ({ ...current, blocks: current.blocks.map((block) => ({ ...block, deterministic_dialogue: { ...normalizeDialogue(block.deterministic_dialogue), learner_role_id: roleId } })) })); }
   const removeSelected = useCallback(() => { if (!selected || !window.confirm(`Удалить блок «${selected.name}» и связанные с ним переходы?`)) return; changeDraft((current) => ({ ...current, blocks: current.blocks.filter((block) => block.id !== selected.id).map((block) => ({ ...block, transitions: block.transitions.filter((transition) => transition.target_block_id !== selected.id) })) })); setSelectedId(null); }, [changeDraft, selected]);
   useEffect(() => { saveShortcutRef.current = save; removeShortcutRef.current = removeSelected; }, [save, removeSelected]);
   useEffect(() => {
