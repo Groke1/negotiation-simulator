@@ -8,6 +8,7 @@ import (
 
 type repository interface {
 	CreateAssignment(ctx context.Context, params entity.CreateAssignment) (*entity.Assignment, error)
+	HasPendingAssignment(ctx context.Context, learnerID, scenarioID string) (bool, error)
 	ListAssignments(ctx context.Context, filter entity.AssignmentFilter) ([]entity.Assignment, error)
 	ListTeam(ctx context.Context, curatorID string, limit, offset int32) ([]entity.CuratorTeamMember, error)
 	ListTeamSessions(ctx context.Context, curatorID string, limit, offset int32) ([]entity.TeamSessionListItem, error)
@@ -62,6 +63,10 @@ func (s *Service) ListAssignments(ctx context.Context, claims entity.AccessClaim
 	if err := requireCurator(claims); err != nil {
 		return nil, err
 	}
+	if filter.Status == nil {
+		status := entity.AssignmentStatusPending
+		filter.Status = &status
+	}
 	filter.CuratorID = claims.UserID
 	return s.repository.ListAssignments(ctx, filter)
 }
@@ -87,6 +92,16 @@ func (s *Service) CreateAssignment(ctx context.Context, claims entity.AccessClai
 	}
 	if scenario.Status != entity.ScenarioStatusPublished {
 		return nil, entity.ErrScenarioNotAvailable
+	}
+	if scenario.OrganizationID == nil || *scenario.OrganizationID != *curator.OrganizationID {
+		return nil, entity.ErrAssignmentAccessDenied
+	}
+	exists, err := s.repository.HasPendingAssignment(ctx, learnerID, scenarioID)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, entity.ErrAssignmentConflict
 	}
 	assignment, err := s.repository.CreateAssignment(ctx, entity.CreateAssignment{CuratorID: claims.UserID, LearnerID: learnerID, ScenarioID: scenarioID})
 	if err != nil {

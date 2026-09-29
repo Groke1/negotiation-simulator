@@ -88,7 +88,16 @@ func (r *Repository) ListSessions(ctx context.Context, filter entity.TrainingSes
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}
+	var curatorIDFilter *string
+	if filter.CuratorID != "" {
+		curatorIDFilter = &filter.CuratorID
+	}
+	curatorID, err := optionalUUID(curatorIDFilter)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
 	rows, err := r.getQueries(ctx).ListTrainingSessions(ctx, sqlc.ListTrainingSessionsParams{
+		CuratorID:   curatorID,
 		UserID:      userID,
 		ScenarioID:  scenarioID,
 		Status:      optionalTrainingStatus(filter.Status),
@@ -105,6 +114,54 @@ func (r *Repository) ListSessions(ctx context.Context, filter entity.TrainingSes
 		items = append(items, *sessionFromListRow(row))
 	}
 	return items, nil
+}
+
+func (r *Repository) FindPendingAssignment(ctx context.Context, userID, scenarioID string) (*string, error) {
+	pgUserID, err := pgxconv.StringToUUID(userID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	pgScenarioID, err := pgxconv.StringToUUID(scenarioID)
+	if err != nil {
+		return nil, entity.ErrInvalidRequest
+	}
+	assignmentID, err := r.getQueries(ctx).FindPendingAssignmentForTraining(ctx, sqlc.FindPendingAssignmentForTrainingParams{LearnerID: pgUserID, ScenarioID: pgScenarioID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	id := pgxconv.UUIDToString(assignmentID)
+	return &id, nil
+}
+
+func (r *Repository) PendingAssignmentMatchesTraining(ctx context.Context, assignmentID, userID, scenarioID string) (bool, error) {
+	pgAssignmentID, err := pgxconv.StringToUUID(assignmentID)
+	if err != nil {
+		return false, entity.ErrInvalidRequest
+	}
+	pgUserID, err := pgxconv.StringToUUID(userID)
+	if err != nil {
+		return false, entity.ErrInvalidRequest
+	}
+	pgScenarioID, err := pgxconv.StringToUUID(scenarioID)
+	if err != nil {
+		return false, entity.ErrInvalidRequest
+	}
+	return r.getQueries(ctx).PendingAssignmentMatchesTraining(ctx, sqlc.PendingAssignmentMatchesTrainingParams{AssignmentID: pgAssignmentID, LearnerID: pgUserID, ScenarioID: pgScenarioID})
+}
+
+func (r *Repository) SessionInCuratorOrganization(ctx context.Context, curatorID, sessionID string) (bool, error) {
+	pgCuratorID, err := pgxconv.StringToUUID(curatorID)
+	if err != nil {
+		return false, entity.ErrInvalidRequest
+	}
+	pgSessionID, err := pgxconv.StringToUUID(sessionID)
+	if err != nil {
+		return false, entity.ErrInvalidRequest
+	}
+	return r.getQueries(ctx).TrainingSessionInCuratorOrganization(ctx, sqlc.TrainingSessionInCuratorOrganizationParams{CuratorID: pgCuratorID, SessionID: pgSessionID})
 }
 
 func (r *Repository) UpdateState(ctx context.Context, sessionID string, state []byte, status entity.TrainingStatus) (*entity.TrainingSession, error) {

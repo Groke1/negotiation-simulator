@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { classifyArenaMessage, completeArena, getArenaMessages, getOrganizationUsers, getSemanticActions, getToken, joinArena, sendArenaMessage } from '../../api';
 import { webSocketUrl } from '../../api/client';
 import { useAuth } from '../../app/AuthContext';
+import { resolveActiveRole } from '../../app/roles';
 import { ErrorState, LoadingState, SemanticActionPicker } from '../../components/UI';
 import { createId } from '../../app/id';
 import { sortMessagesChronologically } from '../../app/messages';
@@ -37,10 +38,10 @@ export default function ArenaSession() {
   const retry = useRef(null);
   const joining = useQuery({ queryKey: ['arena-join', assignmentId], queryFn: () => joinArena(assignmentId), retry: false });
   const actions = useQuery({ queryKey: ['semantic-actions'], queryFn: ({ signal }) => getSemanticActions(signal), staleTime: 60 * 60 * 1000 });
-  const organizationUsers = useQuery({ queryKey: ['organization-users', 'arena-chat'], queryFn: ({ signal }) => getOrganizationUsers({}, signal), staleTime: 5 * 60 * 1000 });
+  const organizationUsers = useQuery({ queryKey: ['organization-users', 'arena-chat'], queryFn: ({ signal }) => getOrganizationUsers({}, signal), staleTime: 5 * 60 * 1000, enabled: resolveActiveRole(me) === 'curator' });
   const joined = joining.data;
   const actionNames = useMemo(() => new Map((actions.data || []).map((item) => [item.code, semanticActionLabel(item)])), [actions.data]);
-  const participantNames = useMemo(() => new Map((organizationUsers.data || []).map((user) => [user.id, user.username || user.name || user.email])), [organizationUsers.data]);
+  const participantNames = useMemo(() => new Map([...(organizationUsers.data || []).map((user) => [user.id, user.username || user.name || user.email]), ...(me?.id ? [[me.id, me.username || me.email || 'Вы']] : [])]), [me, organizationUsers.data]);
   const unclassified = messages.filter((message) => message.sender_id !== me?.id && !message.classification).at(-1);
 
   useEffect(() => {

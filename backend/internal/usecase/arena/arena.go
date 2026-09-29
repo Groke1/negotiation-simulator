@@ -59,7 +59,7 @@ func (s *Service) ListAssignments(ctx context.Context, claims entity.AccessClaim
 	if err := requireCurator(claims); err != nil {
 		return nil, err
 	}
-	return s.repository.ListAssignments(ctx, "", limit, offset)
+	return s.repository.ListAssignments(ctx, claims.UserID, limit, offset)
 }
 
 func (s *Service) CreateAssignment(ctx context.Context, claims entity.AccessClaims, params entity.CreateArenaAssignment) (*entity.ArenaAssignment, error) {
@@ -69,9 +69,28 @@ func (s *Service) CreateAssignment(ctx context.Context, claims entity.AccessClai
 	if len(params.Participants) != 2 {
 		return nil, entity.ErrArenaFeedbackParticipantInvalid
 	}
+	curator, err := s.userRepository.GetUserByID(ctx, claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if curator.OrganizationID == nil {
+		return nil, entity.ErrArenaAccessDenied
+	}
+	for _, participant := range params.Participants {
+		user, err := s.userRepository.GetUserByID(ctx, participant.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if user.OrganizationID == nil || *user.OrganizationID != *curator.OrganizationID {
+			return nil, entity.ErrArenaAccessDenied
+		}
+	}
 	scenario, err := s.scenarioRepository.GetScenarioByID(ctx, params.ScenarioID)
 	if err != nil {
 		return nil, err
+	}
+	if scenario.OrganizationID == nil || *scenario.OrganizationID != *curator.OrganizationID {
+		return nil, entity.ErrArenaAccessDenied
 	}
 	if scenario.Status != entity.ScenarioStatusPublished {
 		return nil, entity.ErrScenarioNotAvailable
@@ -96,7 +115,13 @@ func (s *Service) GetAssignment(ctx context.Context, claims entity.AccessClaims,
 	if err != nil {
 		return nil, err
 	}
-	if claims.ActiveRole == entity.RoleCurator || assignmentParticipantRole(assignment.Participants, claims.UserID) != "" {
+	if assignmentParticipantRole(assignment.Participants, claims.UserID) != "" {
+		return assignment, nil
+	}
+	if claims.ActiveRole == entity.RoleCurator {
+		if err := s.requireSameOrganization(ctx, claims.UserID, assignment.CreatedBy); err != nil {
+			return nil, err
+		}
 		return assignment, nil
 	}
 	return nil, entity.ErrArenaAccessDenied
@@ -153,7 +178,13 @@ func (s *Service) getSessionForAccess(ctx context.Context, claims entity.AccessC
 	if err != nil {
 		return nil, err
 	}
-	if claims.ActiveRole == entity.RoleCurator || sessionParticipantRole(session.Participants, claims.UserID) != "" {
+	if sessionParticipantRole(session.Participants, claims.UserID) != "" {
+		return session, nil
+	}
+	if claims.ActiveRole == entity.RoleCurator {
+		if err := s.requireSameOrganization(ctx, claims.UserID, session.CreatedBy); err != nil {
+			return nil, err
+		}
 		return session, nil
 	}
 	return nil, entity.ErrArenaAccessDenied
@@ -271,22 +302,37 @@ func (s *Service) CreateFeedback(ctx context.Context, claims entity.AccessClaims
 }
 
 func (s *Service) ListUserAssignments(ctx context.Context, claims entity.AccessClaims, userID string, limit, offset int32) ([]entity.ArenaAssignment, error) {
-	if claims.UserID != userID && claims.ActiveRole != entity.RoleCurator {
-		return nil, entity.ErrArenaAccessDenied
+	if claims.UserID != userID {
+		if claims.ActiveRole != entity.RoleCurator {
+			return nil, entity.ErrArenaAccessDenied
+		}
+		if err := s.requireSameOrganization(ctx, claims.UserID, userID); err != nil {
+			return nil, err
+		}
 	}
 	return s.repository.ListUserAssignments(ctx, userID, limit, offset)
 }
 
 func (s *Service) ListUserHistory(ctx context.Context, claims entity.AccessClaims, userID string, limit, offset int32) ([]entity.UserArenaHistoryItem, error) {
-	if claims.UserID != userID && claims.ActiveRole != entity.RoleCurator {
-		return nil, entity.ErrArenaAccessDenied
+	if claims.UserID != userID {
+		if claims.ActiveRole != entity.RoleCurator {
+			return nil, entity.ErrArenaAccessDenied
+		}
+		if err := s.requireSameOrganization(ctx, claims.UserID, userID); err != nil {
+			return nil, err
+		}
 	}
 	return s.repository.ListUserHistory(ctx, userID, limit, offset)
 }
 
 func (s *Service) UserHistoryDetails(ctx context.Context, claims entity.AccessClaims, userID, sessionID string) (*entity.ArenaSession, []entity.ArenaMessage, []entity.ArenaFeedback, error) {
-	if claims.UserID != userID && claims.ActiveRole != entity.RoleCurator {
-		return nil, nil, nil, entity.ErrArenaAccessDenied
+	if claims.UserID != userID {
+		if claims.ActiveRole != entity.RoleCurator {
+			return nil, nil, nil, entity.ErrArenaAccessDenied
+		}
+		if err := s.requireSameOrganization(ctx, claims.UserID, userID); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	session, err := s.repository.GetSession(ctx, sessionID)
 	if err != nil {
@@ -308,6 +354,21 @@ func (s *Service) UserHistoryDetails(ctx context.Context, claims entity.AccessCl
 		return nil, nil, nil, err
 	}
 	return session, messages, feedback, nil
+}
+
+func (s *Service) requireSameOrganization(ctx context.Context, requesterID, targetID string) error {
+	requester, err := s.userRepository.GetUserByID(ctx, requesterID)
+	if err != nil {
+		return err
+	}
+	target, err := s.userRepository.GetUserByID(ctx, targetID)
+	if err != nil {
+		return err
+	}
+	if requester.OrganizationID == nil || target.OrganizationID == nil || *requester.OrganizationID != *target.OrganizationID {
+		return entity.ErrArenaAccessDenied
+	}
+	return nil
 }
 
 func (s *Service) decorateSessionScenario(ctx context.Context, session *entity.ArenaSession, viewerUserID string) (*entity.ArenaSession, error) {

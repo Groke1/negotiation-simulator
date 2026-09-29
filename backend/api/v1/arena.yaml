@@ -29,8 +29,8 @@ paths:
     get:
       tags:
         - Arena Assignments
-      summary: Получить все Arena для curator dashboard
-      description: 'Сохраняет старый endpoint. Доступно curator; возвращает все Arena,
+      summary: Получить Arena своей организации для curator dashboard
+      description: 'Сохраняет старый endpoint. Доступно curator; возвращает Arena своей организации,
 
         включая созданные другими curator. Это позволяет строить общий dashboard активных Arena.
 
@@ -128,7 +128,7 @@ paths:
       tags:
         - Arena Assignments
       summary: Получить назначение Arena
-      description: Участник может открыть назначенную ему Arena; curator может открыть любое назначение Arena.
+      description: Участник может открыть назначенную ему Arena; curator может открыть любое назначение Arena своей организации.
       operationId: getArenaAssignment
       security:
         - bearerAuth: []
@@ -193,7 +193,7 @@ paths:
       tags:
         - Arena Sessions
       summary: Получить состояние Arena Session
-      description: Используется при reconnect и для просмотра состояния фактической Arena. Участник видит свои Arena; curator может просматривать любую ArenaSession.
+      description: Используется при reconnect и для просмотра состояния фактической Arena. Участник видит свои Arena; curator может просматривать любую ArenaSession своей организации.
       operationId: getArenaSession
       security:
         - bearerAuth: []
@@ -221,7 +221,7 @@ paths:
       summary: Получить историю сообщений Arena
       description: 'Live-отправка chat-сообщений идёт по WebSocket. REST endpoint сохраняется для reconnect,
 
-        истории и последующего curator review. Участник видит свои Arena; curator может просматривать любую ArenaSession.
+        истории и последующего curator review. Участник видит свои Arena; curator может просматривать любую ArenaSession своей организации.
 
         '
       operationId: getArenaMessages
@@ -358,7 +358,7 @@ paths:
       tags:
         - Arena Feedback
       summary: Получить feedback по Arena
-      description: Участник видит feedback своей Arena; curator может просматривать feedback любой ArenaSession.
+      description: Участник видит feedback своей Arena; curator может просматривать feedback любой ArenaSession своей организации.
       operationId: getArenaFeedback
       security:
         - bearerAuth: []
@@ -465,7 +465,7 @@ paths:
       tags:
         - User Arena
       summary: Получить историю Arena пользователя
-      description: Learner может получить только свою историю Arena; curator может получить историю любого пользователя.
+      description: Learner может получить только свою историю Arena; curator может получить историю любого пользователя своей организации.
       operationId: getUserArenaHistory
       security:
         - bearerAuth: []
@@ -492,7 +492,7 @@ paths:
       tags:
         - User Arena
       summary: Получить детали завершённой Arena
-      description: Возвращает Session, сохранённый диалог, feedback и media-задел на будущее. Learner может читать только свои Arena; curator может читать детали Arena любого пользователя.
+      description: Возвращает Session, сохранённый диалог, feedback и media-задел на будущее. Learner может читать только свои Arena; curator может читать детали Arena пользователя своей организации.
       operationId: getUserArenaHistoryDetails
       security:
         - bearerAuth: []

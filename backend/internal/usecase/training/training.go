@@ -14,6 +14,9 @@ type repository interface {
 	CreateSession(ctx context.Context, params entity.StartTrainingSession, snapshot, state []byte) (*entity.TrainingSession, error)
 	GetSession(ctx context.Context, id string) (*entity.TrainingSession, error)
 	ListSessions(ctx context.Context, filter entity.TrainingSessionFilter) ([]entity.TrainingSession, error)
+	FindPendingAssignment(ctx context.Context, userID, scenarioID string) (*string, error)
+	PendingAssignmentMatchesTraining(ctx context.Context, assignmentID, userID, scenarioID string) (bool, error)
+	SessionInCuratorOrganization(ctx context.Context, curatorID, sessionID string) (bool, error)
 	UpdateState(ctx context.Context, sessionID string, state []byte, status entity.TrainingStatus) (*entity.TrainingSession, error)
 	Complete(ctx context.Context, sessionID string, score float64, analysis []byte) (*entity.TrainingSession, error)
 	SetAnalysis(ctx context.Context, sessionID string, analysis []byte) (*entity.TrainingSession, error)
@@ -67,6 +70,7 @@ func (s *Service) ListSessions(ctx context.Context, claims entity.AccessClaims, 
 	case entity.RoleLearner:
 		filter.UserID = claims.UserID
 	case entity.RoleCurator:
+		filter.CuratorID = claims.UserID
 	default:
 		return nil, entity.ErrTrainingAccessDenied
 	}
@@ -91,6 +95,9 @@ func (s *Service) StartSession(ctx context.Context, claims entity.AccessClaims, 
 	}
 	if _, ok := roleByID(doc.Roles, params.ScenarioRoleID); !ok {
 		return nil, entity.ErrTrainingConfigurationNotSupported
+	}
+	if err := s.attachPendingAssignment(ctx, &params); err != nil {
+		return nil, err
 	}
 	state := initialState(doc, params.Mode, params.ScenarioRoleID)
 	if params.Mode == entity.TrainingModeDeterministic && (state.BlockID == "" || state.CurrentNodeID == "") {
@@ -119,6 +126,27 @@ func (s *Service) StartSession(ctx context.Context, claims entity.AccessClaims, 
 		}
 	}
 	return &entity.TrainingSessionDetails{Session: *session, Messages: []entity.TrainingMessage{}}, nil
+}
+
+func (s *Service) attachPendingAssignment(ctx context.Context, params *entity.StartTrainingSession) error {
+	if params.AssignmentID != nil {
+		ok, err := s.repository.PendingAssignmentMatchesTraining(ctx, *params.AssignmentID, params.UserID, params.ScenarioID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return entity.ErrAssignmentAccessDenied
+		}
+		return nil
+	}
+	assignmentID, err := s.repository.FindPendingAssignment(ctx, params.UserID, params.ScenarioID)
+	if err != nil {
+		return err
+	}
+	if assignmentID != nil {
+		params.AssignmentID = assignmentID
+	}
+	return nil
 }
 
 func (s *Service) GetSession(ctx context.Context, claims entity.AccessClaims, sessionID string) (*entity.TrainingSessionDetails, error) {
@@ -491,8 +519,17 @@ func (s *Service) requireSessionReadable(ctx context.Context, claims entity.Acce
 	if err != nil {
 		return nil, err
 	}
-	if claims.ActiveRole == entity.RoleCurator || (claims.ActiveRole == entity.RoleLearner && session.UserID == claims.UserID) {
+	if claims.ActiveRole == entity.RoleLearner && session.UserID == claims.UserID {
 		return session, nil
+	}
+	if claims.ActiveRole == entity.RoleCurator {
+		ok, err := s.repository.SessionInCuratorOrganization(ctx, claims.UserID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return session, nil
+		}
 	}
 	return nil, entity.ErrTrainingAccessDenied
 }

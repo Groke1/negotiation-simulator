@@ -69,6 +69,7 @@ type TrainingMessage struct {
 
 type TrainingSessionFilter struct {
 	UserID     string
+	CuratorID  string
 	ScenarioID *string
 	Status     *TrainingStatus
 	Mode       *TrainingMode

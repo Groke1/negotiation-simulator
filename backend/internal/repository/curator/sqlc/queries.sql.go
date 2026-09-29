@@ -44,6 +44,28 @@ func (q *Queries) CreateAssignment(ctx context.Context, arg CreateAssignmentPara
 	return i, err
 }
 
+const hasPendingAssignment = `-- name: HasPendingAssignment :one
+SELECT EXISTS (
+    SELECT 1
+    FROM learning.assignments
+    WHERE learner_id = $1
+      AND scenario_id = $2
+      AND status = 'pending'
+)
+`
+
+type HasPendingAssignmentParams struct {
+	LearnerID  pgtype.UUID `json:"learner_id"`
+	ScenarioID pgtype.UUID `json:"scenario_id"`
+}
+
+func (q *Queries) HasPendingAssignment(ctx context.Context, arg HasPendingAssignmentParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasPendingAssignment, arg.LearnerID, arg.ScenarioID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listAssignments = `-- name: ListAssignments :many
 SELECT a.id, a.curator_id, a.learner_id, a.scenario_id, sc.title AS scenario_title, a.status, a.created_at, a.completed_at
 FROM learning.assignments a

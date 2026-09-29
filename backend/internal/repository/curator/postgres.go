@@ -56,6 +56,18 @@ func (r *Repository) CreateAssignment(ctx context.Context, params entity.CreateA
 	return assignmentFromSQL(row, ""), nil
 }
 
+func (r *Repository) HasPendingAssignment(ctx context.Context, learnerID, scenarioID string) (bool, error) {
+	pgLearnerID, err := pgxconv.StringToUUID(learnerID)
+	if err != nil {
+		return false, entity.ErrInvalidRequest
+	}
+	pgScenarioID, err := pgxconv.StringToUUID(scenarioID)
+	if err != nil {
+		return false, entity.ErrInvalidRequest
+	}
+	return r.getQueries(ctx).HasPendingAssignment(ctx, sqlc.HasPendingAssignmentParams{LearnerID: pgLearnerID, ScenarioID: pgScenarioID})
+}
+
 func (r *Repository) ListAssignments(ctx context.Context, filter entity.AssignmentFilter) ([]entity.Assignment, error) {
 	curatorID, err := pgxconv.StringToUUID(filter.CuratorID)
 	if err != nil {

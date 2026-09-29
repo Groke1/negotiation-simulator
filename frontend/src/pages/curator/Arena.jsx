@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createArenaAssignment, getArenaAssignments, getCuratorTeam, getScenario, getScenarios } from '../../api';
@@ -28,6 +28,7 @@ export default function CuratorArena() {
   const [roleBId, setRoleBId] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const scheduleInputRef = useRef(null);
 
   const team = useQuery({ queryKey: ['curator-team'], queryFn: ({ signal }) => getCuratorTeam(signal) });
   const scenarios = useQuery({ queryKey: ['scenarios', 'arena'], queryFn: ({ signal }) => getScenarios({ status: 'published', runtime: 'arena', limit: 100 }, signal) });
@@ -66,6 +67,10 @@ export default function CuratorArena() {
   function changeRoleB(value) {
     setRoleBId(value);
     if (value === roleAId) setRoleAId(roles.find((role) => role.id !== value)?.id || '');
+  }
+
+  function openSchedulePicker() {
+    try { scheduleInputRef.current?.showPicker?.(); } catch { /* Native picker is not available in every browser. */ }
   }
 
   async function submit(event) {
@@ -178,7 +183,7 @@ export default function CuratorArena() {
             <label className="field">{participantB?.name || 'Участник 2'}<select value={roleBId} onChange={(event) => changeRoleB(event.target.value)}>{roles.map((role) => <option key={role.id} value={role.id} disabled={role.id === roleAId}>{role.name}</option>)}</select></label>
           </div>
         )}
-        <label className="field arena-schedule">Дата и время<input type="datetime-local" required value={schedule} onChange={(event) => setSchedule(event.target.value)} /></label>
+        <label className="field arena-schedule" onClick={openSchedulePicker}>Дата и время<input ref={scheduleInputRef} type="datetime-local" required value={schedule} onClick={openSchedulePicker} onChange={(event) => setSchedule(event.target.value)} /></label>
         <label className="field">Канал<select value={channel} onChange={(event) => setChannel(event.target.value)}><option value="chat">Чат</option></select></label>
         {error && <p className="error">{error}</p>}
         <button disabled={saving}>{saving ? 'Создаём…' : 'Создать Arena'}</button>

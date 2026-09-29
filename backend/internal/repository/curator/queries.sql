@@ -3,6 +3,15 @@ INSERT INTO learning.assignments (id, curator_id, learner_id, scenario_id)
 VALUES (sqlc.arg(id), sqlc.arg(curator_id), sqlc.arg(learner_id), sqlc.arg(scenario_id))
 RETURNING id, curator_id, learner_id, scenario_id, status, created_at, completed_at;
 
+-- name: HasPendingAssignment :one
+SELECT EXISTS (
+    SELECT 1
+    FROM learning.assignments
+    WHERE learner_id = sqlc.arg(learner_id)
+      AND scenario_id = sqlc.arg(scenario_id)
+      AND status = 'pending'
+);
+
 -- name: ListAssignments :many
 SELECT a.id, a.curator_id, a.learner_id, a.scenario_id, sc.title AS scenario_title, a.status, a.created_at, a.completed_at
 FROM learning.assignments a

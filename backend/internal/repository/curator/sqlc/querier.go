@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	CreateAssignment(ctx context.Context, arg CreateAssignmentParams) (LearningAssignment, error)
+	HasPendingAssignment(ctx context.Context, arg HasPendingAssignmentParams) (bool, error)
 	ListAssignments(ctx context.Context, arg ListAssignmentsParams) ([]ListAssignmentsRow, error)
 	ListCuratorLearners(ctx context.Context, arg ListCuratorLearnersParams) ([]ListCuratorLearnersRow, error)
 	ListTeamTrainingSessions(ctx context.Context, arg ListTeamTrainingSessionsParams) ([]ListTeamTrainingSessionsRow, error)

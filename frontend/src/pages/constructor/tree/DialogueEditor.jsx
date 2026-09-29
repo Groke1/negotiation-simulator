@@ -64,8 +64,12 @@ function ReplyAssessments({ reply, targets, clusters, onChange, disabled }) {
 
 function ReplyDestination({ reply, nodes, transitions, nodeNames, selectedNodeId, disabled, onChange }) {
   const internalNodes = nodes.filter((node) => node.id !== selectedNodeId);
-  const destinationType = reply.next_node_id ? 'node' : reply.transition_id ? 'transition' : '';
-  const selectType = (type) => { if (type !== destinationType) onChange({ next_node_id: '', transition_id: '' }); };
+  const savedDestinationType = reply.next_node_id ? 'node' : reply.transition_id ? 'transition' : '';
+  const [destinationType, setDestinationType] = useState(savedDestinationType);
+  const selectType = (type) => {
+    setDestinationType(type);
+    if (type !== savedDestinationType) onChange({ next_node_id: '', transition_id: '' });
+  };
   const setDestination = (value) => onChange(destinationType === 'node' ? { next_node_id: value, transition_id: '' } : { next_node_id: '', transition_id: value });
   return <section className="reply-destination">
     <span className="reply-destination-label">Куда ведёт ответ</span>

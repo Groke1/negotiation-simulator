@@ -63,11 +63,7 @@ func (r *Repository) GetAssignment(ctx context.Context, id string) (*entity.Aren
 }
 
 func (r *Repository) ListAssignments(ctx context.Context, curatorID string, limit, offset int32) ([]entity.ArenaAssignment, error) {
-	var curatorIDFilter *string
-	if curatorID != "" {
-		curatorIDFilter = &curatorID
-	}
-	pgID, err := optionalUUID(curatorIDFilter)
+	pgID, err := pgxconv.StringToUUID(curatorID)
 	if err != nil {
 		return nil, entity.ErrInvalidRequest
 	}
@@ -429,13 +425,6 @@ func optionalText(value *string) pgtype.Text {
 		return pgtype.Text{}
 	}
 	return pgtype.Text{String: *value, Valid: true}
-}
-
-func optionalUUID(value *string) (pgtype.UUID, error) {
-	if value == nil || *value == "" {
-		return pgtype.UUID{}, nil
-	}
-	return pgxconv.StringToUUID(*value)
 }
 
 func pgTextToString(value pgtype.Text) *string {

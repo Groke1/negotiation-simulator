@@ -9,6 +9,25 @@ VALUES (
 )
 RETURNING *;
 
+-- name: FindPendingAssignmentForTraining :one
+SELECT id
+FROM learning.assignments
+WHERE learner_id = sqlc.arg(learner_id)
+  AND scenario_id = sqlc.arg(scenario_id)
+  AND status = 'pending'
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
+
+-- name: PendingAssignmentMatchesTraining :one
+SELECT EXISTS (
+    SELECT 1
+    FROM learning.assignments
+    WHERE id = sqlc.arg(assignment_id)
+      AND learner_id = sqlc.arg(learner_id)
+      AND scenario_id = sqlc.arg(scenario_id)
+      AND status = 'pending'
+);
+
 -- name: GetTrainingSession :one
 SELECT s.*, sc.title AS scenario_title
 FROM learning.training_sessions s
@@ -19,13 +38,27 @@ WHERE s.id = sqlc.arg(id);
 SELECT s.*, sc.title AS scenario_title
 FROM learning.training_sessions s
 JOIN scenarios.scenarios sc ON sc.id = s.scenario_id
+JOIN users.users learner ON learner.id = s.user_id
+LEFT JOIN users.users curator ON curator.id = sqlc.narg(curator_id)
 WHERE (sqlc.narg(user_id)::uuid IS NULL OR s.user_id = sqlc.narg(user_id))
+  AND (sqlc.narg(curator_id)::uuid IS NULL OR (curator.organization_id IS NOT NULL AND learner.organization_id = curator.organization_id))
   AND (sqlc.narg(scenario_id)::uuid IS NULL OR s.scenario_id = sqlc.narg(scenario_id))
   AND (sqlc.narg(status)::text IS NULL OR s.status = sqlc.narg(status))
   AND (sqlc.narg(mode)::text IS NULL OR s.mode = sqlc.narg(mode))
   AND (sqlc.narg(channel)::text IS NULL OR s.channel = sqlc.narg(channel))
 ORDER BY s.created_at DESC, s.id DESC
 LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+
+-- name: TrainingSessionInCuratorOrganization :one
+SELECT EXISTS (
+    SELECT 1
+    FROM learning.training_sessions s
+    JOIN users.users learner ON learner.id = s.user_id
+    JOIN users.users curator ON curator.id = sqlc.arg(curator_id)
+    WHERE s.id = sqlc.arg(session_id)
+      AND curator.organization_id IS NOT NULL
+      AND learner.organization_id = curator.organization_id
+);
 
 -- name: UpdateTrainingState :one
 UPDATE learning.training_sessions

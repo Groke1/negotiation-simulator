@@ -169,6 +169,28 @@ func (q *Queries) CreateTrainingSession(ctx context.Context, arg CreateTrainingS
 	return i, err
 }
 
+const findPendingAssignmentForTraining = `-- name: FindPendingAssignmentForTraining :one
+SELECT id
+FROM learning.assignments
+WHERE learner_id = $1
+  AND scenario_id = $2
+  AND status = 'pending'
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+type FindPendingAssignmentForTrainingParams struct {
+	LearnerID  pgtype.UUID `json:"learner_id"`
+	ScenarioID pgtype.UUID `json:"scenario_id"`
+}
+
+func (q *Queries) FindPendingAssignmentForTraining(ctx context.Context, arg FindPendingAssignmentForTrainingParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, findPendingAssignmentForTraining, arg.LearnerID, arg.ScenarioID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getTrainingMessage = `-- name: GetTrainingMessage :one
 SELECT id, session_id, author, content, semantic_action_code, semantic_annotations, expected_action_code, classification, created_at
 FROM learning.training_messages
@@ -287,16 +309,20 @@ const listTrainingSessions = `-- name: ListTrainingSessions :many
 SELECT s.id, s.user_id, s.scenario_id, s.scenario_role_id, s.mode, s.channel, s.status, s.assignment_id, s.snapshot, s.state, s.analysis, s.score, s.created_at, s.completed_at, sc.title AS scenario_title
 FROM learning.training_sessions s
 JOIN scenarios.scenarios sc ON sc.id = s.scenario_id
-WHERE ($1::uuid IS NULL OR s.user_id = $1)
-  AND ($2::uuid IS NULL OR s.scenario_id = $2)
-  AND ($3::text IS NULL OR s.status = $3)
-  AND ($4::text IS NULL OR s.mode = $4)
-  AND ($5::text IS NULL OR s.channel = $5)
+JOIN users.users learner ON learner.id = s.user_id
+LEFT JOIN users.users curator ON curator.id = $1
+WHERE ($2::uuid IS NULL OR s.user_id = $2)
+  AND ($1::uuid IS NULL OR (curator.organization_id IS NOT NULL AND learner.organization_id = curator.organization_id))
+  AND ($3::uuid IS NULL OR s.scenario_id = $3)
+  AND ($4::text IS NULL OR s.status = $4)
+  AND ($5::text IS NULL OR s.mode = $5)
+  AND ($6::text IS NULL OR s.channel = $6)
 ORDER BY s.created_at DESC, s.id DESC
-LIMIT $7 OFFSET $6
+LIMIT $8 OFFSET $7
 `
 
 type ListTrainingSessionsParams struct {
+	CuratorID   pgtype.UUID `json:"curator_id"`
 	UserID      pgtype.UUID `json:"user_id"`
 	ScenarioID  pgtype.UUID `json:"scenario_id"`
 	Status      pgtype.Text `json:"status"`
@@ -326,6 +352,7 @@ type ListTrainingSessionsRow struct {
 
 func (q *Queries) ListTrainingSessions(ctx context.Context, arg ListTrainingSessionsParams) ([]ListTrainingSessionsRow, error) {
 	rows, err := q.db.Query(ctx, listTrainingSessions,
+		arg.CuratorID,
 		arg.UserID,
 		arg.ScenarioID,
 		arg.Status,
@@ -368,6 +395,30 @@ func (q *Queries) ListTrainingSessions(ctx context.Context, arg ListTrainingSess
 	return items, nil
 }
 
+const pendingAssignmentMatchesTraining = `-- name: PendingAssignmentMatchesTraining :one
+SELECT EXISTS (
+    SELECT 1
+    FROM learning.assignments
+    WHERE id = $1
+      AND learner_id = $2
+      AND scenario_id = $3
+      AND status = 'pending'
+)
+`
+
+type PendingAssignmentMatchesTrainingParams struct {
+	AssignmentID pgtype.UUID `json:"assignment_id"`
+	LearnerID    pgtype.UUID `json:"learner_id"`
+	ScenarioID   pgtype.UUID `json:"scenario_id"`
+}
+
+func (q *Queries) PendingAssignmentMatchesTraining(ctx context.Context, arg PendingAssignmentMatchesTrainingParams) (bool, error) {
+	row := q.db.QueryRow(ctx, pendingAssignmentMatchesTraining, arg.AssignmentID, arg.LearnerID, arg.ScenarioID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const setTrainingAnalysis = `-- name: SetTrainingAnalysis :one
 UPDATE learning.training_sessions
 SET analysis = $1
@@ -400,6 +451,30 @@ func (q *Queries) SetTrainingAnalysis(ctx context.Context, arg SetTrainingAnalys
 		&i.CompletedAt,
 	)
 	return i, err
+}
+
+const trainingSessionInCuratorOrganization = `-- name: TrainingSessionInCuratorOrganization :one
+SELECT EXISTS (
+    SELECT 1
+    FROM learning.training_sessions s
+    JOIN users.users learner ON learner.id = s.user_id
+    JOIN users.users curator ON curator.id = $1
+    WHERE s.id = $2
+      AND curator.organization_id IS NOT NULL
+      AND learner.organization_id = curator.organization_id
+)
+`
+
+type TrainingSessionInCuratorOrganizationParams struct {
+	CuratorID pgtype.UUID `json:"curator_id"`
+	SessionID pgtype.UUID `json:"session_id"`
+}
+
+func (q *Queries) TrainingSessionInCuratorOrganization(ctx context.Context, arg TrainingSessionInCuratorOrganizationParams) (bool, error) {
+	row := q.db.QueryRow(ctx, trainingSessionInCuratorOrganization, arg.CuratorID, arg.SessionID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const updateTrainingMessageClassification = `-- name: UpdateTrainingMessageClassification :one

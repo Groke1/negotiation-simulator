@@ -108,7 +108,7 @@ export default function ArenaFeedback() {
             <div className="tabs">
               {participants.map((participant, index) => (
                 <button key={participant.user_id} type="button" className={activeParticipant === participant.user_id ? 'active' : ''} onClick={() => setSelectedParticipant(participant.user_id)}>
-                  Участник {index + 1}
+                  {participantNames.get(participant.user_id) || `Участник ${index + 1}`}
                 </button>
               ))}
             </div>
